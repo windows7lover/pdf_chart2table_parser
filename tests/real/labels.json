@@ -1,0 +1,76 @@
+{
+  "_comment": "Ground-truth for M3 chart detection on the real-PDF corpus. 'chart_pages': per PDF, the 0-based page indices that contain at least one VECTOR line/scatter chart (framed axes + plotted curve/markers). Pages NOT listed contain no vector line/scatter chart (text, equations, tables, schematic/architecture diagrams, attention/raster-image figures, boxplots-only). 'chart_regions': per PDF and page, approximate chart-region bboxes (x0,y0,x1,y1 in PDF points) for region-level (IoU>0.3) checks; one box per visible chart panel. Hand-labelled / verified from rendered overlays.",
+  "chart_pages": {
+    "1412.6980": [5, 6, 7],
+    "1502.03167": [5, 6],
+    "1608.03983": [1, 4, 9, 13, 14, 15],
+    "1609.04747": [],
+    "1708.07120": [5, 14, 15],
+    "1803.09820": [],
+    "1812.01097": [4],
+    "2010.11929": [5, 6, 8, 15, 16, 17, 18, 19],
+    "1206.5533": [],
+    "1409.1556": [],
+    "1512.03385": [0, 4, 7],
+    "1609.04836": [4, 5, 7, 8, 13, 15],
+    "1706.03762": [],
+    "1810.04805": [15]
+  },
+  "chart_regions": {
+    "1412.6980": {
+      "5": [[114, 94, 296, 276], [299, 94, 481, 276]],
+      "6": [[142, 94, 318, 269], [114, 358, 296, 540], [299, 358, 481, 540]],
+      "7": [[103, 30, 505, 331]]
+    },
+    "1502.03167": {
+      "6": [[55, 38, 307, 165]]
+    },
+    "1608.03983": {
+      "1": [[110, 82, 502, 255]],
+      "4": [[109, 82, 305, 234], [307, 82, 503, 234], [109, 236, 305, 388], [307, 236, 503, 388], [109, 390, 305, 542], [307, 390, 503, 542]],
+      "9": [[111, 82, 305, 233], [307, 82, 501, 233]],
+      "13": [[208, 111, 404, 263]],
+      "14": [[109, 156, 305, 309], [307, 156, 503, 309], [109, 310, 305, 463], [307, 310, 503, 463], [109, 464, 305, 616], [307, 464, 503, 616]],
+      "15": [[167, 240, 445, 456]]
+    },
+    "1708.07120": {},
+    "1812.01097": {},
+    "2010.11929": {
+      "5": [[112, 284, 500, 373]],
+      "6": [[108, 82, 294, 213], [308, 83, 494, 213], [146, 321, 308, 439], [322, 321, 483, 439]],
+      "8": [[418, 112, 499, 191]],
+      "15": [[108, 206, 294, 333], [304, 205, 490, 333]],
+      "16": [[189, 87, 440, 210]],
+      "17": [[139, 428, 473, 608]],
+      "18": [[124, 216, 488, 378]],
+      "19": [[120, 82, 299, 237], [314, 82, 492, 237]]
+    },
+    "1512.03385": {
+      "0": [[320, 226, 544, 291]],
+      "4": [[85, 251, 308, 390], [296, 251, 510, 390]],
+      "7": [[100, 72, 261, 173], [253, 72, 425, 173], [72, 213, 274, 317]]
+    },
+    "1609.04836": {
+      "4": [[108, 82, 298, 209], [314, 82, 504, 209]],
+      "5": [[108, 82, 298, 209], [314, 82, 504, 209], [108, 232, 298, 358], [314, 232, 504, 358], [108, 381, 298, 508], [314, 381, 504, 508]],
+      "7": [[108, 141, 298, 268], [314, 141, 504, 268], [108, 463, 298, 590], [314, 463, 504, 590]],
+      "8": [[108, 82, 298, 209], [314, 82, 504, 209]],
+      "13": [[108, 82, 298, 209], [314, 82, 504, 209], [108, 232, 298, 358], [314, 232, 504, 358], [108, 381, 298, 508], [314, 381, 504, 508]],
+      "15": [[158, 82, 454, 249]]
+    },
+    "1810.04805": {
+      "15": [[99, 573, 261, 681]]
+    }
+  },
+  "notes": {
+    "1609.04747": "Figures are raster images / pages are equations; no vector charts.",
+    "1803.09820": "High-vector pages are tables/code listings; LR-range figures are raster.",
+    "1812.01097": "p4 figure (boxplot + scatter) is a single RASTER image - no vector chart; remains a known FN.",
+    "1708.07120": "pgfplots tables register a merged-spine frame (rejected by the gate); the actual Fig 5/6 line charts on these pages are RASTER images - known FNs.",
+    "2010.11929": "p2 schematic, p12/p21 tables, p20 raster image grid - all non-chart.",
+    "1206.5533": "Bengio practical-recommendations: tables/text only, no vector charts (negative).",
+    "1409.1556": "VGG: tables only, no vector charts (negative).",
+    "1706.03762": "Transformer: schematic architecture (p2-like) + attention-visualisation diagrams (p12-14) + tables; no vector line/scatter charts (negative).",
+    "1810.04805": "BERT: mostly schematic architecture diagrams (p2,p4,p12,p14) - correctly rejected; p15 Fig 5 is a genuine vector line chart (recovered via stroked-rect frame)."
+  }
+}

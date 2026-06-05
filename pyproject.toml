@@ -1,0 +1,31 @@
+[project]
+name = "pdf-chart2table"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "windows7lover", email = "damien.scieur@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.10.9",
+    "numpy>=2.4.6",
+    "pandas>=3.0.3",
+    "pymupdf>=1.27.2.3",
+]
+
+[project.scripts]
+pdf-chart2table = "pdf_chart2table.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.16,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

@@ -1,0 +1,126 @@
+"""Dataclasses for the chart->table pipeline.
+
+M1 uses ``Path``, ``TextSpan`` and ``Region``. The remaining types
+(``Tick``, ``Axis``, ``Series``, ``ChartTable``, ``ChartResult``) are
+lightweight forward-looking stubs for later milestones; they are not
+populated yet.
+
+Coordinates are raw PDF points (origin top-left, y increasing downward,
+matching PyMuPDF's convention).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+# A bounding box as (x0, y0, x1, y1) in PDF points.
+BBox = tuple[float, float, float, float]
+Point = tuple[float, float]
+Color = tuple[float, float, float]
+
+
+# --------------------------------------------------------------------------
+# M1 primitives
+# --------------------------------------------------------------------------
+
+@dataclass
+class Path:
+    """A single drawn path, flattened to a polyline (beziers subdivided)."""
+
+    points: list[Point]
+    stroke: Color | None
+    fill: Color | None
+    width: float | None
+    dashes: str | None
+    closed: bool
+    bbox: BBox
+
+
+@dataclass
+class TextSpan:
+    """A run of text with its bounding box."""
+
+    text: str
+    bbox: BBox
+    size: float | None = None
+    # Writing direction unit vector (dx, dy); (1, 0) is horizontal.
+    dir: tuple[float, float] = (1.0, 0.0)
+
+
+@dataclass
+class Region:
+    """A detected chart plotting area and the primitives it contains.
+
+    For multi-panel figures, ``row``/``col`` give the panel's position in the
+    row-major grid, and ``shares_x_with``/``shares_y_with`` list the indices of
+    sibling regions that align into the same column (shared x axis) or row
+    (shared y axis). Single-panel pages have row=col=0 and empty sibling lists.
+    """
+
+    bbox: BBox
+    path_indices: list[int] = field(default_factory=list)
+    text_indices: list[int] = field(default_factory=list)
+    row: int = 0
+    col: int = 0
+    shares_x_with: list[int] = field(default_factory=list)
+    shares_y_with: list[int] = field(default_factory=list)
+
+
+@dataclass
+class PageData:
+    """Normalized primitives for one PDF page."""
+
+    page_index: int
+    width: float
+    height: float
+    paths: list[Path]
+    texts: list[TextSpan]
+
+
+# --------------------------------------------------------------------------
+# Forward-looking stubs (populated in later milestones)
+# --------------------------------------------------------------------------
+
+@dataclass
+class Tick:
+    pixel: float
+    value: float | None = None
+    label: str | None = None
+
+
+@dataclass
+class Axis:
+    title: str | None = None
+    scale: str = "linear"  # "linear" | "log"
+    pixel_range: tuple[float, float] | None = None
+    data_range: tuple[float, float] | None = None
+    ticks: list[Tick] = field(default_factory=list)
+    calibration: dict | None = None
+
+
+@dataclass
+class Series:
+    label: str | None = None
+    marker: str | None = None
+    color: Color | None = None
+    points: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class ChartTable:
+    source: dict | None = None
+    region_bbox: BBox | None = None
+    title: str | None = None
+    caption: str | None = None
+    x_axis: Axis | None = None
+    y_axis: Axis | None = None
+    series: list[Series] = field(default_factory=list)
+    confidence: float = 0.0
+
+
+@dataclass
+class ChartResult:
+    status: str = "skipped"  # "extracted" | "skipped"
+    table: ChartTable | None = None
+    skip_reason: str | None = None
+    diagnostics: dict = field(default_factory=dict)
