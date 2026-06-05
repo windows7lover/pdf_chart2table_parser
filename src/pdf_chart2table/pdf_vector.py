@@ -128,6 +128,19 @@ def load_page(page: fitz.Page) -> tuple[list[Path], list[TextSpan]]:
     return paths, texts
 
 
+def _image_rects(page: fitz.Page) -> list[tuple[float, float, float, float]]:
+    """Bounding boxes of raster images placed on the page (PDF points)."""
+    rects: list[tuple[float, float, float, float]] = []
+    try:
+        for info in page.get_image_info():
+            b = info.get("bbox")
+            if b:
+                rects.append((b[0], b[1], b[2], b[3]))
+    except Exception:
+        pass
+    return rects
+
+
 def load_pdf(path: str, pages: list[int] | None = None) -> list[PageData]:
     """Load a PDF into a list of ``PageData`` (one per page, or selected pages)."""
     doc = fitz.open(path)
@@ -143,6 +156,7 @@ def load_pdf(path: str, pages: list[int] | None = None) -> list[PageData]:
                 height=page.rect.height,
                 paths=p,
                 texts=t,
+                image_rects=_image_rects(page),
             )
         )
     return out

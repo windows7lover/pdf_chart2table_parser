@@ -1,0 +1,61 @@
+sample_id,corpus,verdict,failure_mode,note
+materials_2606.04608_page14_chart5,materials,correct,none,decaying-oscillation 3 series match
+materials_2606.02317_page14_chart2,materials,partial,extra-noise,sampled dashed linear-fit line instead of ALD/PECVD markers
+materials_2606.01744_page81_chart1,materials,wrong,non-chart,band-structure dispersion lattice; jumbled
+materials_2606.00165_page6_chart1,materials,correct,none,6 clean curves match
+materials_2606.00314_page5_chart1,materials,correct,none,two Lorentzian peaks match
+materials_2606.04724_page21_chart1,materials,correct,none,3 parabolic temp curves match
+materials_2606.04608_page30_chart1,materials,correct,none,DMRG vs Heisenberg decay match
+materials_2606.00681_page4_chart3,materials,correct,none,peak-vs-pole 3 series match
+materials_2606.00479_page2_chart1,materials,correct,none,two symmetric bands match
+materials_2606.05057_page6_chart1,materials,partial,miscalibrated,broken-axis ~18 mismapped + minor extra pt
+materials_2606.03016_page9_chart2,materials,correct,none,D-C-B peak; inset not contaminating
+materials_2606.02317_page11_chart1,materials,correct,none,4 XPS peaks match
+materials_2606.00403_page8_chart9,materials,correct,none,RDF 3 curves match
+materials_2606.01444_page35_chart1,materials,correct,none,linear n=3 match
+materials_2606.04919_page21_chart3,materials,wrong,miscalibrated,"4 sparse pts not on flat lh,1s line"
+materials_2606.04724_page19_chart1,materials,correct,none,Dirichlet sawtooth 4 series match
+materials_2606.05050_page13_chart1,materials,partial,missing-series,"got 2 solid reaction curves, missed dashed intermediates"
+materials_2606.00165_page20_chart3,materials,correct,none,6 series decay+flat match
+materials_2606.03497_page23_chart1,materials,wrong,panel-merge,merged peak panel + flat panel below
+materials_2606.03405_page6_chart3,materials,correct,none,4 zigzag series match
+materials_2606.02085_page6_chart1,materials,correct,none,Drude rise-fall match
+materials_2606.04219_page12_chart1,materials,wrong,panel-merge,merged scatter + violin panel b
+materials_2606.02399_page2_chart2,materials,partial,miscalibrated,"sparse tail pts, decay onset lost"
+materials_2606.04958_page6_chart2,materials,correct,none,4 noisy spectra match
+materials_2606.05128_page6_chart2,materials,wrong,extra-noise,red mu~n guide lines sampled as thick fake series
+materials_2606.00785_page15_chart2,materials,correct,none,3-series decreasing scatter match
+materials_2606.03405_page10_chart1,materials,correct,none,MD trajectory step match
+materials_2606.03016_page16_chart1,materials,correct,none,4 decay curves a-f match
+materials_2606.00223_page6_chart5,materials,correct,none,3 decay curves match
+materials_2606.00403_page8_chart6,materials,correct,none,RDF 3200K 3 curves match
+astro_2606.03881_page7_chart1,astro,correct,none,7-series gamma SED match
+astro_2606.04793_page6_chart1,astro,partial,extra-noise,"data clusters present, extra orange trend pts/series mix"
+astro_2606.02593_page3_chart2,astro,wrong,non-chart,Bayesian posterior contour map
+astro_2606.04309_page9_chart1,astro,correct,none,4-series scatter clusters match
+astro_2606.02711_page42_chart1,astro,correct,none,3 force-multiplier curves match
+astro_2606.02726_page9_chart1,astro,partial,extra-noise,main power-laws ok but floor row spurious
+astro_2606.04140_page9_chart1,astro,correct,none,5 multipeak series match; gridlines not sampled
+astro_2606.00221_page11_chart2,astro,partial,missing-series,"sparse, many diamond/triangle markers missed"
+astro_2606.04894_page7_chart2,astro,correct,none,power law clean; ref lines not sampled
+astro_2606.02711_page53_chart4,astro,correct,none,shock-tube 6 series match
+astro_2606.03707_page18_chart1,astro,wrong,non-chart,"M-R credible-band + ellipse contours, not xy data"
+astro_2606.02698_page7_chart4,astro,partial,extra-noise,SED shape present but 16-model band over-sampled
+astro_2606.00221_page20_chart4,astro,correct,none,Sersic profile match; vline not sampled
+astro_2606.03522_page7_chart4,astro,correct,none,size-lum 4 series clusters match
+astro_2606.02732_page4_chart4,astro,correct,none,dense MB-M scatter match; marginal panel ignored
+astro_2606.02318_page9_chart2,astro,correct,none,4 posterior PDF bells match
+astro_2606.02593_page3_chart1,astro,wrong,non-chart,Bayesian posterior contour map
+astro_2606.00493_page16_chart1,astro,correct,none,peaked m/M curve match
+astro_2606.02700_page18_chart1,astro,correct,none,noisy decay-to-floor match
+astro_2606.00209_page2_chart2,astro,partial,missing-series,only red Simongini pts; other 3 datasets missed
+astro_2606.00218_page12_chart3,astro,partial,extra-noise,0/1 strip; connector lines add mid pts
+astro_2606.03342_page10_chart1,astro,correct,none,4 overlapping mass-fn series match
+astro_2606.05146_page19_chart3,astro,correct,none,power law + scatter match
+astro_2606.00258_page13_chart3,astro,correct,none,noisy line + peak profile match
+astro_2606.04894_page17_chart1,astro,correct,none,decreasing curve; ref lines not sampled
+astro_2606.02698_page8_chart12,astro,correct,none,UVJ sparse scatter positions match
+astro_2606.04712_page24_chart1,astro,wrong,missing-series,"got 4 pts, missed dense track + markers"
+astro_2606.02413_page9_chart2,astro,correct,none,6-series radio spectrum match
+astro_2606.00258_page13_chart1,astro,correct,none,P-Cygni 2 series match
+astro_2606.01087_page16_chart2,astro,correct,none,5 model curves incl turnover match

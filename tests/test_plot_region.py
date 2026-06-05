@@ -130,6 +130,53 @@ def test_chart_type_gate_keeps_scatter_cloud():
     assert _is_chart_type(bbox, paths)
 
 
+def _bar(x0, bottom, w, h, fill=(0.07, 0.44, 0.75)):
+    """An upright filled bar resting on ``bottom`` (a tall axis-aligned rect)."""
+    from pdf_chart2table.model import Path as VPath
+    y0, y1, x1 = bottom - h, bottom, x0 + w
+    pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
+    return VPath(points=pts, stroke=None, fill=fill, width=None,
+                 dashes=None, closed=True, bbox=(x0, y0, x1, y1))
+
+
+def test_chart_type_gate_skips_bar_chart():
+    """A contiguous run of bottom-aligned upright bars is gated out (histogram)."""
+    from pdf_chart2table.plot_region import _is_chart_type
+
+    bbox = (100.0, 100.0, 200.0, 200.0)
+    # 8 bars of width 10 abutting at left edges 100,110,...; varying heights;
+    # all resting on baseline y=190 -> a histogram.
+    heights = [80, 65, 50, 40, 30, 22, 15, 10]
+    paths = [_bar(100 + 10 * i, 190.0, 10.0, heights[i]) for i in range(8)]
+    assert not _is_chart_type(bbox, paths)
+
+
+def test_chart_type_gate_keeps_spike_line_plot():
+    """Thin, widely spaced vertical marks (diffraction spikes / error bars) stay.
+
+    They share a baseline but do NOT abut (width << centre-spacing), so they are
+    a real line/scatter overlay and must be kept, not mistaken for bars.
+    """
+    from pdf_chart2table.plot_region import _is_chart_type
+
+    bbox = (100.0, 100.0, 200.0, 200.0)
+    # 1pt-wide spikes spaced 12pt apart on baseline y=190 -> NOT bars.
+    paths = [_bar(100 + 12 * i, 190.0, 1.0, 50.0) for i in range(8)]
+    assert _is_chart_type(bbox, paths)
+
+
+def test_chart_type_gate_keeps_square_markers():
+    """Square marker glyphs (scatter) are not 'tall', so never read as bars."""
+    from pdf_chart2table.plot_region import _is_chart_type
+
+    bbox = (100.0, 100.0, 200.0, 200.0)
+    # Square 6x6 marker glyphs at assorted positions sharing no real baseline.
+    pts = [(112, 180), (128, 150), (141, 133), (159, 121), (172, 160),
+           (135, 190), (118, 142), (163, 175), (149, 128), (124, 167)]
+    paths = [_cell(x, y, 6.0, 6.0) for x, y in pts]
+    assert _is_chart_type(bbox, paths)
+
+
 @pytest.mark.parametrize("name", ALL_FIXTURES)
 def test_region_count(name):
     truth = load_truth(name)
@@ -208,3 +255,18 @@ def test_split_keeps_single_panel_frame():
                side_effect=lambda b, p, t: 2 if b == inner else 1):
         out = _split_enclosing_frames([(frame, False)], [inner], [], [])
     assert [b for b, _ in out] == [frame]
+
+
+# --- regression: reject markers-on-a-raster-image regions --------------------
+from pdf_chart2table.plot_region import _covered_by_image
+
+
+def test_region_mostly_covered_by_image_is_rejected():
+    box = (100.0, 100.0, 200.0, 200.0)  # area 10000
+    # An image covering ~64% of the box -> reject.
+    assert _covered_by_image(box, [(100.0, 100.0, 180.0, 180.0)])
+    # A small image (16%) -> keep.
+    assert not _covered_by_image(box, [(100.0, 100.0, 140.0, 140.0)])
+    # No images -> keep.
+    assert not _covered_by_image(box, [])
+    assert not _covered_by_image(box, None)

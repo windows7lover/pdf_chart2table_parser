@@ -1,5 +1,21 @@
-data/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.so
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Environments
 .venv/
-*.pdf
+
+# OS
+.DS_Store
+
+# Dataset / batch-output folders (large, regenerable; live in $SCRATCH normally)
+data/
+out/
+*_out/

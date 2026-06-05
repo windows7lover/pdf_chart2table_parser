@@ -107,6 +107,18 @@ _HEATMAP_MIN_CELLS = 16
 _HEATMAP_MIN_LINES = 3       # at least this many rows AND columns
 _HEATMAP_FILL = 0.6          # n_cells / (rows*cols) >= this -> packed grid
 
+# Bar chart / histogram: several filled rectangles that are TALL (height clearly
+# exceeds width, so they read as upright bars not marker glyphs), share a common
+# bottom baseline, and ABUT into a contiguous run (each bar's width equals its
+# centre-to-centre spacing to its neighbour). This abutting run is the decisive
+# signal: verified adjacency ~1.0 on real histograms (2606.01408 p39, 2606.02190,
+# 2606.01059) vs <=0.73 on diffraction-spike / error-bar line plots whose thin
+# vertical marks are widely separated. Scatter/line marker glyphs are roughly
+# square (not "tall"), so they never enter this test.
+_BAR_MIN = 4               # at least this many bars on the shared baseline
+_BAR_TALL_RATIO = 1.5      # a bar's height must exceed this * its width
+_BAR_ADJACENCY = 0.85      # median bar width / median centre-spacing >= this
+
 
 def _is_white(color) -> bool:
     return color is not None and all(abs(c - 1.0) < 1e-3 for c in color)
@@ -479,15 +491,91 @@ def _is_heatmap(bbox: BBox, paths: list[Path]) -> bool:
     return grid > 0 and len(cells) / grid >= _HEATMAP_FILL
 
 
+def _is_bar_chart(bbox: BBox, paths: list[Path]) -> bool:
+    """A bar chart / histogram: a contiguous run of bottom-aligned upright bars.
+
+    Collect filled, axis-aligned rectangles inside the panel (excluding the
+    near-panel-sized axes frame itself), keep the *tall* ones (height clearly
+    exceeds width, so they are upright bars and not the roughly-square marker
+    glyphs of a scatter/line plot), restrict to the most populated bottom
+    baseline, and check that those bars ABUT: their median width equals their
+    median centre-to-centre spacing. Touching bars are the histogram/bar
+    signature; thin, widely spaced vertical marks (diffraction spikes, error
+    bars) of a real line/scatter plot fail the adjacency test and are kept.
+    """
+    x0, y0, x1, y1 = bbox
+    rw, rh = x1 - x0, y1 - y0
+    bars: list[BBox] = []
+    for p in paths:
+        if p.fill is None or not _is_rect_path(p):
+            continue
+        b = p.bbox
+        w, h = b[2] - b[0], b[3] - b[1]
+        if w < 1 or h < 1:
+            continue
+        # Skip the axes frame / background patch (spans most of the panel).
+        if w > 0.8 * rw and h > 0.8 * rh:
+            continue
+        cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
+        if not (x0 <= cx <= x1 and y0 <= cy <= y1):
+            continue
+        if h > _BAR_TALL_RATIO * w:  # upright bar, not a square marker
+            bars.append(b)
+    if len(bars) < _BAR_MIN:
+        return False
+
+    # Restrict to the single most-populated bottom baseline (bars rest on it).
+    base_counts: dict[int, int] = defaultdict(int)
+    for b in bars:
+        base_counts[round(b[3])] += 1
+    baseline = max(base_counts, key=base_counts.get)
+    on_base = sorted((b for b in bars if round(b[3]) == baseline), key=lambda b: b[0])
+    if len(on_base) < _BAR_MIN:
+        return False
+
+    widths = sorted(b[2] - b[0] for b in on_base)
+    med_w = widths[len(widths) // 2]
+    centers = [0.5 * (b[0] + b[2]) for b in on_base]
+    gaps = sorted(centers[i + 1] - centers[i] for i in range(len(centers) - 1))
+    if not gaps:
+        return False
+    med_gap = gaps[len(gaps) // 2]
+    if med_gap <= 0:
+        return False
+    return med_w / med_gap >= _BAR_ADJACENCY
+
+
 def _is_chart_type(bbox: BBox, paths: list[Path]) -> bool:
     """Reject regions that are clearly not line/scatter charts (precision gate).
 
-    Currently gates dense filled-cell grids (heatmap / imshow). Contour/KDE and
-    boxplots are intentionally NOT gated: their available vector primitives do
+    Gates dense filled-cell grids (heatmap / imshow) and bar charts / histograms
+    (a contiguous run of bottom-aligned upright bars). Contour/KDE, boxplots and
+    pie charts are intentionally NOT gated: their available vector primitives do
     not separate them from legitimate confidence-band line plots and error-bar
     charts, so a gate would drop real charts (precision loss the wrong way).
     """
-    return not _is_heatmap(bbox, paths)
+    return not _is_heatmap(bbox, paths) and not _is_bar_chart(bbox, paths)
+
+
+def _covered_by_image(bbox: BBox, image_rects, frac: float = 0.55) -> bool:
+    """True if a raster image covers >= ``frac`` of the candidate region.
+
+    A region that is mostly an embedded image with vector markers drawn on top
+    (a photo / micrograph / sky map with annotation points) is NOT a vector
+    chart and must be rejected.
+    """
+    if not image_rects:
+        return False
+    bx0, by0, bx1, by1 = bbox
+    area = max(0.0, bx1 - bx0) * max(0.0, by1 - by0)
+    if area <= 0:
+        return False
+    for ix0, iy0, ix1, iy1 in image_rects:
+        ox = max(0.0, min(bx1, ix1) - max(bx0, ix0))
+        oy = max(0.0, min(by1, iy1) - max(by0, iy0))
+        if ox * oy >= frac * area:
+            return True
+    return False
 
 
 def detect_regions(
@@ -495,12 +583,14 @@ def detect_regions(
     texts: list[TextSpan],
     page_width: float,
     page_height: float,
+    image_rects: list[BBox] | None = None,
 ) -> list[Region]:
     """Detect chart plotting region(s) on a page. Returns one Region per panel.
 
     Candidate boxes come from the white axes-patch (one per subplot panel) or,
     when no patch exists, the long-spine "L" / merged-spine frame. Every
-    candidate must pass the chart-vs-not gate (``_is_chart``).
+    candidate must pass the chart-vs-not gate (``_is_chart``). Regions mostly
+    covered by an embedded raster image (markers-on-a-photo) are rejected.
     """
     page_area = page_width * page_height
     # Collect gated candidates tagged by whether they are a true white
@@ -540,10 +630,13 @@ def detect_regions(
     # patch + inner axes patch, merged spine, stroked frame); keep one each.
     boxes = _dedup_candidates(candidates, paths, texts)
 
-    # Chart-type gate: drop regions that are heatmaps or contour/KDE plots, which
-    # pass the content+ticks gate but are not line/scatter charts and would emit
-    # garbage (a cell grid or a few contour vertices). Precision over recall.
+    # Chart-type gate: drop regions that are heatmaps or bar charts / histograms,
+    # which pass the content+ticks gate but are not line/scatter charts and would
+    # emit garbage (a cell grid or a few bar tops). Precision over recall.
     boxes = [b for b in boxes if _is_chart_type(b, paths)]
+    # Reject regions that are mostly an embedded raster image (markers-on-a-photo
+    # / micrograph / sky map) rather than a vector chart.
+    boxes = [b for b in boxes if not _covered_by_image(b, image_rects)]
     if not boxes:
         return []
 

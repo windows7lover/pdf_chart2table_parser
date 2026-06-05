@@ -116,3 +116,90 @@ def test_parse_plain_decimals_and_suffixes():
     assert _parse_plain("5M") == 5_000_000.0
     assert _parse_plain("10k") == 10_000.0
     assert _parse_plain("50%") == 50.0
+
+
+# --- axis-title selection: real title, not a sub-caption / figure caption ----
+from pdf_chart2table.axes import _is_subcaption, _x_title, _group_labels, _ticks_from
+from pdf_chart2table.model import Region, TextSpan
+
+
+def test_is_subcaption_rejects_enumerators_and_captions():
+    assert _is_subcaption("(a)")
+    assert _is_subcaption("(b) Network")
+    assert _is_subcaption("a)")
+    assert _is_subcaption("Figure 2: training curves")
+    assert _is_subcaption("Table 1")
+    assert not _is_subcaption("Epoch")
+    assert not _is_subcaption("Test error (%)")
+
+
+def _span(text, x0, y0, x1, y1, size=8.0):
+    return TextSpan(text=text, bbox=(x0, y0, x1, y1), size=size)
+
+
+def test_x_title_picks_real_title_over_subcaption():
+    """Centered word on the row just below the ticks wins over a "(a)" caption."""
+    region = Region(bbox=(100.0, 50.0, 300.0, 150.0))
+    labels = [_span("0", 100, 152, 106, 159), _span("100", 294, 152, 306, 159)]
+    texts = labels + [
+        _span("Epoch", 185, 162, 215, 169),          # real axis title (centered)
+        _span("(a) Network", 160, 185, 240, 193),     # panel sub-caption below
+    ]
+    assert _x_title(texts, region, labels) == "Epoch"
+
+
+def test_x_title_none_when_only_caption():
+    """No axis title -> None (a figure caption is not a title)."""
+    region = Region(bbox=(100.0, 50.0, 300.0, 150.0))
+    labels = [_span("0", 100, 152, 106, 159), _span("100", 294, 152, 306, 159)]
+    texts = labels + [_span("Figure 2: x", 120, 165, 200, 173)]
+    assert _x_title(texts, region, labels) is None
+
+
+# --- tick<->label pairing: cross-panel / twin-axis contaminant rejection -----
+
+def test_y_labels_drop_offcolumn_contaminant():
+    """A label leaking from another column (different right edge) is dropped."""
+    # Genuine left-axis labels share right edge ~95 (just left of spine at 100);
+    # a stray ".5" from a neighbour panel sits far left (right edge ~60).
+    positions = [60.0, 80.0, 100.0]  # y tick pixel positions
+    spans = [
+        _span("0", 80, 58, 95, 62),    # right edge 95
+        _span("1", 80, 78, 95, 82),
+        _span("2", 80, 98, 95, 102),
+        _span(".5", 45, 108, 60, 112), # contaminant: right edge 60, below ticks
+    ]
+    ticks = _ticks_from(positions, spans, [], "y")
+    vals = sorted(t.value for t in ticks if t.value is not None)
+    assert vals == [0.0, 1.0, 2.0]
+
+
+def test_group_labels_keeps_adjacent_full_numbers_separate():
+    """Same-size numbers with a real gap are distinct ticks, not one merged value."""
+    spans = [
+        _span("10000", 100, 50, 130, 58),
+        _span("20000", 137, 50, 167, 58),  # ~7pt gap, same size -> separate
+    ]
+    groups = _group_labels(spans, "x")
+    assert len(groups) == 2
+
+
+def test_group_labels_merges_decimal_parts():
+    """Touching same-size digit/point spans form one number ("0"+"."+"5")."""
+    spans = [
+        _span("0", 100, 50, 104, 58),
+        _span(".", 104, 50, 106, 58),
+        _span("5", 106, 50, 110, 58),
+    ]
+    groups = _group_labels(spans, "y")
+    assert len(groups) == 1
+
+
+def test_group_labels_merges_mantissa_and_smaller_exponent():
+    """A "10" mantissa joins its raised, smaller exponent even across a gap."""
+    spans = [
+        _span("10", 100, 50, 113, 60, size=10.0),
+        _span("3", 119, 47, 123, 54, size=7.0),  # 6pt gap but smaller size
+    ]
+    groups = _group_labels(spans, "y")
+    assert len(groups) == 1

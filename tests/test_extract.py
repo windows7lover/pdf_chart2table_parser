@@ -48,11 +48,37 @@ def test_empty_region_skips():
 
 
 def test_single_point_region_skips():
-    """A lone isolated marker is noise (e.g. a boxplot flier), not data -> skip."""
+    """A lone isolated marker is a degenerate tiny-n group (annotation glyph),
+    rejected as a series -> region skips with no clean series."""
     paths = [_square(150, 200, fill=(0.0, 0.0, 1.0))]
     res = extract_region(_region(len(paths)), _axes(), paths, texts=[])
     assert res.status == "skipped"
-    assert res.skip_reason == "no data points"
+    assert res.skip_reason == "no clean series found"
+
+
+def test_tiny_n_annotation_series_dropped():
+    """Two markers at distinct positions are a degenerate tiny-n group (e.g.
+    'Peak' annotation crosses), not a real series -> rejected, region skips."""
+    paths = [_square(150, 200, fill=(0.0, 0.0, 1.0)),
+             _square(220, 160, fill=(0.0, 0.0, 1.0))]
+    res = extract_region(_region(len(paths)), _axes(), paths, texts=[])
+    assert res.status == "skipped"
+    assert res.skip_reason == "no clean series found"
+
+
+def test_out_of_box_markers_dropped_via_plot_box():
+    """Markers outside the calibrated spine box are dropped; only in-box data
+    is kept. Axes pixel_range is the spine box, narrower than region.bbox."""
+    x = Axis(scale="linear", pixel_range=(130.0, 270.0),
+             calibration=_calib(0.05, -5.0))
+    y = Axis(scale="linear", pixel_range=(130.0, 270.0),
+             calibration=_calib(-0.05, 15.0))
+    in_box = [_square(150 + 20 * i, 250 - 8 * i, fill=(0.0, 0.0, 1.0))
+              for i in range(4)]
+    out = [_square(110, 110, fill=(0.0, 0.0, 1.0))]  # outside spine box
+    res = extract_region(_region(5), (x, y), in_box + out, texts=[])
+    assert res.status == "extracted"
+    assert sum(len(s.points) for s in res.table.series) == 4
 
 
 def test_real_series_extracts_with_full_confidence():

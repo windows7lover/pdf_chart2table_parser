@@ -235,6 +235,39 @@ def test_same_color_solid_and_dashed_overlapping_one_kept():
     assert len(series) == 1 and not reasons
 
 
+def test_out_of_box_curve_tail_clipped_and_kept():
+    # A curve that lies in-box across the plot but trails OUT of the box on the
+    # right keeps its in-box vertices and drops the out-of-box tail.
+    plot_box = (110.0, 110.0, 290.0, 290.0)
+    pts = [(120, 250), (170, 220), (220, 200), (270, 180),  # in box
+           (360, 120), (420, 90)]                            # out of box
+    blue = _poly(pts, (0.0, 0.0, 1.0))
+    region = Region(bbox=REGION.bbox, path_indices=[0], text_indices=[])
+    series, _ = classify_lines(region, [blue], [], plot_box=plot_box)
+    assert len(series) == 1
+    assert all(110 <= x <= 295 for x, _ in series[0].points)
+
+
+def test_mostly_out_of_box_connector_dropped():
+    # A connector/axis diagonal lying mostly OUTSIDE the box is dropped entirely.
+    plot_box = (110.0, 110.0, 290.0, 290.0)
+    pts = [(120, 280), (300, 100), (400, 60), (500, 40), (600, 20)]  # 1 in box
+    diag = _poly(pts, (1.0, 0.0, 0.0))
+    region = Region(bbox=REGION.bbox, path_indices=[0], text_indices=[])
+    series, _ = classify_lines(region, [diag], [], plot_box=plot_box)
+    assert series == []
+
+
+def test_baseline_spine_line_rejected():
+    # A horizontal curve hugging the bottom edge of the plot box (a zero/baseline)
+    # is an axis line, not data.
+    plot_box = (110.0, 110.0, 290.0, 290.0)
+    base = _poly([(120, 289), (180, 290), (240, 289), (285, 290)], (0.0, 0.0, 1.0))
+    region = Region(bbox=REGION.bbox, path_indices=[0], text_indices=[])
+    series, _ = classify_lines(region, [base], [], plot_box=plot_box)
+    assert series == []
+
+
 def test_marker_color_deduped():
     region = Region(bbox=REGION.bbox, path_indices=[0], text_indices=[])
     blue = _poly([(120, 250), (170, 200), (220, 170)], (0.0, 0.0, 1.0))

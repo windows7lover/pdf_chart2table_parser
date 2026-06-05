@@ -77,6 +77,18 @@ _MIN_LOWSAT_SPAN_FRAC = 0.4
 _WHITE_MIN = 0.9
 # Centroid within this of the region border => on a spine/frame edge.
 _BORDER_TOL = 2.0
+# Plot-box clip tolerance: a vertex may sit this fraction of the axis span
+# outside the calibrated spine box and still count as in-plot. Vertices beyond
+# it are dropped before a curve is built (kills the out-of-box tail of an
+# axis/connector diagonal and inset/legend strokes).
+_CLIP_FRAC = 0.03
+# After clipping to the plot box a curve must retain at least this fraction of
+# its original vertices to remain a real series; a stroke that is mostly outside
+# the box (a connector / inset / off-plot line) is dropped.
+_MIN_KEPT_FRAC = 0.5
+# A curve hugging a single spine (all vertices within this fraction of the box
+# span from one edge) is an axis / baseline / zero line, not data: rejected.
+_SPINE_BAND_FRAC = 0.02
 # Legend swatch: a short colored segment within this gap left of legend text.
 _LEGEND_GAP = 40.0
 # Two same-colour curves "overlap" (and so cannot be cleanly separated) if their
@@ -147,6 +159,42 @@ def _on_border(cx: float, cy: float, region: Region) -> bool:
         abs(cx - x0) <= _BORDER_TOL or abs(cx - x1) <= _BORDER_TOL
         or abs(cy - y0) <= _BORDER_TOL or abs(cy - y1) <= _BORDER_TOL
     )
+
+
+def _box_bounds(plot_box: tuple) -> tuple[float, float, float, float]:
+    bx0, by0, bx1, by1 = plot_box
+    xlo, xhi = (bx0, bx1) if bx0 <= bx1 else (bx1, bx0)
+    ylo, yhi = (by0, by1) if by0 <= by1 else (by1, by0)
+    return xlo, ylo, xhi, yhi
+
+
+def _clip_to_box(pts, plot_box):
+    """Keep only vertices inside the plot box (plus tolerance), or return the
+    input unchanged when no box is given (legacy)."""
+    if plot_box is None:
+        return pts
+    xlo, ylo, xhi, yhi = _box_bounds(plot_box)
+    xtol = _CLIP_FRAC * (xhi - xlo)
+    ytol = _CLIP_FRAC * (yhi - ylo)
+    return [(x, y) for x, y in pts
+            if xlo - xtol <= x <= xhi + xtol and ylo - ytol <= y <= yhi + ytol]
+
+
+def _is_spine_line(pts, plot_box) -> bool:
+    """A curve whose vertices all hug one edge of the plot box is an axis /
+    baseline / zero line, not data."""
+    if plot_box is None:
+        return False
+    xlo, ylo, xhi, yhi = _box_bounds(plot_box)
+    xband = _SPINE_BAND_FRAC * (xhi - xlo)
+    yband = _SPINE_BAND_FRAC * (yhi - ylo)
+    xs = [x for x, _ in pts]
+    ys = [y for _, y in pts]
+    near_left = all(abs(x - xlo) <= xband for x in xs)
+    near_right = all(abs(x - xhi) <= xband for x in xs)
+    near_bottom = all(abs(y - ylo) <= yband for y in ys)
+    near_top = all(abs(y - yhi) <= yband for y in ys)
+    return near_left or near_right or near_bottom or near_top
 
 
 def _near_legend(cx: float, cy: float, texts: list[TextSpan]) -> bool:
@@ -344,6 +392,7 @@ def classify_lines(
     paths: list[Path],
     texts: list[TextSpan],
     marker_colors: set[tuple] | None = None,
+    plot_box: tuple | None = None,
 ) -> tuple[list[SeriesLine], list[str]]:
     """Extract clean marker-less line series from ``region``.
 
@@ -373,6 +422,17 @@ def classify_lines(
         elif _is_fragment(p, region, region_texts):
             frag_groups[(color, _dash_form(p.dashes))].append(p)
 
+    # Clip a merged curve to the plot box and reject axis/baseline/connector
+    # lines: drop the out-of-box tail, then drop the whole curve if most of it
+    # lay outside the box or it merely hugs a spine.
+    def _box_ok(verts):
+        clipped = _clip_to_box(verts, plot_box)
+        if len(clipped) < _MIN_VERTS or len(clipped) < _MIN_KEPT_FRAC * len(verts):
+            return None
+        if _is_spine_line(clipped, plot_box):
+            return None
+        return clipped
+
     # Build candidate curves per (colour, dash-form) (a curve plus exemplar path).
     candidates: dict[tuple, list[tuple[list[tuple[float, float]], Path]]] = defaultdict(list)
     reasons: list[str] = []
@@ -383,6 +443,9 @@ def classify_lines(
         if verts is None:
             reasons.append(f"line color {color}: overlapping curves, cannot separate")
             continue
+        verts = _box_ok(verts)
+        if verts is None:
+            continue
         candidates[color].append((verts, parts[0]))
     for (color, _form), parts in frag_groups.items():
         if color in marker_colors:
@@ -390,6 +453,9 @@ def classify_lines(
         verts = _merge_fragments(parts)
         if verts is None:
             continue  # too few / multivalued fragments: not a usable curve
+        verts = _box_ok(verts)
+        if verts is None:
+            continue
         candidates[color].append((verts, parts[0]))
 
     # Per colour: keep candidate forms with distinct y-trajectories; dedup forms

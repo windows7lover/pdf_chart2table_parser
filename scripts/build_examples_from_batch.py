@@ -1,13 +1,18 @@
 """Build example bundles from an existing batch-output dir for human inspection.
 
-Samples extracted charts (a mix that may or may not be correct — honest) across
-distinct papers, renders a reconstruction for each, and copies a bundle
-(paper.pdf, vector crop, json, markers.csv, reconstruction.png) to --out.
+Layout: ONE folder per paper, each containing the paper PDF once, a
+``metadata.json`` describing the paper and its graphs, and ONE subfolder per
+graph (chart.json, chart.markers.csv, chart_crop.pdf/.svg, reconstruction.png):
+
+    OUT/<paper>/
+        paper.pdf
+        metadata.json
+        <pageN_chartK>/ chart.json chart.markers.csv chart_crop.pdf chart_crop.svg reconstruction.png
 
 Usage:
     uv run python scripts/build_examples_from_batch.py \
         --batch $SCRATCH/pdf_chart2table/mat_out \
-        --out $HOME/shared_folder/semiconductor_examples --n 10
+        --out $HOME/shared_folder/semiconductor_examples --all --max-line-series 2
 """
 from __future__ import annotations
 
@@ -17,8 +22,20 @@ import json
 import os
 import random
 import shutil
+from collections import defaultdict
 
 from make_examples import render_reconstruction  # same dir on sys.path[0]
+
+
+def _title_text(rec):
+    t = rec.get("title")
+    return t.get("text") if isinstance(t, dict) else t
+
+
+def _axis_meta(rec, key):
+    ax = rec.get(key) or {}
+    return {"title": ax.get("title"), "scale": ax.get("scale"),
+            "data_range": ax.get("data_range")}
 
 
 def main():
@@ -28,12 +45,17 @@ def main():
     ap.add_argument("--n", type=int, default=10)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--per-paper", type=int, default=2)
+    ap.add_argument("--all", action="store_true",
+                    help="build every kept chart (ignore --n / --per-paper / sampling)")
+    ap.add_argument("--max-line-series", type=int, default=None,
+                    help="skip charts with more than this many LINE series "
+                         "(marker-less) -- excludes 'many line plot' figures")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
     jsons = [p for p in glob.glob(os.path.join(args.batch, "*", "page*_chart*.json"))
              if not p.endswith(".skip.json")]
-    # keep only records with data points
+    # keep only records with data points (and within the line-series cap)
     cand = []
     for jp in jsons:
         try:
@@ -43,40 +65,79 @@ def main():
         if "series" not in rec:
             continue
         npts = sum(len(s["points"]) for s in rec["series"])
-        if npts > 0:
-            cand.append((jp, rec, npts))
-    random.Random(args.seed).shuffle(cand)
-
-    chosen, per = [], {}
-    for jp, rec, npts in cand:
-        pid = os.path.basename(os.path.dirname(jp))
-        if per.get(pid, 0) >= args.per_paper:
+        n_lines = sum(1 for s in rec["series"] if not s.get("marker"))
+        if npts <= 0:
             continue
-        per[pid] = per.get(pid, 0) + 1
-        chosen.append((jp, rec, npts))
-        if len(chosen) >= args.n:
-            break
+        if args.max_line_series is not None and n_lines > args.max_line_series:
+            continue  # 'many line plot' -> excluded
+        cand.append((jp, rec, npts))
 
-    print(f"{len(cand)} extracted-with-data charts; building {len(chosen)} examples")
+    if args.all:
+        chosen = sorted(cand, key=lambda c: c[0])
+    else:
+        random.Random(args.seed).shuffle(cand)
+        chosen, per = [], {}
+        for jp, rec, npts in cand:
+            pid = os.path.basename(os.path.dirname(jp))
+            if per.get(pid, 0) >= args.per_paper:
+                continue
+            per[pid] = per.get(pid, 0) + 1
+            chosen.append((jp, rec, npts))
+            if len(chosen) >= args.n:
+                break
+
+    by_paper = defaultdict(list)
     for jp, rec, npts in chosen:
-        pid = os.path.basename(os.path.dirname(jp))
-        base = jp[:-5]  # strip .json
-        tag = f"{pid}_{os.path.basename(base)}"
-        dest = os.path.join(args.out, tag)
-        os.makedirs(dest, exist_ok=True)
-        src_pdf = rec["source"]["pdf"]
+        by_paper[os.path.basename(os.path.dirname(jp))].append((jp, rec, npts))
+
+    print(f"{len(cand)} kept charts; building {len(chosen)} graphs "
+          f"in {len(by_paper)} paper folders")
+    for pid, items in sorted(by_paper.items()):
+        pdir = os.path.join(args.out, pid)
+        os.makedirs(pdir, exist_ok=True)
+        src_pdf = items[0][1]["source"]["pdf"]
         if os.path.exists(src_pdf):
-            shutil.copy(src_pdf, os.path.join(dest, "paper.pdf"))
-        for ext, name in [(".json", "chart.json"), (".markers.csv", "chart.markers.csv"),
-                          (".pdf", "chart_crop.pdf"), (".svg", "chart_crop.svg")]:
-            if os.path.exists(base + ext):
-                shutil.copy(base + ext, os.path.join(dest, name))
-        try:
-            render_reconstruction(src_pdf, rec["source"]["page"], rec,
-                                  os.path.join(dest, "reconstruction.png"))
-        except Exception as e:
-            print(f"  render fail {tag}: {e}")
-        print(f"  {tag}: series={len(rec['series'])} pts={npts}")
+            shutil.copy(src_pdf, os.path.join(pdir, "paper.pdf"))  # once per paper
+
+        graphs_meta = []
+        for jp, rec, npts in sorted(items, key=lambda x: x[0]):
+            base = jp[:-5]
+            gname = os.path.basename(base)  # pageN_chartK
+            gdir = os.path.join(pdir, gname)
+            os.makedirs(gdir, exist_ok=True)
+            for ext, name in [(".json", "chart.json"),
+                              (".markers.csv", "chart.markers.csv"),
+                              (".pdf", "chart_crop.pdf"), (".svg", "chart_crop.svg")]:
+                if os.path.exists(base + ext):
+                    shutil.copy(base + ext, os.path.join(gdir, name))
+            try:
+                render_reconstruction(src_pdf, rec["source"]["page"], rec,
+                                      os.path.join(gdir, "reconstruction.png"))
+            except Exception as e:
+                print(f"  render fail {pid}/{gname}: {e}")
+            graphs_meta.append({
+                "folder": gname,
+                "page": rec["source"]["page"],
+                "n_series": len(rec["series"]),
+                "n_marker_series": sum(1 for s in rec["series"] if s.get("marker")),
+                "n_line_series": sum(1 for s in rec["series"] if not s.get("marker")),
+                "n_points": npts,
+                "title": _title_text(rec),
+                "caption": rec.get("caption"),
+                "x_axis": _axis_meta(rec, "x_axis"),
+                "y_axis": _axis_meta(rec, "y_axis"),
+                "series_labels": [s.get("label") for s in rec["series"]],
+            })
+
+        meta = {
+            "paper": pid,
+            "source_pdf": src_pdf,
+            "n_graphs": len(graphs_meta),
+            "graphs": graphs_meta,
+        }
+        with open(os.path.join(pdir, "metadata.json"), "w") as fh:
+            json.dump(meta, fh, indent=2)
+        print(f"  {pid}: {len(graphs_meta)} graphs")
     print(f"\nDone -> {args.out}")
 
 

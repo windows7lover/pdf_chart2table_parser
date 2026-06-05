@@ -53,6 +53,17 @@ _MARKER_CODE = {
 # marker on a boxplot) -> skip rather than emit it as an "extraction".
 _MIN_TOTAL_POINTS = 1
 
+# A marker series of fewer than this many points is a degenerate tiny-n group
+# (an annotation glyph, a "Peak" cross, a lone corner mark), not a real scatter
+# series -> drop it. Real scatter clusters have many more marks; precision over
+# recall on the ambiguous 1-2-point case.
+_MIN_MARKS_PER_SERIES = 3
+
+
+def _is_real_series(sm: SeriesMarks) -> bool:
+    """Reject degenerate tiny-n marker groups (annotation glyphs) as series."""
+    return len(sm.marks) >= _MIN_MARKS_PER_SERIES
+
 
 def _confidence(x_axis: Axis, y_axis: Axis) -> float:
     """Confidence in [0, 1] for an extraction with both axes calibrated.
@@ -112,13 +123,23 @@ def extract_region(
     if x_axis.calibration is None or y_axis.calibration is None:
         return ChartResult(status="skipped", skip_reason="axis not calibrated")
 
-    series_marks = classify_marks(region, paths, texts)
+    # The true plotting box is the calibrated spine-to-spine extent of each axis
+    # (NOT region.bbox, which includes axis-label margins, the legend, annotations
+    # and insets). Marks/curves outside it are off-plot glyphs, not data.
+    plot_box = None
+    if x_axis.pixel_range is not None and y_axis.pixel_range is not None:
+        plot_box = (x_axis.pixel_range[0], y_axis.pixel_range[0],
+                    x_axis.pixel_range[1], y_axis.pixel_range[1])
+
+    series_marks = classify_marks(region, paths, texts, plot_box)
+    series_marks = [sm for sm in series_marks if _is_real_series(sm)]
     series = [_build_series(sm, x_axis, y_axis) for sm in series_marks]
 
     # Marker-less line curves: dedupe against colours already drawn as markers
     # (line+marker plots -> keep the markers), then add the clean ones.
     marker_colors = {_round_color(sm.fill or sm.stroke) for sm in series_marks}
-    line_series, line_skips = classify_lines(region, paths, texts, marker_colors)
+    line_series, line_skips = classify_lines(region, paths, texts, marker_colors,
+                                             plot_box)
     series += [_build_line_series(sl, x_axis, y_axis) for sl in line_series]
 
     if not series:
@@ -151,7 +172,8 @@ def extract_pdf(path: str, pages: list[int] | None = None) -> list[ChartResult]:
     """Extract every detected chart in ``path`` into a list of ``ChartResult``."""
     results: list[ChartResult] = []
     for page in load_pdf(path, pages):
-        regions = detect_regions(page.paths, page.texts, page.width, page.height)
+        regions = detect_regions(page.paths, page.texts, page.width, page.height,
+                                 image_rects=page.image_rects)
         if not regions:
             continue
         panel_axes = calibrate_panels(regions, page.paths, page.texts)

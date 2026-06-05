@@ -75,6 +75,10 @@ class PageData:
     height: float
     paths: list[Path]
     texts: list[TextSpan]
+    # Bounding boxes of embedded raster images placed on the page. Used to reject
+    # "markers on a photo" regions (a raster image with vector markers drawn over
+    # it is not a vector chart).
+    image_rects: list[BBox] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------

@@ -45,6 +45,33 @@ def test_filled_plus_stroke_coincident_markers_merged():
     assert len(series[0].marks) == 4
 
 
+def test_out_of_box_marker_dropped_in_box_kept():
+    # A plot box smaller than the region (spine-to-spine). Markers inside the box
+    # are data; one well outside it (a legend swatch / annotation) is dropped.
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(4)), text_indices=[])
+    plot_box = (130.0, 130.0, 270.0, 270.0)
+    paths = [
+        _square(150, 250, fill=(0.0, 0.0, 1.0)),   # in box
+        _square(200, 220, fill=(0.0, 0.0, 1.0)),   # in box
+        _square(240, 180, fill=(0.0, 0.0, 1.0)),   # in box
+        _square(120, 110, fill=(0.0, 0.0, 1.0)),   # outside box -> drop
+    ]
+    series = classify_marks(region, paths, [], plot_box=plot_box)
+    assert len(series) == 1
+    assert len(series[0].marks) == 3
+
+
+def test_no_plot_box_keeps_all_marks():
+    # Legacy behaviour: without a plot box, no clipping is applied.
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(2)), text_indices=[])
+    paths = [_square(150, 250, fill=(0.0, 0.0, 1.0)),
+             _square(120, 110, fill=(0.0, 0.0, 1.0))]
+    series = classify_marks(region, paths, [])
+    assert sum(len(s.marks) for s in series) == 2
+
+
 def test_distinct_marker_series_not_merged():
     # Two square series at DIFFERENT positions stay separate.
     region = Region(bbox=(100.0, 100.0, 300.0, 300.0),

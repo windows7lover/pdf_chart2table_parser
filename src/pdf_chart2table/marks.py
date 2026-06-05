@@ -40,6 +40,11 @@ _MAX_ASPECT = 3.0
 # A mark whose centroid sits within this of the region border is on a
 # spine/frame edge (tick marks live there), not off-axis data.
 _BORDER_TOL = 2.0
+# Plot-box clip tolerance: a mark centroid may sit this fraction of the axis
+# span outside the calibrated spine box and still count as in-plot data (covers
+# markers that straddle the spine and minor calibration slack). Beyond it the
+# mark is a legend swatch / annotation / out-of-axis phantom and is dropped.
+_CLIP_FRAC = 0.03
 # Legend swatch: a mark sitting within this gap to the left of a text span and
 # vertically centred on it.
 _LEGEND_GAP = 40.0
@@ -111,6 +116,20 @@ def _is_legend_swatch(cx: float, cy: float, texts: list[TextSpan]) -> bool:
     return False
 
 
+def _in_plot_box(cx: float, cy: float, plot_box: tuple | None) -> bool:
+    """Centroid is inside the calibrated plot box (spine-to-spine) plus a small
+    tolerance. ``plot_box`` is ``(x0, y0, x1, y1)`` from the axis ``pixel_range``
+    pair (edges in either order). With no box given, always True (legacy)."""
+    if plot_box is None:
+        return True
+    bx0, by0, bx1, by1 = plot_box
+    xlo, xhi = (bx0, bx1) if bx0 <= bx1 else (bx1, bx0)
+    ylo, yhi = (by0, by1) if by0 <= by1 else (by1, by0)
+    xtol = _CLIP_FRAC * (xhi - xlo)
+    ytol = _CLIP_FRAC * (yhi - ylo)
+    return (xlo - xtol <= cx <= xhi + xtol) and (ylo - ytol <= cy <= yhi + ytol)
+
+
 def _on_border(cx: float, cy: float, region: Region) -> bool:
     """Centroid sits on a region spine/frame edge (where tick marks live)."""
     x0, y0, x1, y1 = region.bbox
@@ -177,6 +196,7 @@ def classify_marks(
     region: Region,
     paths: list[Path],
     texts: list[TextSpan],
+    plot_box: tuple | None = None,
 ) -> list[SeriesMarks]:
     """Group the region's small data marks into per-series lists.
 
@@ -184,6 +204,11 @@ def classify_marks(
     and legend swatches (aligned with legend text). Marks are grouped by
     ``(shape, rounded fill, rounded stroke)``; each group's centroids are its
     data points in pixel space.
+
+    ``plot_box`` is the calibrated spine-to-spine box ``(x0, y0, x1, y1)``; marks
+    whose centroid falls outside it (with a small tolerance) are legend swatches,
+    annotation glyphs or out-of-axis phantoms and are dropped. When omitted, no
+    box clipping is applied (legacy behaviour).
     """
     region_texts = [texts[i] for i in region.text_indices]
     groups: dict[tuple, SeriesMarks] = {}
@@ -192,6 +217,8 @@ def classify_marks(
         if not _is_data_mark(p, region):
             continue
         cx, cy = _centroid(p.points)
+        if not _in_plot_box(cx, cy, plot_box):
+            continue
         if _is_legend_swatch(cx, cy, region_texts):
             continue
         shape = _shape_of(p)

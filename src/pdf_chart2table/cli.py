@@ -238,7 +238,8 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
     for page in page_list:
         if page.page_index not in wanted:
             continue
-        regions = detect_regions(page.paths, page.texts, page.width, page.height)
+        regions = detect_regions(page.paths, page.texts, page.width, page.height,
+                                 image_rects=page.image_rects)
         if not regions:
             continue
         axes = calibrate_panels(regions, page.paths, page.texts)
@@ -266,13 +267,13 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
                 rows.append(io_store.write_skip(
                     "no series extracted", source, outdir, page_no, k))
                 continue
-            title, caption, x_title, y_title, _ = region_labels[k - 1]
+            title, caption, _x_title, _y_title, _ = region_labels[k - 1]
             legend = legends[k - 1]
             _apply_legend_labels(series, legend, region, page.paths)
-            if x_axis.title is None and x_title:
-                x_axis.title = x_title
-            if y_axis.title is None and y_title:
-                y_axis.title = y_title
+            # Axis titles come from axes.py (robust: rejects sub-captions/figure
+            # captions, returns None when there is no real title). We deliberately
+            # do NOT fall back to labels.py's x/y title, which can grab caption
+            # body text below the figure.
             record = io_store.chart_to_record(
                 pdf=pdf,
                 page=page.page_index,
