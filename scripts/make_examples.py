@@ -70,6 +70,17 @@ def render_reconstruction(src_pdf, page0, record, out_png):
         ax1.set_xscale("log")
     if record["y_axis"].get("scale") == "log":
         ax1.set_yscale("log")
+    # Force the re-plot's axes to the original figure's calibrated ranges so the
+    # two panels are directly comparable (a high->low data_range also reproduces
+    # a reversed/descending axis).
+    xr = record["x_axis"].get("data_range")
+    yr = record["y_axis"].get("data_range")
+    if xr and None not in xr and xr[0] != xr[1]:
+        ax1.set_xlim(xr[0], xr[1])
+    if yr and None not in yr and yr[0] != yr[1]:
+        # data_range is stored top-pixel-first (PDF y grows downward); matplotlib
+        # y grows upward, so flip the order to match the original's orientation.
+        ax1.set_ylim(yr[1], yr[0])
     ax1.set_xlabel(record["x_axis"].get("title") or "")
     ax1.set_ylabel(record["y_axis"].get("title") or "")
     if any(s.get("label") for s in record["series"]):

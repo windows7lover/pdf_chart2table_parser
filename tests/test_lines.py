@@ -275,6 +275,45 @@ def test_marker_color_deduped():
     assert series == []
 
 
+def test_lowsat_filled_fragment_not_merged_as_line():
+    """Small fragments whose stroke is low-saturation (black/gray) AND whose fill
+    is non-None are marker glyph outlines, NOT curve segments.  Many such fragments
+    must NOT be merged into a spurious line series."""
+    # Simulate 12 black-stroked, colored-fill square marker outlines (5 pts each, 4x4 px)
+    # spread across x: [120..280].  Without the guard they would be collected as
+    # fragments and merged into a 60-pt "black line".
+    frags = []
+    for k in range(12):
+        x = 120 + k * 14
+        y = 250 - k * 6
+        frags.append(_poly([(x, y), (x+4, y), (x+4, y+4), (x, y+4), (x, y)],
+                           (0.0, 0.0, 0.0), fill=(1.0, 0.0, 0.0)))
+    series, _ = _classify(frags)
+    assert series == [], "Black-stroke colored-fill marker outlines must not become a line"
+
+
+def test_flat_near_bottom_edge_curve_rejected():
+    """A long, nearly-flat (y-span < 2 % of chart height) curve that also sits
+    within 5 % of the bottom edge is a zero-floor artefact and must be dropped.
+    A real data curve with similar x-span but proper vertical variation is kept."""
+    plot_box = (110.0, 110.0, 290.0, 290.0)  # height = 180 px
+
+    # Zero-floor artefact: 213 pts, all at y ≈ 286 (within 5 % of bottom at y=290).
+    # y-span = 0.15 px  (<< 2 % * 180 = 3.6 px) -- essentially horizontal.
+    flat_pts = [(110 + k * 0.85, 286.0 + (k % 3) * 0.05) for k in range(213)]
+    flat = _poly(flat_pts, (0.8, 0.47, 0.65))
+    region = Region(bbox=REGION.bbox, path_indices=[0, 1], text_indices=[])
+
+    # Real data curve with similar extent but genuine y variation:
+    real_pts = [(120 + k * 1.5, 250 - k * 5) for k in range(50)]
+    real = _poly(real_pts, (0.0, 0.45, 0.7))
+
+    series, _ = classify_lines(region, [flat, real], [], plot_box=plot_box)
+    colors = [s.color for s in series]
+    assert (0.8, 0.47, 0.65) not in colors, "Flat near-bottom artefact must be rejected"
+    assert any(abs(c[2] - 0.7) < 0.01 for c in colors if c), "Real data curve must be kept"
+
+
 def test_line_plus_marker_fixture_no_duplicate_series():
     # convergence_semilogy_3 is a line+marker chart with 3 series; the lines
     # share the markers' colours, so dedupe must keep exactly 3 series.

@@ -141,6 +141,12 @@ def _image_rects(page: fitz.Page) -> list[tuple[float, float, float, float]]:
     return rects
 
 
+def page_count(path: str) -> int:
+    """Page count without loading any drawings (cheap)."""
+    with fitz.open(path) as doc:
+        return doc.page_count
+
+
 def load_pdf(path: str, pages: list[int] | None = None) -> list[PageData]:
     """Load a PDF into a list of ``PageData`` (one per page, or selected pages)."""
     doc = fitz.open(path)

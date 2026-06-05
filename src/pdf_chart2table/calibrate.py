@@ -32,11 +32,20 @@ import math
 
 import numpy as np
 
-from .axes import detect_axes
+from .axes import detect_axes, _x_label_spans, _y_label_spans, _is_numeric_span
 from .model import Axis, Path, Region, TextSpan
 
 # Tolerance (points) for treating two panels' pixel ranges as the same axis.
 _RANGE_TOL = 3.0
+
+# A "//" or "//"-like text span in the label band indicates a broken axis.
+# We match exactly "//" (the standard typographic axis-break glyph).
+_BREAK_MARKERS = {"//", "/ /"}
+
+
+def _has_break_marker(spans: list[TextSpan]) -> bool:
+    """Return True if any label-band span is a broken-axis marker ('//')."""
+    return any(s.text.strip() in _BREAK_MARKERS for s in spans)
 
 
 def _linfit(px: np.ndarray, val: np.ndarray) -> tuple[float, float, float]:
@@ -232,8 +241,18 @@ def calibrate_region(
     paths: list[Path],
     texts: list[TextSpan],
 ) -> tuple[Axis, Axis]:
-    """Detect and calibrate both axes of a single region."""
+    """Detect and calibrate both axes of a single region.
+
+    Guards applied (precision over recall):
+    * A broken-axis marker ('//' in the label band) leaves the axis uncalibrated.
+    """
     x_axis, y_axis = detect_axes(region, paths, texts)
+    if _has_break_marker(_x_label_spans(texts, region)):
+        x_axis.calibration = None
+        return x_axis, _apply(y_axis)
+    if _has_break_marker(_y_label_spans(texts, region)):
+        y_axis.calibration = None
+        return _apply(x_axis), y_axis
     return _apply(x_axis), _apply(y_axis)
 
 

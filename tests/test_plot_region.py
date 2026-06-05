@@ -177,6 +177,119 @@ def test_chart_type_gate_keeps_square_markers():
     assert _is_chart_type(bbox, paths)
 
 
+def _gray_dot(cx, cy, r=0.7, color=(0.66, 0.66, 0.66)):
+    """A tiny grayscale filled bezier circle (simulated density-map glyph)."""
+    from pdf_chart2table.model import Path as VPath
+    x0, y0, x1, y1 = cx - r, cy - r, cx + r, cy + r
+    pts = [(cx, y0), (x1, cy), (cx, y1), (x0, cy), (cx, y0)]
+    return VPath(points=pts, stroke=color, fill=color, width=None,
+                 dashes=None, closed=True, bbox=(x0, y0, x1, y1))
+
+
+def _open_line(x0, x1, y, n=200, stroke=(0.2, 0.5, 0.8)):
+    """A stroked-only polyline going left to right (open data line)."""
+    from pdf_chart2table.model import Path as VPath
+    pts = [(x0 + (x1 - x0) * i / (n - 1), y) for i in range(n)]
+    return VPath(points=pts, stroke=stroke, fill=None, width=1.0,
+                 dashes=None, closed=False,
+                 bbox=(x0, y, x1, y))
+
+
+def test_2d_gate_skips_uniform_density_map():
+    """Hundreds of same-gray tiny glyphs with no open data line -> density map."""
+    from pdf_chart2table.plot_region import _2d_map_skip_reason
+
+    bbox = (100.0, 100.0, 400.0, 400.0)
+    # 250 identical gray dots spread across the panel.
+    import random
+    random.seed(42)
+    paths = [_gray_dot(random.uniform(102, 398), random.uniform(102, 398))
+             for _ in range(250)]
+    reason = _2d_map_skip_reason(bbox, paths)
+    assert reason is not None
+    assert "density" in reason or "contour" in reason
+
+
+def test_2d_gate_keeps_line_marker_chart():
+    """Same gray dots BUT with a wide open stroked data line -> keep it (line+marker)."""
+    from pdf_chart2table.plot_region import _2d_map_skip_reason
+
+    bbox = (100.0, 100.0, 400.0, 400.0)
+    import random
+    random.seed(42)
+    dots = [_gray_dot(random.uniform(102, 398), random.uniform(102, 398))
+            for _ in range(250)]
+    # Add a monotone left-to-right data line spanning the panel.
+    line = _open_line(102, 398, 250.0, n=200)
+    assert _2d_map_skip_reason(bbox, dots + [line]) is None
+
+
+def test_2d_gate_skips_dense_fill_lattice():
+    """Tiny fills at >0.15/pt^2 density -> dispersion lattice."""
+    from pdf_chart2table.plot_region import _2d_map_skip_reason
+    from pdf_chart2table.model import Path as VPath
+
+    # 100x100 panel with 2000 tiny 1-pt fills -> density = 0.20/pt^2.
+    bbox = (0.0, 0.0, 100.0, 100.0)
+    import random
+    random.seed(7)
+    paths = []
+    for _ in range(2000):
+        cx, cy = random.uniform(1, 99), random.uniform(1, 99)
+        p = VPath(points=[(cx - 0.5, cy), (cx + 0.5, cy), (cx, cy)],
+                  stroke=None, fill=(0.1, 0.4, 0.7), width=None,
+                  dashes=None, closed=True,
+                  bbox=(cx - 0.5, cy - 0.5, cx + 0.5, cy + 0.5))
+        paths.append(p)
+    reason = _2d_map_skip_reason(bbox, paths)
+    assert reason is not None
+    assert "dispersion" in reason or "density" in reason
+
+
+def _tall_band(y0_band, y1_band, n_pts=60, fill=(0.0, 0.45, 0.7)):
+    """A many-vertex colored filled polygon spanning [y0_band, y1_band] (credible band)."""
+    from pdf_chart2table.model import Path as VPath
+    import math
+    # Build a zigzag polygon with n_pts vertices so it passes the _BAND_MIN_VERTS check.
+    left_x, right_x = 150.0, 200.0
+    pts = []
+    for i in range(n_pts // 2):
+        t = i / (n_pts // 2 - 1)
+        y = y0_band + t * (y1_band - y0_band)
+        pts.append((left_x + 2 * math.sin(i), y))
+    for i in range(n_pts // 2 - 1, -1, -1):
+        t = i / (n_pts // 2 - 1)
+        y = y0_band + t * (y1_band - y0_band)
+        pts.append((right_x + 2 * math.sin(i), y))
+    pts.append(pts[0])
+    return VPath(points=pts, stroke=None, fill=fill, width=None,
+                 dashes=None, closed=True,
+                 bbox=(min(p[0] for p in pts), y0_band,
+                       max(p[0] for p in pts), y1_band))
+
+
+def test_2d_gate_skips_tall_fill_band():
+    """A large colored polygon spanning the full panel height -> credible band."""
+    from pdf_chart2table.plot_region import _2d_map_skip_reason
+
+    bbox = (100.0, 100.0, 300.0, 300.0)  # 200x200 panel
+    # Band spans y=85 to y=305 -> height 220 > 0.85 * 200 = 170.
+    band = _tall_band(85.0, 305.0)
+    reason = _2d_map_skip_reason(bbox, [band])
+    assert reason is not None
+    assert "band" in reason or "credible" in reason
+
+
+def test_2d_gate_keeps_moderate_error_band():
+    """A colored polygon covering <0.85 of panel height is a confidence band, not rejected."""
+    from pdf_chart2table.plot_region import _2d_map_skip_reason
+
+    bbox = (100.0, 100.0, 300.0, 300.0)  # 200x200 panel
+    # Band spans y=130 to y=270 -> height 140 = 0.70 * panel height < 0.85 threshold.
+    band = _tall_band(130.0, 270.0)
+    assert _2d_map_skip_reason(bbox, [band]) is None
+
+
 @pytest.mark.parametrize("name", ALL_FIXTURES)
 def test_region_count(name):
     truth = load_truth(name)
@@ -269,4 +382,90 @@ def test_region_mostly_covered_by_image_is_rejected():
     assert not _covered_by_image(box, [(100.0, 100.0, 140.0, 140.0)])
     # No images -> keep.
     assert not _covered_by_image(box, [])
-    assert not _covered_by_image(box, None)
+
+
+# --- panel-merge regression: adjacent sub-panels must not be fused -----------
+
+def _vseg(x: float, y0: float, y1: float):
+    """Vertical spine segment (thin but tall) as a Path."""
+    from pdf_chart2table.model import Path as VPath
+    pts = [(x, y0), (x, y1)]
+    return VPath(points=pts, stroke=(0.0, 0.0, 0.0), fill=None,
+                 width=0.5, dashes=None, closed=False,
+                 bbox=(x, y0, x, y1))
+
+
+def _hseg(y: float, x0: float, x1: float):
+    """Horizontal spine segment (thin but wide) as a Path."""
+    from pdf_chart2table.model import Path as VPath
+    pts = [(x0, y), (x1, y)]
+    return VPath(points=pts, stroke=(0.0, 0.0, 0.0), fill=None,
+                 width=0.5, dashes=None, closed=False,
+                 bbox=(x0, y, x1, y))
+
+
+def test_merged_spine_splits_stacked_panels():
+    """Two vertically stacked panels whose V spines have a gap are not merged.
+
+    Models a figure where each panel has its own top/bottom H spine, the left
+    and right V spines are drawn in two separate segments (one per panel), and
+    there is a > _SPINE_GAP_MIN gutter between them.
+    """
+    from pdf_chart2table.plot_region import _merged_spine_frames
+
+    # Page: 600 x 800.  Two stacked panels each ~130 pt tall with a 30 pt gutter.
+    # Top panel: y=80-210.  Bottom panel: y=240-370.
+    # V spines at x=100 and x=300, each as two separate segments.
+    # H spines: y=80, y=210, y=240, y=370, each spanning x=[100, 300].
+    paths = [
+        # Left V, top segment
+        _vseg(100, 80, 210),
+        # Left V, bottom segment
+        _vseg(100, 240, 370),
+        # Right V, top segment
+        _vseg(300, 80, 210),
+        # Right V, bottom segment
+        _vseg(300, 240, 370),
+        # H spines
+        _hseg(80, 100, 300),
+        _hseg(210, 100, 300),
+        _hseg(240, 100, 300),
+        _hseg(370, 100, 300),
+    ]
+    frames = _merged_spine_frames(paths, width=600.0, height=800.0)
+    # Both panels must be found as separate frames.
+    assert len(frames) == 2
+    ys = sorted(f[1] for f in frames)
+    assert abs(ys[0] - 80) <= 5    # top panel y0
+    assert abs(ys[1] - 240) <= 5   # bottom panel y0
+
+
+def test_merged_spine_splits_sidebyside_panels_at_h_segment_boundary():
+    """Two side-by-side panels sharing a single wide H spine are not merged.
+
+    The wide H spine has two separate segments (one per panel); the frame
+    builder must use each segment's right end rather than the global maximum,
+    so each sub-panel forms its own narrow frame.
+    """
+    from pdf_chart2table.plot_region import _merged_spine_frames
+
+    # Page: 600 x 800.  Left panel x=50-250; right panel x=300-500.
+    # V spines at x=50, x=250, x=300, x=500 (all spanning y=100-300).
+    # H spines: top y=100 and bottom y=300, each as two segments.
+    paths = [
+        # V spines
+        _vseg(50, 100, 300),
+        _vseg(250, 100, 300),
+        _vseg(300, 100, 300),
+        _vseg(500, 100, 300),
+        # H spines: two segments per row (one per panel; 50 pt gap between them)
+        _hseg(100, 50, 250),
+        _hseg(100, 300, 500),
+        _hseg(300, 50, 250),
+        _hseg(300, 300, 500),
+    ]
+    frames = _merged_spine_frames(paths, width=600.0, height=800.0)
+    assert len(frames) == 2
+    xs = sorted(f[0] for f in frames)
+    assert abs(xs[0] - 50) <= 5    # left panel x0
+    assert abs(xs[1] - 300) <= 5   # right panel x0

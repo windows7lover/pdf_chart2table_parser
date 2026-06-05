@@ -15,6 +15,9 @@ dist/
 # OS
 .DS_Store
 
+# SLURM job logs
+slurm-*.out
+
 # Dataset / batch-output folders (large, regenerable; live in $SCRATCH normally)
 data/
 out/

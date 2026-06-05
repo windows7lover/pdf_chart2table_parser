@@ -52,6 +52,11 @@ _ROW_TOL = 6.0
 # legend rows can be stacked only ~5pt apart, so a loose tol grabs the next
 # row's text. Half the typical row pitch keeps rows separate.
 _LABEL_ROW_TOL = 2.5
+# Subscript/superscript glyphs are smaller than the base span and their centre-y
+# can shift by up to ~0.5× the base font size (e.g. "E_N" where N is a small
+# raised/lowered character). We allow them as continuations when their cy offset
+# is within this fraction of the anchor font size AND they are smaller.
+_SUB_ROW_TOL_FRAC = 0.6
 # A legend marker glyph is small; a path larger than this in either dimension is
 # a data curve / box overlapping the legend, not a marker swatch.
 _MARKER_SWATCH_MAX = 14.0
@@ -211,12 +216,30 @@ def _assemble_label(
     consecutive spans stay close horizontally (a multi-span label such as
     "BN-x5-Sigmoid" or "T = 100"); a large horizontal gap (the next legend
     column) ends it. Returns (text, span-indices-consumed).
+
+    Subscript/superscript glyphs have a smaller font size and their centre-y
+    can be offset by up to ~0.5× the anchor font size, exceeding the normal
+    _LABEL_ROW_TOL. We admit them with a looser size-relative tolerance so that
+    labels like "E_N(a⁻ : CR)" are not truncated to "E(a : CR)".
     """
     first = texts[start]
+    base_size = first.size or 10.0
+
+    def _same_row(t: TextSpan) -> bool:
+        cy_off = abs(_cy(t.bbox) - ty)
+        if cy_off <= _LABEL_ROW_TOL:
+            return True
+        # Accept a smaller span (subscript/superscript) whose vertical offset
+        # is within _SUB_ROW_TOL_FRAC × the anchor font size.
+        if (t.size is not None and t.size < base_size
+                and cy_off <= _SUB_ROW_TOL_FRAC * base_size):
+            return True
+        return False
+
     cont = sorted(
         (i for i, t in enumerate(texts)
          if i != start and i not in used and _horizontal(t) and t.text.strip()
-         and abs(_cy(t.bbox) - ty) <= _LABEL_ROW_TOL
+         and _same_row(t)
          and t.bbox[0] >= first.bbox[2] - 1.0),
         key=lambda i: texts[i].bbox[0],
     )

@@ -69,11 +69,15 @@ def _center(b: BBox) -> tuple[float, float]:
 def _is_minus_glyph(p: Path) -> bool:
     b = p.bbox
     w, h = b[2] - b[0], b[3] - b[1]
+    # A real minus sign is a simple flat filled rectangle: very few path points
+    # (typically 5 for a rect).  A circle/ring or complex glyph passing the
+    # bounding-box test has many more points; reject it to avoid false negatives.
     return (
         p.fill is not None
         and p.stroke is None
         and _MINUS_W[0] <= w <= _MINUS_W[1]
         and h <= _MINUS_H
+        and len(p.points) <= 8
     )
 
 

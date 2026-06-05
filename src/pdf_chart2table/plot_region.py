@@ -73,6 +73,16 @@ _SPINE_SPAN_FRAC = 0.06
 _CORNER_TOL = 10.0
 # A merged-spine frame must be at least this many points on each side.
 _FRAME_MIN_SIDE = 30.0
+# Minimum ratio of (total segment length / span) for a merged spine edge to
+# count as a genuine frame spine.  Tick marks have two tiny segments at the
+# ends of the axis and reach only ~0.03-0.05; real frame spines cover >= 0.4.
+_SPINE_COVERAGE_MIN = 0.4
+# A gap larger than this in a vertical spine's segments indicates that two
+# panels are stacked (a horizontal gutter between them).  The spine is then
+# split into separate per-panel sub-edges.  Gutters between stacked panels
+# are typically 30-40 pt; the white space between rows in a multi-row figure
+# that IS correctly handled via white-patches is <= 14 pt.
+_SPINE_GAP_MIN = 20.0
 
 # --- chart-vs-not gate -----------------------------------------------------
 # How far below / left of a candidate to scan for numeric tick labels.
@@ -118,6 +128,38 @@ _HEATMAP_FILL = 0.6          # n_cells / (rows*cols) >= this -> packed grid
 _BAR_MIN = 4               # at least this many bars on the shared baseline
 _BAR_TALL_RATIO = 1.5      # a bar's height must exceed this * its width
 _BAR_ADJACENCY = 0.85      # median bar width / median centre-spacing >= this
+
+# 2D non-linear chart gates (contour/density/dispersion/credible-band):
+#
+# Gate A — UNIFORM DENSITY MAP (e.g. Bayesian posterior contour filled with
+# many tiny same-colour gray dots). Signal: >=N small filled glyphs (bbox < 3pt)
+# that all share one dominant grayscale colour, with NO wide open data line
+# spanning >=0.5 of the panel width (which would indicate a real line chart
+# whose markers happen to be identical, e.g. a noisy spectrum).
+_DENSITY_MIN_GRAY_FILLS = 200  # minimum count of uniform-gray small fills
+_DENSITY_DOM_FRAC = 0.90       # >= this fraction share one dominant color
+_DENSITY_GLYPH_MAX = 3.0       # small glyph: bbox width/height < this (pt)
+_DENSITY_GRAY_SPREAD = 0.02    # fill is grayscale if R≈G≈B within this spread
+_DENSITY_LINE_MIN_PTS = 100    # open data line must have at least this many pts
+_DENSITY_LINE_WIDTH_FRAC = 0.5 # … and span >= this fraction of panel width
+_DENSITY_LINE_XDEC_MAX = 0.05  # … with x-decrease fraction < this (monotone)
+
+# Gate B — DISPERSION LATTICE / EXTREME FILL DENSITY (e.g. band-structure
+# electronic dispersion plot with thousands of tiny colored glyphs). Signal:
+# fill density (fills per pt^2) far exceeds what a scatter series ever achieves.
+# Verified: dispersion ~0.254 fills/pt^2, densest real scatter ~0.092 fills/pt^2.
+_DISPERSION_DENSITY = 0.15     # fills/pt^2 threshold (well above real scatter)
+_DISPERSION_GLYPH_MAX = 3.0    # same small-glyph size threshold
+
+# Gate C — TALL CREDIBLE BAND (e.g. neutron-star M-R credible region spanning
+# the full panel height as a single colored filled polygon). Signal: a single
+# non-white colored filled polygon with no stroke whose height exceeds this
+# fraction of the panel height. Verified: legitimate confidence-band line plots
+# have fills reaching at most ~0.74 of panel height; credible-region fills reach
+# ~1.1 (clipped beyond the panel boundary).
+_BAND_MIN_VERTS = 20           # polygon must have at least this many vertices
+_BAND_HEIGHT_FRAC = 0.85       # fill height / panel height >= this
+_BAND_FILL_SPREAD = 0.10       # fill must be non-white (R,G,B spread > this)
 
 
 def _is_white(color) -> bool:
@@ -276,6 +318,25 @@ def _merged_spine_frames(paths: list[Path], width: float, height: float) -> list
     single y with a wide union of horizontal segments (top/bottom edge). We pair
     a vertical edge with a horizontal edge that meets it at a corner and take
     their combined extent as the frame box.
+
+    Panel-merge fix: two adjacent sub-panels can share a long horizontal or
+    vertical frame spine, causing the algorithm to union them into one wide
+    (or tall) region.  Two guards prevent this:
+
+    1. *Coverage filter* – tick marks at the ends of an axis contribute two
+       tiny segments whose total length is only ~3-5% of the edge span.  Real
+       frame spines cover >= 40% of their span.  Tick-mark edges are dropped.
+
+    2. *V-edge gap split* – when a vertical spine has a gap (> _SPINE_GAP_MIN)
+       in its segments, two panels are stacked vertically; the spine is split
+       into per-panel sub-edges so each sub-panel forms its own frame.
+
+    3. *Segment-right pairing* – when building a frame from a left vertical
+       edge and a bottom horizontal edge, the frame's right boundary is the
+       right end of the H-edge *segment* that starts near the left V edge,
+       rather than the rightmost extent of all H-edge segments.  This prevents
+       a shared horizontal spine that spans several side-by-side sub-panels
+       from merging them into one wide frame.
     """
     v_by_x: dict[int, list[tuple[float, float]]] = defaultdict(list)
     h_by_y: dict[int, list[tuple[float, float]]] = defaultdict(list)
@@ -287,16 +348,52 @@ def _merged_spine_frames(paths: list[Path], width: float, height: float) -> list
         elif dy < _SEG_THIN and dx >= _SEG_MIN_LEN:
             h_by_y[round(b[1])].append((b[0], b[2]))
 
-    v_edges = [(x, min(s for s, _ in segs), max(e for _, e in segs))
-               for x, segs in v_by_x.items()]
-    v_edges = [e for e in v_edges if e[2] - e[1] >= _SPINE_SPAN_FRAC * height]
-    h_edges = [(y, min(s for s, _ in segs), max(e for _, e in segs))
-               for y, segs in h_by_y.items()]
-    h_edges = [e for e in h_edges if e[2] - e[1] >= _SPINE_SPAN_FRAC * width]
+    def _coverage(segs: list[tuple[float, float]]) -> float:
+        """Ratio of total segment length to the overall span (0-1, >1 if segs overlap)."""
+        span = max(e for _, e in segs) - min(s for s, _ in segs)
+        if span <= 0:
+            return 0.0
+        return sum(e - s for s, e in segs) / span
+
+    def _sub_edges(
+        segs: list[tuple[float, float]], min_span: float
+    ) -> list[tuple[float, float]]:
+        """Split segment list at gaps > _SPINE_GAP_MIN; return (start, end) per run."""
+        merged: list[list[float]] = []
+        for s, e in sorted(segs):
+            if merged and s <= merged[-1][1] + _SPINE_GAP_MIN:
+                merged[-1][1] = max(merged[-1][1], e)
+            else:
+                merged.append([s, e])
+        return [(r[0], r[1]) for r in merged if r[1] - r[0] >= min_span]
+
+    min_v_span = _SPINE_SPAN_FRAC * height
+    min_h_span = _SPINE_SPAN_FRAC * width
+
+    # Build V edges: coverage-filtered and gap-split into sub-edges.
+    v_edges: list[tuple[int, float, float]] = []  # (x, vy0, vy1)
+    for x, raw_segs in v_by_x.items():
+        if _coverage(raw_segs) < _SPINE_COVERAGE_MIN:
+            continue
+        for vy0, vy1 in _sub_edges(raw_segs, min_v_span):
+            v_edges.append((x, vy0, vy1))
+
+    # Build H edges as individual segments (not unioned spans) so that when
+    # multiple sub-panels share a horizontal spine, each segment pairs only
+    # with its own left V edge.  Each segment must be wide enough to clear the
+    # minimum frame-side requirement.
+    h_segs: list[tuple[int, float, float]] = []  # (y, seg_x0, seg_x1)
+    for y, raw_segs in h_by_y.items():
+        if _coverage(raw_segs) < _SPINE_COVERAGE_MIN:
+            continue
+        # Merge overlapping raw segments into contiguous runs, then emit each
+        # run as a separate H segment.
+        for hx0, hx1 in _sub_edges(raw_segs, min_h_span):
+            h_segs.append((y, hx0, hx1))
 
     frames: list[BBox] = []
     for vx, vy0, vy1 in v_edges:
-        for hy, hx0, hx1 in h_edges:
+        for hy, hx0, hx1 in h_segs:
             # Left vertical edge meeting bottom horizontal edge at a corner.
             if abs(vx - hx0) > _CORNER_TOL or abs(hy - vy1) > _CORNER_TOL:
                 continue
@@ -304,6 +401,7 @@ def _merged_spine_frames(paths: list[Path], width: float, height: float) -> list
             if x1 - x0 < _FRAME_MIN_SIDE or y1 - y0 < _FRAME_MIN_SIDE:
                 continue
             frames.append((x0, y0, x1, y1))
+
     return frames
 
 
@@ -545,16 +643,177 @@ def _is_bar_chart(bbox: BBox, paths: list[Path]) -> bool:
     return med_w / med_gap >= _BAR_ADJACENCY
 
 
+def _has_open_data_line(bbox: BBox, paths: list[Path]) -> bool:
+    """True if the region contains a wide, x-monotone stroked polyline.
+
+    A 'real' data line (e.g. a noisy spectrum, a shock-tube profile) spans
+    most of the panel width and marches left-to-right without reversing in x.
+    Contour isolines and closed-loop curves do reverse in x (they form loops
+    or arcs) and therefore fail this check even when they happen to span the
+    panel width. Used to exclude regions whose tiny same-colour markers are
+    actually data (line+marker style) rather than a density map background.
+    """
+    x0, y0, x1, y1 = bbox
+    rw = x1 - x0
+    if rw <= 0:
+        return False
+    for p in paths:
+        if p.stroke is None or p.fill is not None:
+            continue
+        if len(p.points) < _DENSITY_LINE_MIN_PTS:
+            continue
+        cx = 0.5 * (p.bbox[0] + p.bbox[2])
+        cy = 0.5 * (p.bbox[1] + p.bbox[3])
+        if not (x0 <= cx <= x1 and y0 <= cy <= y1):
+            continue
+        if (p.bbox[2] - p.bbox[0]) < _DENSITY_LINE_WIDTH_FRAC * rw:
+            continue
+        # x-decrease fraction: for a left-to-right open line this is ~0;
+        # for a closed contour loop it is >> 0 (x reverses many times).
+        xs = [pt[0] for pt in p.points]
+        n_steps = len(xs) - 1
+        if n_steps <= 0:
+            continue
+        x_dec = sum(1 for i in range(n_steps) if xs[i + 1] < xs[i]) / n_steps
+        if x_dec <= _DENSITY_LINE_XDEC_MAX:
+            return True
+    return False
+
+
+def _is_uniform_density_map(bbox: BBox, paths: list[Path]) -> bool:
+    """A 2D density map rendered as many tiny same-colour grayscale glyphs.
+
+    Bayesian posterior contour maps (e.g. corner plots) shade parameter-space
+    density with hundreds of small gray marker glyphs all drawn in the same
+    shade of gray. This is fundamentally different from a line/scatter chart
+    where identical same-colour markers trace a *functional* y=f(x) curve.
+    The distinguishing signals are:
+      (a) >= _DENSITY_MIN_GRAY_FILLS tiny (< 3pt) grayscale-filled paths;
+      (b) >= _DENSITY_DOM_FRAC share one dominant gray shade (the density
+          is encoded by opacity/count, not by varying hue);
+      (c) no wide, x-monotone stroked data line (which would indicate a
+          genuine line+marker chart, e.g. a dense spectrum trace).
+    """
+    x0, y0, x1, y1 = bbox
+    small_gray: list[Path] = []
+    for p in paths:
+        if p.fill is None:
+            continue
+        b = p.bbox
+        if b[2] - b[0] >= _DENSITY_GLYPH_MAX or b[3] - b[1] >= _DENSITY_GLYPH_MAX:
+            continue
+        if max(p.fill) - min(p.fill) >= _DENSITY_GRAY_SPREAD:
+            continue  # coloured fill -> series marker, not density glyph
+        cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
+        if x0 <= cx <= x1 and y0 <= cy <= y1:
+            small_gray.append(p)
+    if len(small_gray) < _DENSITY_MIN_GRAY_FILLS:
+        return False
+    # Dominant colour: >= _DENSITY_DOM_FRAC must share the same rounded shade.
+    counts: dict[tuple, int] = {}
+    for p in small_gray:
+        key = tuple(round(v, 1) for v in p.fill)  # type: ignore[arg-type]
+        counts[key] = counts.get(key, 0) + 1
+    dom = max(counts.values())
+    if dom / len(small_gray) < _DENSITY_DOM_FRAC:
+        return False
+    # If there is also a real open data line, keep the region (line+marker chart).
+    return not _has_open_data_line(bbox, paths)
+
+
+def _is_dense_fill_lattice(bbox: BBox, paths: list[Path]) -> bool:
+    """A dispersion lattice / density field: far too many tiny fills per unit area.
+
+    Electronic band-structure dispersion plots render thousands of tiny glyphs
+    (one per k-point) at a fill density that real scatter series never reach.
+    Verified: dispersion ~0.254 fills/pt^2, densest legitimate scatter ~0.09.
+    The threshold _DISPERSION_DENSITY = 0.15 sits well between these values.
+    """
+    x0, y0, x1, y1 = bbox
+    area = (x1 - x0) * (y1 - y0)
+    if area <= 0:
+        return False
+    n = 0
+    for p in paths:
+        if p.fill is None:
+            continue
+        b = p.bbox
+        if b[2] - b[0] >= _DISPERSION_GLYPH_MAX or b[3] - b[1] >= _DISPERSION_GLYPH_MAX:
+            continue
+        cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
+        if x0 <= cx <= x1 and y0 <= cy <= y1:
+            n += 1
+    return n / area >= _DISPERSION_DENSITY
+
+
+def _has_tall_fill_band(bbox: BBox, paths: list[Path]) -> bool:
+    """A single tall colored filled polygon spanning most of the panel height.
+
+    Neutron-star M-R credible-region charts and similar Bayesian parameter-space
+    plots draw one (or a few) large filled polygons that span almost the full
+    panel height as a credible band. Legitimate confidence-band line charts draw
+    shaded error bands that cover at most ~0.75 of the panel height; the
+    credible-region fill reaches ~1.1 (extends beyond the clipped panel boundary).
+    The threshold _BAND_HEIGHT_FRAC = 0.85 safely separates the two cases.
+    """
+    x0, y0, x1, y1 = bbox
+    rh = y1 - y0
+    if rh <= 0:
+        return False
+    for p in paths:
+        if p.fill is None or p.stroke is not None:
+            continue  # must be fill-only (no outline)
+        if len(p.points) < _BAND_MIN_VERTS:
+            continue
+        if max(p.fill) - min(p.fill) <= _BAND_FILL_SPREAD:
+            continue  # white or near-gray background rect -> skip
+        b = p.bbox
+        cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
+        if not (x0 <= cx <= x1 and y0 <= cy <= y1):
+            continue
+        if (b[3] - b[1]) >= _BAND_HEIGHT_FRAC * rh:
+            return True
+    return False
+
+
 def _is_chart_type(bbox: BBox, paths: list[Path]) -> bool:
     """Reject regions that are clearly not line/scatter charts (precision gate).
 
-    Gates dense filled-cell grids (heatmap / imshow) and bar charts / histograms
-    (a contiguous run of bottom-aligned upright bars). Contour/KDE, boxplots and
-    pie charts are intentionally NOT gated: their available vector primitives do
-    not separate them from legitimate confidence-band line plots and error-bar
-    charts, so a gate would drop real charts (precision loss the wrong way).
+    Gates dense filled-cell grids (heatmap / imshow) and bar charts /
+    histograms, which pass the content+ticks gate but are not line/scatter
+    charts and would emit garbage. These are silently dropped (no skip stub).
+
+    2D non-linear chart types (contour/density maps, dispersion lattices,
+    credible bands) are handled separately by ``_2d_map_skip_reason``, which
+    returns a human-readable reason so the caller can emit a skip stub rather
+    than silently discarding the region.
     """
     return not _is_heatmap(bbox, paths) and not _is_bar_chart(bbox, paths)
+
+
+def _2d_map_skip_reason(bbox: BBox, paths: list[Path]) -> str | None:
+    """Return a skip reason string if the region is a 2D non-linear chart type.
+
+    Detects three families that are NOT line/scatter charts and would emit junk
+    data if extracted:
+
+    * **Uniform density map** (Bayesian posterior contour map): hundreds of
+      tiny same-colour grayscale filled glyphs with no open data line.
+    * **Dispersion lattice** (band-structure plot): extreme fill density
+      (fills/pt^2) far exceeding any real scatter series.
+    * **Tall credible band** (M-R or parameter-space credible region): a
+      single large colored filled polygon spanning the full panel height.
+
+    Returns ``None`` when none of the three signals fires (region is a normal
+    line/scatter chart and must be kept).
+    """
+    if _is_uniform_density_map(bbox, paths):
+        return "2d density/contour map: uniform grayscale fill cloud"
+    if _is_dense_fill_lattice(bbox, paths):
+        return "dispersion lattice: fill density too high for a scatter series"
+    if _has_tall_fill_band(bbox, paths):
+        return "2d credible-band/contour region: tall colored fill spans panel height"
+    return None
 
 
 def _covered_by_image(bbox: BBox, image_rects, frac: float = 0.55) -> bool:
@@ -630,9 +889,9 @@ def detect_regions(
     # patch + inner axes patch, merged spine, stroked frame); keep one each.
     boxes = _dedup_candidates(candidates, paths, texts)
 
-    # Chart-type gate: drop regions that are heatmaps or bar charts / histograms,
-    # which pass the content+ticks gate but are not line/scatter charts and would
-    # emit garbage (a cell grid or a few bar tops). Precision over recall.
+    # Chart-type gate (part 1): silently drop heatmaps and bar charts.
+    # These pass the content+ticks gate but are not line/scatter charts and
+    # would emit garbage. Precision over recall; no skip stub is written.
     boxes = [b for b in boxes if _is_chart_type(b, paths)]
     # Reject regions that are mostly an embedded raster image (markers-on-a-photo
     # / micrograph / sky map) rather than a vector chart.
@@ -647,6 +906,13 @@ def detect_regions(
 
     regions: list[Region] = []
     for bbox, r, c in zip(boxes, rows, cols):
+        # Chart-type gate (part 2): 2D non-linear chart types (contour/density
+        # maps, dispersion lattices, credible bands) are returned as regions
+        # with skip_reason set so the caller can emit a skip stub for them,
+        # rather than silently discarding them. This preserves the page-level
+        # chart count (skip files document why each detected region was not
+        # extracted) while still preventing junk extraction.
+        skip = _2d_map_skip_reason(bbox, paths)
         regions.append(Region(
             bbox=bbox,
             path_indices=[i for i, p in enumerate(paths)
@@ -655,6 +921,7 @@ def detect_regions(
                           if _contained(bbox, t.bbox)],
             row=r,
             col=c,
+            skip_reason=skip,
         ))
 
     # Shared-axis grouping: panels in the same column share x; same row share y.

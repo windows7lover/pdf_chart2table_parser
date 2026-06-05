@@ -89,6 +89,14 @@ _MIN_KEPT_FRAC = 0.5
 # A curve hugging a single spine (all vertices within this fraction of the box
 # span from one edge) is an axis / baseline / zero line, not data: rejected.
 _SPINE_BAND_FRAC = 0.02
+# A nearly-flat long curve (y-extent below this fraction of the plot height) that
+# also has ALL vertices within _SPINE_FLAT_EDGE_FRAC of one edge is a floor/ceiling
+# artefact (e.g. a model-band envelope sampled along the x-axis, a zero-floor row
+# drawn just inside the bottom spine) and is rejected.  The two-condition guard
+# avoids dropping legitimate near-flat data curves (which pass the flat test but
+# are far from every edge) or legitimate high-variation edge-grazing series.
+_SPINE_FLAT_YSPAN_FRAC = 0.02   # y-extent < 2 % of plot height => "essentially flat"
+_SPINE_FLAT_EDGE_FRAC  = 0.05   # all pts within 5 % of one edge => "hugging an edge"
 # Legend swatch: a short colored segment within this gap left of legend text.
 _LEGEND_GAP = 40.0
 # Two same-colour curves "overlap" (and so cannot be cleanly separated) if their
@@ -182,19 +190,45 @@ def _clip_to_box(pts, plot_box):
 
 def _is_spine_line(pts, plot_box) -> bool:
     """A curve whose vertices all hug one edge of the plot box is an axis /
-    baseline / zero line, not data."""
+    baseline / zero line, not data.
+
+    Two conditions trigger rejection:
+
+    1. *Tight-band*: all vertices within 2 % of one edge (the classic spine /
+       gridline case, unchanged).
+
+    2. *Flat-and-near*: the curve is essentially horizontal (y-extent < 2 % of
+       plot height) AND all vertices sit within 5 % of the bottom or top edge.
+       This catches zero-floor artefacts — dense over-sampled model-band envelopes
+       and flat noise strokes drawn just above or below the real axis line — without
+       dropping legitimate near-flat data curves (which span more than 2 % of the
+       plot height in y and/or are not near any edge).
+    """
     if plot_box is None:
         return False
     xlo, ylo, xhi, yhi = _box_bounds(plot_box)
+    height = yhi - ylo
     xband = _SPINE_BAND_FRAC * (xhi - xlo)
-    yband = _SPINE_BAND_FRAC * (yhi - ylo)
+    yband = _SPINE_BAND_FRAC * height
     xs = [x for x, _ in pts]
     ys = [y for _, y in pts]
-    near_left = all(abs(x - xlo) <= xband for x in xs)
-    near_right = all(abs(x - xhi) <= xband for x in xs)
+    near_left   = all(abs(x - xlo) <= xband for x in xs)
+    near_right  = all(abs(x - xhi) <= xband for x in xs)
     near_bottom = all(abs(y - ylo) <= yband for y in ys)
-    near_top = all(abs(y - yhi) <= yband for y in ys)
-    return near_left or near_right or near_bottom or near_top
+    near_top    = all(abs(y - yhi) <= yband for y in ys)
+    if near_left or near_right or near_bottom or near_top:
+        return True
+    # Flat-and-near: nearly horizontal AND hugging the bottom or top edge.
+    if height > 0:
+        yspan = max(ys) - min(ys)
+        edge_band = _SPINE_FLAT_EDGE_FRAC * height
+        is_flat = yspan < _SPINE_FLAT_YSPAN_FRAC * height
+        if is_flat and (
+            all(abs(y - ylo) <= edge_band for y in ys)
+            or all(abs(y - yhi) <= edge_band for y in ys)
+        ):
+            return True
+    return False
 
 
 def _near_legend(cx: float, cy: float, texts: list[TextSpan]) -> bool:
@@ -255,10 +289,22 @@ def _is_fragment(p: Path, region: Region, texts: list[TextSpan]) -> bool:
     NOT axis-aligned 1-D segments (``_varies_2d``), so black dotted curves are
     recovered while black gridlines / spines / ticks (axis-aligned) stay out.
     A dense many-vertex glyph (a marker outline) is not a segment, so it is
-    excluded -- it must not be merged into a fake curve."""
+    excluded -- it must not be merged into a fake curve.
+
+    A low-saturation stroke (black/gray) combined with a non-None fill is the
+    signature of a *marker glyph outline* (e.g. a black-bordered coloured
+    square/circle drawn by matplotlib): the fill is the marker face colour and
+    the stroke is the marker edge colour.  Merging many such glyphs would
+    produce a spurious "line series", so we reject them here.  Real dashed /
+    dash-dot curve fragments are stroked-only (fill=None).
+    """
     if p.closed or p.stroke is None or len(p.points) > _MAX_FRAG_VERTS:
         return False
     if not _is_saturated(p.stroke) and (_is_near_white(p.stroke) or not _varies_2d(p)):
+        return False
+    # Marker-outline guard: unsaturated stroke + filled body = marker glyph, not a
+    # curve segment.  Saturated strokes (coloured series lines) are unaffected.
+    if not _is_saturated(p.stroke) and p.fill is not None:
         return False
     return not _off_chart(p, region, texts)
 
@@ -436,8 +482,13 @@ def classify_lines(
     # Build candidate curves per (colour, dash-form) (a curve plus exemplar path).
     candidates: dict[tuple, list[tuple[list[tuple[float, float]], Path]]] = defaultdict(list)
     reasons: list[str] = []
-    for (color, _form), parts in long_groups.items():
-        if color in marker_colors:
+    for (color, form), parts in long_groups.items():
+        # A solid line in the same colour as a marker series is the connecting
+        # line drawn through the markers -- it duplicates the markers, so skip
+        # it.  A DASHED line in a marker colour is a distinct series (e.g. a
+        # dashed Training curve paired with solid+marker Testing curve drawn in
+        # the same colour): keep it.
+        if color in marker_colors and form == "solid":
             continue
         verts = _merge_long(parts)
         if verts is None:
@@ -447,8 +498,8 @@ def classify_lines(
         if verts is None:
             continue
         candidates[color].append((verts, parts[0]))
-    for (color, _form), parts in frag_groups.items():
-        if color in marker_colors:
+    for (color, form), parts in frag_groups.items():
+        if color in marker_colors and form == "solid":
             continue
         verts = _merge_fragments(parts)
         if verts is None:

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from .calibrate import calibrate_panels, to_data_array
 from .lines import SeriesLine, classify_lines
-from .marks import SeriesMarks, classify_marks
+from .marks import SeriesMarks, classify_marks, is_sparse_on_dense
 from .plot_region import detect_regions
 from .model import (
     Axis,
@@ -55,8 +55,7 @@ _MIN_TOTAL_POINTS = 1
 
 # A marker series of fewer than this many points is a degenerate tiny-n group
 # (an annotation glyph, a "Peak" cross, a lone corner mark), not a real scatter
-# series -> drop it. Real scatter clusters have many more marks; precision over
-# recall on the ambiguous 1-2-point case.
+# series -> drop it.
 _MIN_MARKS_PER_SERIES = 3
 
 
@@ -155,6 +154,9 @@ def extract_region(
     n_points = sum(len(s.points) for s in series)
     if n_points <= _MIN_TOTAL_POINTS:
         return ChartResult(status="skipped", skip_reason="no data points")
+
+    if is_sparse_on_dense(region, paths, n_points):
+        return ChartResult(status="skipped", skip_reason="sparse markers on dense chart")
 
     table = ChartTable(
         source=source,

@@ -55,6 +55,12 @@ class Region:
     row-major grid, and ``shares_x_with``/``shares_y_with`` list the indices of
     sibling regions that align into the same column (shared x axis) or row
     (shared y axis). Single-panel pages have row=col=0 and empty sibling lists.
+
+    ``skip_reason`` is set (non-None) when the chart-type gate identifies the
+    region as a non-line/scatter chart type (e.g. contour map, dispersion
+    lattice, credible band) that must not be extracted. The region is returned
+    by ``detect_regions`` so that the caller can emit a skip stub for it rather
+    than silently discarding it.
     """
 
     bbox: BBox
@@ -64,6 +70,7 @@ class Region:
     col: int = 0
     shares_x_with: list[int] = field(default_factory=list)
     shares_y_with: list[int] = field(default_factory=list)
+    skip_reason: str | None = None
 
 
 @dataclass

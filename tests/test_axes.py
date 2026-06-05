@@ -118,6 +118,45 @@ def test_parse_plain_decimals_and_suffixes():
     assert _parse_plain("50%") == 50.0
 
 
+# --- minus-glyph: complex paths (circles, rings) must not be mistaken --------
+from pdf_chart2table.axes import _is_minus_glyph
+from pdf_chart2table.model import Path as VPath
+
+
+def _make_path(pts, fill, stroke=None):
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return VPath(
+        points=pts,
+        stroke=stroke,
+        fill=fill,
+        width=None,
+        dashes=None,
+        closed=True,
+        bbox=(min(xs), min(ys), max(xs), max(ys)),
+    )
+
+
+def test_simple_rect_is_minus_glyph():
+    """A 5-point filled flat rectangle in the right size range IS a minus glyph."""
+    pts = [(100.0, 10.0), (105.0, 10.0), (105.0, 11.0), (100.0, 11.0), (100.0, 10.0)]
+    p = _make_path(pts, fill=(0.0, 0.0, 0.0))
+    assert _is_minus_glyph(p), "flat 5-pt filled rect should be a minus glyph"
+
+
+def test_complex_ring_is_not_minus_glyph():
+    """A many-point circle/ring with the same bounding box is NOT a minus glyph."""
+    import math
+    n = 40
+    pts = [(100.0 + 2.5 * (1 + math.cos(2 * math.pi * i / n)),
+            10.0 + 1.0 * (1 + math.sin(2 * math.pi * i / n)))
+           for i in range(n + 1)]
+    p = _make_path(pts, fill=(0.0, 0.0, 0.0))
+    assert not _is_minus_glyph(p), (
+        "complex ring (many points) must not be mistaken for a minus glyph"
+    )
+
+
 # --- axis-title selection: real title, not a sub-caption / figure caption ----
 from pdf_chart2table.axes import _is_subcaption, _x_title, _group_labels, _ticks_from
 from pdf_chart2table.model import Region, TextSpan

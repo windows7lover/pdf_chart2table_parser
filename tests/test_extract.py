@@ -48,8 +48,8 @@ def test_empty_region_skips():
 
 
 def test_single_point_region_skips():
-    """A lone isolated marker is a degenerate tiny-n group (annotation glyph),
-    rejected as a series -> region skips with no clean series."""
+    """A lone isolated coloured marker is a degenerate tiny-n group, not a real
+    series -> rejected, region skips."""
     paths = [_square(150, 200, fill=(0.0, 0.0, 1.0))]
     res = extract_region(_region(len(paths)), _axes(), paths, texts=[])
     assert res.status == "skipped"
@@ -100,3 +100,59 @@ def test_confidence_tracks_weaker_axis_fit():
                          paths, texts=[])
     assert res.status == "extracted"
     assert res.table.confidence == 0.98
+
+
+def _dense_line(x0, y0, x1, y1, n=20, *, stroke=(0.0, 0.0, 0.0)):
+    """A polyline with ``n`` vertices simulating a data curve (not a mark)."""
+    pts = [(x0 + (x1 - x0) * i / (n - 1), y0 + (y1 - y0) * i / (n - 1))
+           for i in range(n)]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=stroke, fill=None, width=1.0, dashes=None,
+                 closed=False, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def _spine(x0, y0, x1, y1, *, stroke=(0.0, 0.0, 0.0)):
+    """A 2-vertex spine/tick segment."""
+    return VPath(points=[(x0, y0), (x1, y1)], stroke=stroke, fill=None,
+                 width=1.0, dashes=None, closed=False,
+                 bbox=(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)))
+
+
+def test_sparse_on_dense_skips():
+    """A region with few marker points but many paths (including dense lines)
+    is rejected as sparse noise on a dense chart, not emitted as extracted."""
+    # 4 data markers (2 series x 3 marks, but enough for _is_real_series)
+    markers = [_square(130 + 20 * i, 250 - 8 * i, fill=(0.0, 0.0, 1.0))
+               for i in range(3)]
+    markers += [_square(135 + 20 * i, 240 - 8 * i, fill=(1.0, 0.0, 0.0))
+                for i in range(3)]
+    # 3 dense data-curve paths (each > 8 vertices -> "dense")
+    dense = [_dense_line(120, 130 + 20 * i, 280, 160 + 20 * i) for i in range(3)]
+    # 75 spine/tick 2-vertex segments: total_paths = 6+3+75 = 84, ratio = 84/6 = 14 > 12
+    spines = [_spine(110 + i, 100, 110 + i, 290) for i in range(75)]
+    all_paths = markers + dense + spines
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(len(all_paths))),
+                    text_indices=[])
+    res = extract_region(region, _axes(), all_paths, texts=[])
+    assert res.status == "skipped"
+    assert res.skip_reason == "sparse markers on dense chart"
+
+
+def test_sparse_legitimate_no_dense_lines_extracts():
+    """A sparse but genuine scatter chart with NO dense line paths (dense=0)
+    must NOT be rejected by the sparse-on-dense guard, even when ratio > threshold."""
+    # 7 markers (legitimate sparse scatter), no dense lines at all
+    markers = [_square(130 + 20 * i, 250 - 8 * i, fill=(0.0, 0.0, 1.0))
+               for i in range(7)]
+    # Only 2-vertex spine/tick paths (non-dense): 7+98=105 paths, ratio=105/7=15 > 12
+    # Without dense lines the sparse-on-dense guard must NOT fire.
+    spines = [_spine(110 + i, 100, 110 + i, 290) for i in range(98)]
+    all_paths = markers + spines
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(len(all_paths))),
+                    text_indices=[])
+    res = extract_region(region, _axes(), all_paths, texts=[])
+    assert res.status == "extracted"
+    assert sum(len(s.points) for s in res.table.series) == 7

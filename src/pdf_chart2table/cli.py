@@ -230,9 +230,10 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
     stem = os.path.splitext(os.path.basename(pdf))[0]
     outdir = os.path.join(outroot, stem)
 
-    page_list = pdf_vector.load_pdf(pdf)
-    n_pages = max((p.page_index for p in page_list), default=-1) + 1
-    wanted = set(_parse_pages(pages_spec, n_pages))
+    # Resolve wanted pages cheaply (page_count loads no drawings) and load only
+    # those — so ``--pages`` doesn't pay to parse every page of a long paper.
+    wanted = set(_parse_pages(pages_spec, pdf_vector.page_count(pdf)))
+    page_list = pdf_vector.load_pdf(pdf, pages=sorted(wanted))
 
     rows: list[dict] = []
     for page in page_list:
@@ -254,6 +255,14 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
                 "page": page.page_index,
                 "region_bbox": list(region.bbox),
             }
+            # Skip regions identified as 2D non-linear chart types (contour
+            # maps, dispersion lattices, credible bands) by the chart-type
+            # gate in detect_regions. These cannot be represented as series
+            # tables and would emit junk if extracted.
+            if region.skip_reason is not None:
+                rows.append(io_store.write_skip(
+                    region.skip_reason, source, outdir, page_no, k))
+                continue
             # Skip when neither axis could be calibrated.
             if x_axis.calibration is None and y_axis.calibration is None:
                 rows.append(io_store.write_skip(

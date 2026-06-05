@@ -20,9 +20,10 @@ from pathlib import Path as FsPath
 
 import pytest
 
-from pdf_chart2table.labels import detect_labels
+from pdf_chart2table.labels import _assemble_label, detect_labels
 from pdf_chart2table.pdf_vector import load_pdf
 from pdf_chart2table.plot_region import detect_regions
+from pdf_chart2table.model import TextSpan
 
 FIXTURES = FsPath(__file__).parent / "fixtures"
 
@@ -121,3 +122,53 @@ def test_real_paper_caption_spotcheck(capsys):
     # Not a strict assertion: real captions are brittle. Just ensure at least
     # one region exists so the spot check is meaningful.
     assert regions
+
+
+# --------------------------------------------------------------------------
+# Subscript/superscript label assembly unit tests.
+# --------------------------------------------------------------------------
+
+def _span(text, x0, y0, x1, y1, size=10.0):
+    return TextSpan(text=text, bbox=(x0, y0, x1, y1), size=size)
+
+
+def test_assemble_label_subscript_joined():
+    """Subscript span with cy offset > _LABEL_ROW_TOL but < 0.6 * anchor_size
+    must be concatenated into the label rather than dropped.
+
+    Mirrors the "E_N(a− : CR)" pattern in real papers where the subscript 'N'
+    sits ~2.9 pt below the base line while _LABEL_ROW_TOL = 2.5 pt.
+    """
+    # Anchor: 'E', size=6.32, cy=169.35 → y0=166.19, y1=172.51
+    # Subscript 'N': size=4.42, cy=172.25 → offset=2.90 (> 2.5 but < 0.6*6.32=3.79)
+    # Next spans: ' (', 'a', '−' (subscript), ': CR)'
+    base_size = 6.32
+    sub_size = 4.42
+    texts = [
+        _span("E",     346.1, 166.2, 350.8, 172.5, size=base_size),   # 0 anchor
+        _span("N",     350.8, 168.4, 354.9, 176.1, size=sub_size),    # 1 subscript, cy=172.25
+        _span(" (",    354.9, 166.2, 358.4, 173.5, size=base_size),   # 2
+        _span("a",     358.4, 166.2, 361.7, 172.5, size=base_size),   # 3
+        _span("−",     361.7, 168.4, 365.6, 176.1, size=sub_size),    # 4 subscript
+        _span(": CR)", 367.7, 166.2, 382.9, 172.5, size=base_size),   # 5
+    ]
+    ty = 0.5 * (texts[0].bbox[1] + texts[0].bbox[3])  # cy of anchor
+    label, consumed = _assemble_label(0, ty, texts, set())
+    assert "N" in label, f"subscript 'N' missing from {label!r}"
+    assert "−" in label, f"subscript '−' missing from {label!r}"
+    assert consumed == {0, 1, 2, 3, 4, 5}
+
+
+def test_assemble_label_same_size_row_tol_respected():
+    """Same-size spans with cy offset > _LABEL_ROW_TOL are NOT merged
+    (they belong to the next legend entry, not a subscript of this one).
+    """
+    base_size = 6.32
+    texts = [
+        _span("A", 10.0, 0.0, 14.0, 6.32, size=base_size),   # 0 anchor cy=3.16
+        _span("B", 14.0, 3.5, 18.0, 9.82, size=base_size),   # 1 next-row (cy=6.66, diff=3.5 > 2.5)
+    ]
+    ty = 0.5 * (texts[0].bbox[1] + texts[0].bbox[3])
+    label, consumed = _assemble_label(0, ty, texts, set())
+    assert "B" not in label, f"next-row span should not be merged into {label!r}"
+    assert consumed == {0}

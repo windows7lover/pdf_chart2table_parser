@@ -18,6 +18,7 @@ become two series at identical positions; we merge groups whose point sets are
 
 Public API:
     classify_marks(region, paths, texts) -> list[SeriesMarks]
+    is_sparse_on_dense(region, paths, n_extracted_points) -> bool
 """
 
 from __future__ import annotations
@@ -52,6 +53,19 @@ _LEGEND_GAP = 40.0
 # outline, or two coincident shapes) when their point sets match one-to-one with
 # every pair within this many points: merge them into one series.
 _DUP_POS_TOL = 1.5
+
+# Sparse-on-dense guard: skip an extraction if the number of extracted marker
+# points is very small relative to the region's total path count AND the region
+# contains at least a few dense (line/curve) paths.  Such regions have the real
+# data encoded as curves; the stray markers are noise (annotation glyphs, peak
+# symbols, etc.), not a genuine scatter series.
+_SOD_MAX_POINTS = 8        # only apply when total extracted points ≤ this
+_SOD_MIN_PATH_RATIO = 12   # region_paths / n_points must exceed this
+_SOD_MIN_REGION_PATHS = 60 # skip guard only fires in non-trivial regions
+_SOD_MIN_DENSE_PATHS = 2   # require at least this many >8-vertex paths (lines)
+# A path with more than this many vertices in a region is a "dense" line/curve,
+# not a single data-mark glyph.
+_DENSE_PATH_VERTS = 8
 
 
 @dataclass
@@ -232,3 +246,36 @@ def classify_marks(
     # Order series by first appearance (stable, deterministic); merge groups
     # that mark identical positions (filled+stroke duplicate of one series).
     return _merge_duplicate_series(list(groups.values()))
+
+
+def is_sparse_on_dense(
+    region: Region,
+    paths: list[Path],
+    n_extracted_points: int,
+) -> bool:
+    """Return True when the extraction looks like sparse noise on a dense chart.
+
+    A chart whose primary data is encoded as curves (polylines, splines) will
+    have many paths with high vertex counts.  If the marker extractor only found
+    a handful of points AND the region contains at least a few such dense paths,
+    the markers are likely annotation glyphs or stray noise rather than genuine
+    scatter data -- skip rather than emit a near-empty table.
+
+    Conditions (all must hold):
+      * n_extracted_points <= _SOD_MAX_POINTS  (small result)
+      * total paths in region >= _SOD_MIN_REGION_PATHS  (non-trivial chart)
+      * total_paths / n_extracted_points >= _SOD_MIN_PATH_RATIO  (sparsity ratio)
+      * paths with > _DENSE_PATH_VERTS vertices >= _SOD_MIN_DENSE_PATHS  (has lines)
+    """
+    if n_extracted_points <= 0 or n_extracted_points > _SOD_MAX_POINTS:
+        return False
+    total = len(region.path_indices)
+    if total < _SOD_MIN_REGION_PATHS:
+        return False
+    if total / n_extracted_points < _SOD_MIN_PATH_RATIO:
+        return False
+    dense = sum(
+        1 for idx in region.path_indices
+        if len(paths[idx].points) > _DENSE_PATH_VERTS
+    )
+    return dense >= _SOD_MIN_DENSE_PATHS
