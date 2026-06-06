@@ -1,0 +1,101 @@
+sample_id,legend_verdict,note
+astro_2606.04711_page30_chart12,legend_na,single-series scatter; no legend in original
+astro_2606.04711_page30_chart3,legend_na,single-series scatter; no legend in original
+astro_2606.04810_page12_chart1,legend_na,heatmap with colorbar; no series legend
+astro_2606.04810_page12_chart13,legend_na,heatmap with colorbar; no series legend
+astro_2606.04810_page12_chart14,legend_na,heatmap with colorbar; no series legend
+astro_2606.04810_page12_chart4,legend_na,heatmap with colorbar; no series legend
+astro_2606.04810_page12_chart5,legend_na,heatmap with colorbar; no series legend
+astro_2606.04810_page12_chart9,legend_na,heatmap with colorbar; no series legend
+astro_2606.04827_page5_chart2,legend_correct,4-entry legend 'This work/THESAN/Direct LyC/Wang+26a' recovered exactly
+astro_2606.04827_page5_chart3,legend_na,filled contour plot; no legend
+astro_2606.04894_page7_chart1,legend_missing,"original legend of dashed reference lines (t_min,t_max,Gamma_max,Gamma_min) not recovered"
+astro_2606.04894_page7_chart2,legend_missing,original legend of reference lines (R0 max/min) not recovered
+astro_2606.04894_page7_chart3,legend_na,single series; no legend in original
+astro_2606.04894_page7_chart4,legend_na,single series; no legend in original
+astro_2606.05119_page16_chart1,legend_na,"'bol' is a boxed panel tag, not a legend"
+astro_2606.05119_page16_chart2,legend_na,"'V' boxed panel tag, not a legend"
+astro_2606.05119_page16_chart3,legend_na,"'R' boxed panel tag, not a legend"
+astro_2606.05119_page16_chart4,legend_na,"'I' boxed panel tag, not a legend"
+astro_2606.05119_page18_chart2,legend_na,"corner text annotation (model name), not a legend"
+astro_2606.05119_page18_chart3,legend_na,"corner text annotation (model name), not a legend"
+astro_2606.05151_page9_chart3,legend_correct,2-entry legend 'XG (5 weeks)/A# (1 year)' recovered matching original
+astro_2606.05154_page4_chart4,legend_na,single series; no legend
+astro_2606.05154_page4_chart5,legend_correct,3-entry legend 'Model Flux/Observed Flux/Model spectrum' recovered (order differs)
+astro_2606.05154_page4_chart6,legend_na,single series; no legend
+astro_2606.05299_page11_chart2,legend_partial,many inline delta-labeled curves; only 'd=500/d=600/Th' recovered
+astro_2606.05299_page11_chart3,legend_partial,inline delta-labeled curves; only 'Th' recovered
+astro_2606.05299_page11_chart4,legend_partial,inline delta-labeled curves; only 'o/Th' recovered (one bare code)
+astro_2606.05299_page3_chart1,legend_wrong,inline 'delta~260..900 keV' labels recovered as 5x bare 'keV' (values lost)
+astro_2606.05323_page10_chart2,legend_wrong,mix: some correct (EIGER/FRESCO) plus spurious bare 's'/'o' marker codes
+materials_2606.00165_page18_chart3,legend_correct,6-entry legend D(a_-/a_+ :CR/MP1/MP3) all recovered (subscript +/- partly lost)
+materials_2606.00165_page8_chart3,legend_missing,3-entry legend (dE+^cir/dE-^cir/vacuum) not recovered; right has no legend
+materials_2606.00223_page6_chart4,legend_correct,3-entry legend '0.2 e-/LaNiO2/0.2 h+' recovered
+materials_2606.00403_page10_chart1,legend_wrong,"legend '3C/2H/9R' recovered as '2H/o/3C' (spurious bare 'o', 9R lost)"
+materials_2606.00403_page10_chart2,legend_partial,two legends (3200/3250/3300 K and C/Si) present; only 'Si' recovered
+materials_2606.00403_page10_chart4,legend_correct,3-entry legend '3000 K/3200 K/3300 K' recovered
+materials_2606.00403_page19_chart1,legend_missing,top legend ('40 Ry' etc.) not recovered; right has no legend
+materials_2606.00479_page5_chart1,legend_na,single series; no legend
+materials_2606.00681_page4_chart1,legend_partial,legend '60 kHz (CTZ)/100 kHz (ECS)/150 kHz (NKG)'; only '150 kHz (NKG)' recovered
+materials_2606.00681_page4_chart2,legend_wrong,7-entry legend (S1/A1/ST/AT/S2/A2/electrical peak); recovered as mostly bare 'o'/'^' codes
+materials_2606.00785_page17_chart2,legend_na,single series; no legend
+materials_2606.01373_page7_chart1,legend_wrong,"legend recovered but garbled spacing ('Wit ho ut cavit y', 'cavit y')"
+materials_2606.01373_page7_chart2,legend_wrong,"garbled spacing ('Cylindrical cavit y','Wit ho ut cavit y')"
+materials_2606.01373_page7_chart4,legend_wrong,"garbled spacing ('Cylindrical cavit y','Wit ho ut cavit y')"
+materials_2606.01373_page7_chart6,legend_wrong,"garbled spacing ('Linear cavit y(y)','Wit ho ut cavit y')"
+materials_2606.01373_page7_chart9,legend_wrong,"garbled spacing ('Linear cavit y(y)','Wit ho ut cavit y')"
+materials_2606.01444_page34_chart2,legend_correct,2-entry legend 'path records/adhesion-only ablation' recovered
+materials_2606.01515_page7_chart7,legend_wrong,"legend 'dt4=0/dt4!=0' recovered as 'x10 5/dt4=0/dt4 0' (spurious entry, != lost)"
+materials_2606.01593_page8_chart2,legend_na,single series; no legend
+materials_2606.01938_page7_chart1,legend_correct,3-entry legend 'E=7/20/35 meV' recovered
+materials_2606.01938_page7_chart5,legend_correct,3-entry legend 'E=7/20/35 meV' recovered
+materials_2606.01938_page8_chart3,legend_correct,4-entry legend 'R=30/50/70/100 nm' recovered
+materials_2606.02072_page12_chart1,legend_na,single series; no legend
+materials_2606.02072_page8_chart1,legend_na,"inline annotations (R2, E||c, (b)); no legend box"
+materials_2606.02085_page4_chart1,legend_na,no legend box; many overlaid curves
+materials_2606.02085_page4_chart2,legend_na,no legend box
+materials_2606.02128_page4_chart1,legend_correct,inline curve labels 'Rough'/'Smooth' recovered as legend
+materials_2606.02317_page22_chart7,legend_na,"inline curve annotations (N 1s, Si-N, SiON(H)); no legend box"
+materials_2606.02419_page3_chart1,legend_na,inline point labels (Air/Neo/Plus/Pro); no legend box
+materials_2606.02419_page3_chart2,legend_missing,11-entry method legend + size legend not recovered; right has no legend
+materials_2606.02749_page10_chart1,legend_na,marker-glyph panel (B_x); no text legend
+materials_2606.02749_page10_chart2,legend_na,marker-glyph panel (B_z); no text legend
+materials_2606.02858_page3_chart1,legend_missing,6-entry legend (Py6/Nd_n) not recovered; right has no legend
+materials_2606.03016_page11_chart1,legend_na,inline italic curve letters (a-g); no legend box (one spurious 'f')
+materials_2606.03405_page6_chart5,legend_na,inline 'N=38 RPQA mid' text box; no series legend
+materials_2606.03497_page22_chart2,legend_na,inline 'T=10 K' annotation; no legend
+materials_2606.03497_page22_chart4,legend_na,inline 'T=35 K' annotation; no legend
+materials_2606.03497_page22_chart6,legend_na,inline 'T=65 K' annotation; no legend
+materials_2606.03497_page22_chart7,legend_na,inline 'T=80 K' annotation; no legend
+materials_2606.03586_page6_chart1,legend_correct,"4-entry temperature legend '370K/200K/100K/15K' recovered (clean, plausible)"
+materials_2606.04147_page4_chart2,legend_wrong,no legend in original; spurious 'SNT' legend invented
+materials_2606.04219_page10_chart1,legend_na,continuous colorbar (V_D 0.5-3V); not a discrete legend
+materials_2606.04219_page10_chart3,legend_missing,3-entry legend 'W_CH (nm): 25/20/15' not recovered
+materials_2606.04544_page5_chart1,legend_missing,4-entry legend 'G(2e2/h): 0/1/2/3' not recovered
+materials_2606.04544_page5_chart2,legend_missing,2-entry legend 'V_G(V): 0.0/2.0' not recovered
+materials_2606.04544_page5_chart3,legend_missing,6-entry legend 'G(2e2/h): 0.00..3.14' not recovered
+materials_2606.04608_page18_chart10,legend_wrong,no legend in original; spurious '(c2)'/'s' codes invented
+materials_2606.04608_page18_chart11,legend_na,panel tags (b3/c3); no legend
+materials_2606.04608_page18_chart9,legend_na,panel tags (b1/c1); no legend
+materials_2606.04608_page30_chart1,legend_correct,2-entry legend 'DMRG/Heisenberg' recovered
+materials_2606.04608_page30_chart2,legend_wrong,panel inline labels are 'L=12/L=24'; recovered 'DMRG/Heisenberg' mis-assigned to this panel
+materials_2606.04608_page30_chart3,legend_wrong,panel inline labels 'U=8G/U=4G/L=20'; recovered 'DMRG/Heisenberg' mis-assigned
+materials_2606.04724_page15_chart1,legend_missing,4-entry tau legend (+Dxi) not recovered; right has no legend
+materials_2606.04724_page15_chart10,legend_missing,4-entry tau legend not recovered
+materials_2606.04724_page15_chart11,legend_missing,4-entry tau legend not recovered
+materials_2606.04724_page15_chart2,legend_missing,4-entry tau legend (+Dxi) not recovered
+materials_2606.04724_page15_chart4,legend_missing,4-entry tau legend not recovered
+materials_2606.04724_page15_chart8,legend_missing,4-entry tau legend not recovered
+materials_2606.04724_page23_chart1,legend_wrong,"5-entry legend (b~=-0.83..-1.45, xi_corr=1) recovered as 'o/b=/b=/b=' (values lost)"
+materials_2606.04724_page23_chart2,legend_wrong,same legend recovered as 'o/b=/b=/b=' (values lost)
+materials_2606.04724_page23_chart3,legend_na,inline param box only; no series legend
+materials_2606.04724_page23_chart4,legend_na,inline param box only; no series legend
+materials_2606.04842_page3_chart2,legend_wrong,legend 'Al/Ga' recovered with spurious bare 'o' prepended
+materials_2606.04842_page3_chart4,legend_wrong,"legend 'Barrier temp: @850C/@1160C' recovered as 'o/@1,160 C' (@850 lost, spurious 'o')"
+materials_2606.04919_page21_chart2,legend_na,"inline curve labels (hh,1s / hh,2s); no legend box"
+materials_2606.05050_page13_chart1,legend_correct,4-entry legend (CARE/UniMech reactions/intermediates) recovered (order differs)
+materials_2606.05050_page18_chart1,legend_wrong,4-entry legend recovered with spurious bare 'o' codes; 'Train PASS' lost
+materials_2606.05050_page18_chart2,legend_partial,5 entries (Retriever val acc/Training pairs/balanced/conservative/exploratory); 3 clean recovered
+materials_2606.05050_page18_chart4,legend_wrong,4-entry legend recovered with spurious bare 's'/'o' codes; Knowledge/Skill bank lost
+materials_2606.05128_page6_chart3,legend_missing,5-entry material legend (+n/p-type marks) not recovered; right has no legend
+materials_2606.05128_page9_chart4,legend_na,"inline filling-factor labels (nu=7..1, N=4..1); no legend box"

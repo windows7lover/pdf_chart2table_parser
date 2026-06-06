@@ -1,0 +1,101 @@
+sample_id,legend_verdict,note
+optml_2606.00296_page2_chart2,legend_na,single-series scatter (residuals); no legend in original or replot
+optml_2606.00296_page2_chart3,legend_na,single-series scatter (residuals); no legend
+optml_2606.00340_page73_chart1,legend_na,continuous colorbar not a discrete legend; nothing to recover
+optml_2606.00340_page73_chart2,legend_na,continuous colorbar not a discrete legend
+optml_2606.00340_page73_chart3,legend_na,continuous colorbar not a discrete legend
+optml_2606.00340_page73_chart4,legend_na,continuous colorbar not a discrete legend
+optml_2606.00656_page7_chart1,legend_missing,4 colored series; original legend above plot; replot has no legend
+optml_2606.00656_page7_chart10,legend_missing,4 series with legend above plot; replot has no legend
+optml_2606.00656_page7_chart11,legend_missing,original legend (OptFair-post/Fair...) above plot; replot none
+optml_2606.00656_page7_chart12,legend_missing,original legend (Linear...) above plot; replot none
+optml_2606.00656_page7_chart13,legend_missing,4 series; original legend above plot; replot none
+optml_2606.00656_page7_chart15,legend_missing,4 series; original legend above plot; replot none
+optml_2606.00656_page7_chart16,legend_missing,4 series; original legend above plot; replot none
+optml_2606.00656_page7_chart17,legend_missing,4 series; original legend above plot; replot none
+optml_2606.00656_page7_chart3,legend_missing,5+ series; original legend (FairBatch etc) above plot; replot none
+optml_2606.00656_page7_chart4,legend_missing,multi-series; original legend above plot; replot none
+optml_2606.00656_page7_chart6,legend_missing,5 series; original legend above plot; replot none
+optml_2606.00656_page7_chart7,legend_missing,4 series; original legend above plot; replot none
+optml_2606.00656_page7_chart8,legend_missing,5 series; original legend above plot; replot none
+optml_2606.00795_page10_chart5,legend_wrong,single series; replot legend shows annotation MAE=0.488 captured as series label
+optml_2606.00795_page10_chart8,legend_na,single series; only MAE annotation box (not a legend); none recovered
+optml_2606.00984_page43_chart1,legend_partial,5 colored series but only BLCE-G(0.1) recovered
+optml_2606.00984_page43_chart11,legend_partial,5 series but only BLCE(0.5) recovered
+optml_2606.00984_page43_chart12,legend_correct,single series BLCE(0.9) recovered correctly
+optml_2606.00984_page43_chart2,legend_partial,5 series but only BLCE-G(0.5) recovered
+optml_2606.00984_page43_chart5,legend_partial,5 series but only BLCE-G(0.5) recovered
+optml_2606.00984_page43_chart6,legend_correct,single series BLCE-G(0.9) recovered correctly
+optml_2606.00984_page43_chart8,legend_partial,5 series but only BLCE-G(0.5) recovered
+optml_2606.01521_page4_chart1,legend_wrong,spurious bare marker-codes (* o ^) as labels; real labels (SGD/Adam/l(w)) not recovered
+optml_2606.01612_page24_chart1,legend_correct,3 labels (Zero/Low/High IoU) all recovered
+optml_2606.01612_page24_chart2,legend_correct,3 labels (Zero/Low/High IoU) all recovered
+optml_2606.01612_page24_chart3,legend_correct,3 labels (Zero/Low/High IoU) all recovered
+optml_2606.01973_page8_chart1,legend_missing,original legend ID/OOD; replot has no legend
+optml_2606.01973_page8_chart3,legend_missing,original legend ID/OOD; replot has no legend
+optml_2606.02288_page14_chart1,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart10,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart11,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart12,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart13,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart14,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart15,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart16,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart17,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart19,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart2,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart20,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart21,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart22,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart23,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart24,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart25,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart26,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart28,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart29,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart3,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart30,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart4,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart5,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart6,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart7,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart8,legend_na,two-band variance scatter; no legend
+optml_2606.02288_page14_chart9,legend_na,two-band variance scatter; no legend
+optml_2606.02345_page26_chart10,legend_missing,4-entry in-axes legend (Full/Hard sampling/SRS-WOR/Rejective); replot none
+optml_2606.02345_page26_chart11,legend_missing,4-entry in-axes legend; replot none
+optml_2606.02345_page26_chart12,legend_missing,4-entry in-axes legend; replot none
+optml_2606.02345_page26_chart4,legend_missing,4-entry in-axes legend (Cora); replot none
+optml_2606.02345_page26_chart5,legend_missing,4-entry in-axes legend; replot none
+optml_2606.02345_page26_chart6,legend_missing,4-entry in-axes legend; replot none
+optml_2606.02345_page26_chart7,legend_missing,4-entry in-axes legend; replot none
+optml_2606.02345_page26_chart8,legend_missing,4-entry in-axes legend (Full/Hard/Bernoulli/Poisson); replot none
+optml_2606.02345_page26_chart9,legend_missing,4-entry in-axes legend; replot none
+optml_2606.02596_page4_chart1,legend_missing,4-entry in-axes legend (ResNet-18/VGG-11/GPT-2/alpha=2); replot none
+optml_2606.02607_page23_chart1,legend_na,single-series panel (Adult); no in-panel legend
+optml_2606.02607_page23_chart10,legend_na,single-series panel (Shoppers); no in-panel legend
+optml_2606.02607_page23_chart11,legend_na,single-series panel (Bikesharing); no in-panel legend
+optml_2606.02607_page23_chart12,legend_na,single-series panel (Powerplant); no in-panel legend
+optml_2606.02607_page23_chart13,legend_na,single-series panel; no in-panel legend
+optml_2606.02607_page23_chart14,legend_na,single-series panel; no in-panel legend
+optml_2606.02607_page23_chart15,legend_na,single-series panel; no in-panel legend
+optml_2606.02607_page23_chart17,legend_na,single-series panel (Adult); no in-panel legend
+optml_2606.02607_page23_chart18,legend_na,single-series panel (Shoppers); no in-panel legend
+optml_2606.02607_page23_chart19,legend_na,single-series panel (Bikesharing); no in-panel legend
+optml_2606.02607_page23_chart2,legend_na,single-series panel (Shoppers); no in-panel legend
+optml_2606.02607_page23_chart20,legend_na,single-series panel (Powerplant); no in-panel legend
+optml_2606.02607_page23_chart23,legend_na,single-series panel; no in-panel legend
+optml_2606.02607_page23_chart3,legend_na,single-series panel (Bikesharing); no in-panel legend
+optml_2606.02607_page23_chart4,legend_na,single-series panel (Powerplant); no in-panel legend
+optml_2606.02607_page23_chart9,legend_na,single-series panel (Adult); no in-panel legend
+optml_2606.02623_page31_chart10,legend_na,overlaid latent-mode curves; no legend in original
+optml_2606.02623_page31_chart11,legend_na,overlaid curves; no legend in original
+optml_2606.02623_page31_chart12,legend_na,overlaid curves; no legend in original
+optml_2606.02623_page31_chart14,legend_na,overlaid curves; no legend in original
+optml_2606.02623_page31_chart15,legend_na,overlaid curves; no legend in original
+optml_2606.02623_page31_chart16,legend_na,overlaid curves; no legend in original
+optml_2606.02623_page31_chart17,legend_na,overlaid curves; no legend in original
+optml_2606.02623_page31_chart18,legend_na,overlaid curves; no legend in original
+optml_2606.02623_page31_chart19,legend_na,overlaid curves; no legend in original
+optml_2606.02623_page31_chart2,legend_na,overlaid curves; no legend in original
+optml_2606.02623_page31_chart20,legend_na,overlaid curves; no legend in original
+optml_2606.02623_page31_chart21,legend_na,overlaid curves; no legend in original

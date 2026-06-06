@@ -1,0 +1,101 @@
+sample_id,legend_verdict,note
+optml_2605.02961_page40_chart1,legend_wrong,"3-entry legend (corridor midline/baseline guide/optimized guide) replaced by optimized guide + spurious bare codes s, D"
+optml_2605.02961_page40_chart2,legend_wrong,no legend in original (single series); fabricated spurious bare code 'k'
+optml_2605.02961_page40_chart3,legend_missing,4-entry legend dropped entirely; right panel has no legend
+optml_2605.03357_page22_chart10,legend_correct,Vanilla/Adaptive both recovered
+optml_2605.03357_page22_chart11,legend_wrong,"3-entry (Vanilla/Adaptive/Expert): Vanilla->spurious 'o', Adaptive dropped, Expert correct"
+optml_2605.03357_page22_chart12,legend_correct,Vanilla/Adaptive both recovered
+optml_2605.03357_page22_chart2,legend_correct,Vanilla/Adaptive both recovered
+optml_2605.03357_page22_chart3,legend_correct,Vanilla/Adaptive both recovered
+optml_2605.03357_page22_chart5,legend_wrong,"Vanilla->spurious 'o', Adaptive dropped, Expert correct"
+optml_2605.03357_page22_chart6,legend_correct,Vanilla/Adaptive both recovered
+optml_2605.03357_page22_chart7,legend_wrong,"Vanilla->spurious 'o', Adaptive dropped, Expert correct"
+optml_2605.03357_page22_chart8,legend_correct,Vanilla/Adaptive both recovered
+optml_2605.03357_page22_chart9,legend_missing,3-entry legend dropped; right panel has no legend
+optml_2605.03357_page34_chart11,legend_na,single series; no legend in original
+optml_2605.03357_page34_chart7,legend_na,single series; no legend in original
+optml_2605.03357_page34_chart8,legend_na,single series; no legend in original
+optml_2605.04561_page24_chart1,legend_partial,only 1 of 4 entries (tr(Cov(xk))) recovered
+optml_2605.04561_page24_chart2,legend_partial,only 1 of 4 entries recovered
+optml_2605.04561_page24_chart3,legend_partial,only 1 of 4 entries recovered
+optml_2605.04561_page24_chart4,legend_partial,only 1 of 4 entries recovered
+optml_2605.04561_page40_chart1,legend_correct,3 tol= entries recovered
+optml_2605.04561_page40_chart2,legend_correct,single tol= entry recovered
+optml_2605.04561_page40_chart3,legend_partial,only 1 of 3 tol= entries recovered (overlapping curves)
+optml_2605.04561_page40_chart4,legend_correct,3 tol= entries recovered
+optml_2605.06585_page11_chart1,legend_na,no legend in original (4 marker series unlabeled)
+optml_2605.06585_page11_chart2,legend_na,no legend in original
+optml_2605.06654_page23_chart1,legend_missing,5-entry legend dropped; right panel has no legend
+optml_2605.06654_page23_chart2,legend_missing,5-entry legend dropped; right panel has no legend
+optml_2605.06654_page23_chart3,legend_wrong,"5 entries garbled (math subscripts lost): '(AdamW)','1,','1, (SignSGD)','2, 2','1, 1'"
+optml_2605.06654_page23_chart4,legend_wrong,5 entries garbled (math subscripts lost)
+optml_2605.06654_page23_chart5,legend_wrong,5 entries garbled (math subscripts lost)
+optml_2605.06821_page60_chart1,legend_correct,3 entries (wSRMS/wSF/wRF) recovered; subscripts flattened
+optml_2605.06821_page60_chart10,legend_missing,2-entry legend dropped; right panel has no legend
+optml_2605.06821_page60_chart11,legend_correct,2 entries recovered
+optml_2605.06821_page60_chart13,legend_correct,2 entries recovered
+optml_2605.06821_page60_chart14,legend_correct,single |cos(...)| entry recovered
+optml_2605.06821_page60_chart15,legend_correct,single |cos(...)| entry recovered
+optml_2605.06821_page60_chart17,legend_correct,3 entries recovered
+optml_2605.06821_page60_chart18,legend_correct,3 entries recovered
+optml_2605.06821_page60_chart19,legend_correct,3 entries recovered
+optml_2605.06821_page60_chart2,legend_wrong,"4-entry: wSRMS->spurious 'o', wSF dropped, wRF/EoS threshold correct"
+optml_2605.06821_page60_chart3,legend_wrong,"4-entry: wSRMS->spurious 'o', wSF dropped, wRF/EoS threshold correct"
+optml_2605.06821_page60_chart5,legend_correct,3 entries recovered
+optml_2605.06821_page60_chart7,legend_correct,3 entries recovered
+optml_2605.06821_page60_chart8,legend_correct,2 entries recovered
+optml_2605.06821_page60_chart9,legend_correct,2 entries recovered
+optml_2605.06821_page7_chart2,legend_correct,single lambda_max(H) entry recovered
+optml_2605.07386_page38_chart1,legend_na,diagram with point labels; no legend in original
+optml_2605.07386_page38_chart2,legend_na,diagram; no legend in original
+optml_2605.07529_page31_chart2,legend_na,no legend in original (dense multi-series)
+optml_2605.07795_page50_chart1,legend_na,single series; no legend in original
+optml_2605.07795_page50_chart2,legend_na,single series; no legend in original
+optml_2605.07795_page50_chart5,legend_na,single series; no legend in original
+optml_2605.08751_page14_chart10,legend_na,single series; no legend in original
+optml_2605.08751_page14_chart11,legend_wrong,no legend in original; fabricated '5 10 15' from inset tick labels
+optml_2605.08751_page14_chart12,legend_wrong,no legend in original; fabricated '0 10 20' from inset tick labels
+optml_2605.08751_page14_chart3,legend_missing,5-entry theta legend dropped; right panel has no legend
+optml_2605.08751_page14_chart4,legend_missing,5-entry theta legend dropped; right panel has no legend
+optml_2605.08751_page14_chart6,legend_missing,2-entry math legend dropped; right panel has no legend
+optml_2605.08751_page14_chart9,legend_na,single series; no legend in original
+optml_2605.09552_page108_chart8,legend_wrong,"2 entries garbled LaTeX: '1 wi' (was 1-w_i), 'MC Pcol(M)ei 2'"
+optml_2605.09552_page130_chart1,legend_missing,4-entry beta_mom legend dropped; right panel has no legend
+optml_2605.09552_page130_chart3,legend_missing,4-entry beta_mom legend dropped; right panel has no legend
+optml_2605.10524_page13_chart3,legend_wrong,no legend in original; fabricated single 'CX(t)' from y-axis label
+optml_2605.10524_page13_chart4,legend_wrong,no legend in original; fabricated single 'CX(t)'
+optml_2605.10524_page13_chart5,legend_correct,2 entries (My=1/My=3) recovered; subscript flattened
+optml_2605.14273_page21_chart1,legend_correct,both line series (Average/Ideal Speed Up) recovered; band entry not a data series
+optml_2605.15563_page10_chart10,legend_na,no legend in original (multi-curve unlabeled)
+optml_2605.15563_page10_chart6,legend_na,no legend in original (inset is zoom)
+optml_2605.15563_page10_chart8,legend_correct,3 entries (Reference/Optimal/DeePO) recovered
+optml_2605.15563_page10_chart9,legend_na,no legend in original
+optml_2605.16190_page15_chart1,legend_correct,2 entries (Objective/Job completion) recovered
+optml_2605.16190_page15_chart2,legend_correct,2 entries recovered
+optml_2605.23675_page16_chart1,legend_na,strip plot; no legend in original
+optml_2605.23675_page16_chart10,legend_na,scatter; no legend in original
+optml_2605.23675_page16_chart11,legend_na,scatter; no legend in original
+optml_2605.23675_page16_chart12,legend_na,scatter; no legend in original
+optml_2605.23675_page16_chart5,legend_na,scatter; no legend in original
+optml_2605.23675_page16_chart7,legend_na,scatter; no legend in original
+optml_2605.23675_page16_chart8,legend_na,scatter; no legend in original
+optml_2605.23675_page16_chart9,legend_na,scatter; no legend in original
+optml_2605.23761_page22_chart10,legend_na,single series; no legend in original
+optml_2605.23761_page22_chart11,legend_na,single series; no legend in original
+optml_2605.23761_page22_chart14,legend_na,single series (title nos5); no legend in original
+optml_2605.23761_page22_chart15,legend_na,single series (494_bus); no legend in original
+optml_2605.23761_page22_chart16,legend_na,single series; no legend in original
+optml_2605.23761_page22_chart18,legend_na,single series; no legend in original
+optml_2605.23761_page22_chart3,legend_na,single series (494_bus); no legend in original
+optml_2605.23761_page22_chart4,legend_na,single series; no legend in original
+optml_2605.23761_page22_chart5,legend_na,single series; no legend in original
+optml_2605.23761_page22_chart6,legend_na,single series; no legend in original
+optml_2605.23761_page22_chart8,legend_na,single series (nos5); no legend in original
+optml_2605.24833_page26_chart1,legend_correct,3 entries (Initial value V0/Forward 95% loss/Control cost) recovered
+optml_2605.25255_page13_chart8,legend_correct,5-entry K= legend recovered (clean K=1..16); box hidden under overlay on left
+optml_2605.25318_page18_chart2,legend_wrong,"4-entry (Ground Truth/Linear/Quadratic/Linear Prop.): Linear->spurious 's', Ground Truth dropped"
+optml_2605.25318_page18_chart3,legend_wrong,"Linear->spurious 's', Ground Truth dropped, Linear Prop./Quadratic correct"
+optml_2605.25318_page18_chart4,legend_wrong,"Linear->spurious 's', Ground Truth dropped, Linear Prop./Quadratic correct"
+optml_2605.25490_page16_chart1,legend_na,no legend in original (two curves unlabeled)
+optml_2605.30181_page19_chart1,legend_correct,5 entries (Schatten-3/2/nuclear/spectral/CVX nuclear/CVX spectral) recovered
+optml_2606.00296_page2_chart1,legend_na,single series; no legend in original

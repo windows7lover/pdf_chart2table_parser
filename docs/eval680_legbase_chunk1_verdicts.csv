@@ -1,0 +1,101 @@
+sample_id,legend_verdict,note
+astro_2606.00205_page8_chart1,legend_wrong,"3 real L_bol labels lost superscript (10^42 -> 1042) + spurious bare codes ^,s,o"
+astro_2606.00208_page6_chart1,legend_partial,"3 inline labels (NIRSpec Gratings, MIRI LRS, MIRI Imaging); only MIRI Imaging recovered"
+astro_2606.00208_page6_chart3,legend_correct,inline label G395M/F290LP recovered
+astro_2606.00212_page10_chart3,legend_na,no legend; only annotations
+astro_2606.00219_page17_chart2,legend_na,"corner/density plot, no legend"
+astro_2606.00219_page17_chart3,legend_na,no legend
+astro_2606.00219_page17_chart30,legend_na,no legend
+astro_2606.00219_page17_chart35,legend_na,no legend
+astro_2606.00219_page17_chart47,legend_na,no legend
+astro_2606.00219_page17_chart48,legend_na,no legend
+astro_2606.00219_page17_chart5,legend_na,no legend
+astro_2606.00219_page17_chart52,legend_na,no legend
+astro_2606.00219_page17_chart6,legend_na,no legend
+astro_2606.00219_page17_chart68,legend_missing,"3 inline series labels (21cmEMUv1 UltraNest/nautilus/MultiNest) present, none recovered"
+astro_2606.00221_page17_chart3,legend_correct,"Data, Total GMM, Components, Components all correct"
+astro_2606.00221_page20_chart1,legend_na,no legend
+astro_2606.00221_page20_chart4,legend_na,no legend
+astro_2606.00258_page12_chart1,legend_wrong,"spurious bare codes s,s,o; only 1 of 4 real labels recovered"
+astro_2606.00332_page16_chart1,legend_na,"only Pearson/p-val annotation, no series legend"
+astro_2606.00332_page16_chart3,legend_na,no legend
+astro_2606.00332_page16_chart4,legend_na,no legend
+astro_2606.00332_page16_chart5,legend_na,no legend
+astro_2606.00493_page16_chart2,legend_na,no legend
+astro_2606.00569_page27_chart1,legend_na,"inline molecular-line annotation, no series legend"
+astro_2606.00569_page27_chart2,legend_na,inline annotation only
+astro_2606.00569_page27_chart3,legend_na,inline annotation only
+astro_2606.00569_page27_chart4,legend_na,inline annotation only
+astro_2606.00569_page27_chart5,legend_na,inline annotation only
+astro_2606.00569_page27_chart7,legend_na,inline annotation only
+astro_2606.00631_page4_chart1,legend_correct,7 chemistry labels (Ca..CaC9N) all correct
+astro_2606.00631_page4_chart2,legend_correct,7 chemistry labels all correct
+astro_2606.00721_page19_chart1,legend_na,no legend
+astro_2606.00721_page19_chart3,legend_na,no legend
+astro_2606.00992_page12_chart1,legend_missing,"legend present (top, cut) in original, none recovered"
+astro_2606.01059_page10_chart3,legend_correct,HillasIntersection/WeightedSum/WeightedSum(Limitation) all correct
+astro_2606.01059_page5_chart1,legend_correct,4 camera labels correct (minor punctuation loss)
+astro_2606.01570_page8_chart1,legend_correct,AGN2/SFG/Merger/Other (Z22/CL) all 4 correct
+astro_2606.01570_page8_chart2,legend_partial,"4 entries in original, only Merger(CL) & Other(CL) recovered"
+astro_2606.01625_page19_chart1,legend_na,no legend
+astro_2606.01625_page36_chart2,legend_na,no legend
+astro_2606.01625_page36_chart6,legend_na,no legend
+astro_2606.01625_page36_chart7,legend_na,no legend
+astro_2606.01625_page36_chart8,legend_na,no legend
+astro_2606.01823_page4_chart4,legend_wrong,spurious bare code o added beside real Power-law Fit
+astro_2606.01823_page4_chart5,legend_wrong,spurious bare code o added beside real Power-law Fit
+astro_2606.01823_page4_chart6,legend_wrong,spurious bare code o added beside real Power-law Fit
+astro_2606.01823_page4_chart7,legend_wrong,spurious bare code o added beside real Power-law Fit
+astro_2606.01870_page4_chart1,legend_missing,"Bloated/Unbloated legend mis-placed as figure suptitle, no series legend"
+astro_2606.01956_page13_chart1,legend_correct,"Fit, HOROLOGIUM-I exp both correct"
+astro_2606.01956_page13_chart11,legend_correct,"Fit, TRIANGULUM-II exp both correct"
+astro_2606.01956_page13_chart12,legend_correct,"Fit, TRIANGULUM-II plum both correct"
+astro_2606.01956_page13_chart7,legend_correct,"Fit, PHOENIX-II exp both correct"
+astro_2606.01956_page13_chart8,legend_correct,"Fit, PHOENIX-II plum both correct"
+astro_2606.01956_page13_chart9,legend_correct,"Fit, SAGITTARIUS-II exp both correct"
+astro_2606.02032_page11_chart2,legend_wrong,"~10 real entries; recovered mostly bare codes s,^,o + only GRB 061201A"
+astro_2606.02353_page3_chart1,legend_na,"panel annotation only, no legend"
+astro_2606.02353_page3_chart2,legend_na,no legend
+astro_2606.02353_page3_chart3,legend_na,no legend
+astro_2606.02353_page3_chart4,legend_na,no legend
+astro_2606.02353_page3_chart5,legend_na,no legend
+astro_2606.02566_page17_chart1,legend_correct,"L13 (Fiducial), L12, L11 clean plausible labels"
+astro_2606.02566_page17_chart3,legend_correct,"L13 (Fiducial), L12, L11 clean plausible labels"
+astro_2606.02566_page7_chart4,legend_na,"only annotation + colorbar, no legend"
+astro_2606.02685_page5_chart1,legend_partial,dense overlay plot; real label(s) present (Salim et al. 2018) but cluttered/incomplete
+astro_2606.02685_page5_chart2,legend_partial,"6 entries in original; only MW, SMC, MRN model recovered"
+astro_2606.02687_page5_chart1,legend_correct,"DT-1, DT-2 both correct"
+astro_2606.02688_page9_chart1,legend_partial,"~9 entries; 7 recovered (taper/natural/robust + 4 ucirc/urot), 2 missing"
+astro_2606.02691_page11_chart1,legend_missing,"Simulation legend mis-placed as x-axis label, no series legend recovered"
+astro_2606.02691_page11_chart2,legend_correct,"Two-Zone, Simulation, Blandford-McKee all correct"
+astro_2606.02691_page11_chart3,legend_partial,4 colored series; only Two-Zone (tD) label recovered
+astro_2606.02691_page11_chart4,legend_partial,4 colored series; only Two-Zone (tdec) label recovered
+astro_2606.02698_page17_chart5,legend_correct,inline label MINERVA-1092611 recovered
+astro_2606.02698_page17_chart7,legend_correct,inline label MINERVA-1189865 recovered
+astro_2606.02698_page17_chart8,legend_na,"data-value annotations only, no legend"
+astro_2606.02698_page17_chart9,legend_correct,inline label MINERVA-1208449 recovered
+astro_2606.02711_page20_chart1,legend_wrong,real labels Analytical/LYDION(R)/LYDION(Z) missed; recovered bare * and garbled 'cl = 10'
+astro_2606.02711_page57_chart2,legend_partial,"8 entries (Full/Half Z x4 times); 6 recovered, 2 Half Z missing"
+astro_2606.03313_page18_chart16,legend_missing,"small legend box in original; recovered only bare * (axis label), no legend"
+astro_2606.03313_page18_chart18,legend_missing,small legend box; no legend recovered
+astro_2606.03313_page18_chart26,legend_missing,small legend box; no legend recovered
+astro_2606.03313_page18_chart27,legend_missing,small legend box; no legend recovered
+astro_2606.03313_page18_chart3,legend_missing,small legend box; no legend recovered
+astro_2606.03313_page18_chart5,legend_missing,small legend box; no legend recovered
+astro_2606.03313_page18_chart9,legend_missing,small legend box; no legend recovered
+astro_2606.03342_page10_chart1,legend_wrong,"7 entries; recovered 4 garbled 'log(fH , lim) =' with values lost, HeCS/CHANCES/WEAVE missed"
+astro_2606.03342_page10_chart2,legend_correct,3 SFR-bin labels correct (sub/superscripts simplified)
+astro_2606.03522_page12_chart1,legend_na,no legend
+astro_2606.03522_page12_chart2,legend_missing,"Balmer-break stack / beta_UV stack legend present, none recovered"
+astro_2606.03522_page12_chart3,legend_partial,"dense overlay; some real labels (Jones+24) recovered, others bare/incomplete"
+astro_2606.03522_page12_chart5,legend_na,no legend
+astro_2606.03546_page3_chart1,legend_correct,"Experimental value, Linear fit both correct"
+astro_2606.03546_page3_chart2,legend_partial,"SO2 coverage legend >=5 entries; 4 ML values recovered, 1.00 ML+ missing"
+astro_2606.03546_page3_chart4,legend_correct,"Experimental value, Linear fit both correct"
+astro_2606.03546_page3_chart5,legend_correct,5 SO2-coverage ML values all correct
+astro_2606.04082_page3_chart2,legend_na,no legend
+astro_2606.04082_page3_chart3,legend_correct,"analytic, initial both correct"
+astro_2606.04083_page7_chart3,legend_correct,"3 log M200 mass-bin labels recovered, match 3 series"
+astro_2606.04309_page13_chart1,legend_partial,"4 entries (HI,H2,H atoms,fmol); only fmol & H atoms recovered"
+astro_2606.04711_page16_chart3,legend_na,"fit-stats annotation (alpha,eps,p) only, no legend"
+astro_2606.04711_page16_chart4,legend_na,"fit-stats annotation only, no legend"

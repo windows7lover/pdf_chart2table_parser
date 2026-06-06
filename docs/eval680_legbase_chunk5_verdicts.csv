@@ -1,0 +1,101 @@
+sample_id,legend_verdict,note
+optml_2606.02623_page31_chart22,legend_na,no legend box in original; single-panel marker plot
+optml_2606.02623_page31_chart23,legend_na,no legend in original
+optml_2606.02623_page31_chart26,legend_na,two series no legend box
+optml_2606.02623_page31_chart27,legend_na,no legend in original
+optml_2606.02623_page31_chart29,legend_na,no legend in original
+optml_2606.02623_page31_chart3,legend_na,no legend box; title 'latent mode 3' only
+optml_2606.02623_page31_chart32,legend_na,no legend; 'ML-PINNNeuSA' spurious as x-axis label not legend
+optml_2606.02623_page31_chart4,legend_na,no legend box; multi-series no labels
+optml_2606.02623_page31_chart6,legend_na,no legend in original
+optml_2606.02623_page31_chart7,legend_na,no legend box; multi-series
+optml_2606.02623_page31_chart8,legend_na,no legend box; multi-series
+optml_2606.02886_page7_chart1,legend_missing,"original legend AIFS/Aurora/FourCastNetV2/Pangu-Weather not recovered in re-plot"
+optml_2606.02886_page7_chart10,legend_missing,Mean/Median/IQR legend not recovered; suptitle garbled
+optml_2606.02886_page7_chart4,legend_missing,Mean/Median/IQR legend not recovered
+optml_2606.02886_page7_chart5,legend_missing,Mean/Median/IQR legend not recovered
+optml_2606.02886_page7_chart6,legend_missing,Mean/Median/IQR legend not recovered
+optml_2606.02886_page7_chart7,legend_wrong,"legend text bled into x-axis label '2.6Mean Median'"
+optml_2606.02886_page7_chart8,legend_wrong,"legend text 'Mean Median' mis-placed as x-axis label"
+optml_2606.03234_page8_chart1,legend_na,no legend box in original (AIME 2024)
+optml_2606.03234_page8_chart2,legend_na,no legend box in original (AIME 2025)
+optml_2606.03234_page8_chart3,legend_na,no legend box in original (AIME 2026)
+optml_2606.03234_page8_chart4,legend_na,no legend; 'Base model' spurious x-axis label not legend
+optml_2606.03234_page8_chart5,legend_na,no legend; 'DAPO' spurious x-axis label not legend
+optml_2606.03234_page8_chart6,legend_na,no legend box (HMMT Feb 2025)
+optml_2606.03647_page22_chart1,legend_na,many series no legend box
+optml_2606.03647_page22_chart2,legend_na,many series no legend box
+optml_2606.03647_page22_chart3,legend_na,many series no legend box
+optml_2606.03819_page5_chart1,legend_na,multi-series no legend box
+optml_2606.03821_page34_chart1,legend_na,dual-axis no legend box
+optml_2606.03821_page34_chart2,legend_na,dual-axis no legend box
+optml_2606.03821_page34_chart4,legend_na,dual-axis no legend box
+optml_2606.03821_page36_chart10,legend_na,dual-axis no legend box
+optml_2606.03821_page36_chart2,legend_na,dual-axis no legend box
+optml_2606.03821_page36_chart4,legend_na,dual-axis no legend box
+optml_2606.03821_page36_chart5,legend_na,dual-axis no legend box
+optml_2606.03821_page36_chart6,legend_na,dual-axis no legend box
+optml_2606.03821_page36_chart7,legend_na,dual-axis no legend box
+optml_2606.03821_page36_chart8,legend_na,dual-axis no legend box
+optml_2606.03871_page21_chart1,legend_na,two series no legend box (LLaVA-7B)
+optml_2606.03871_page21_chart3,legend_na,two series no legend box (Cambrian-8B)
+optml_2606.03871_page21_chart4,legend_na,two series no legend box
+optml_2606.03871_page21_chart5,legend_na,two series no legend box
+optml_2606.03871_page21_chart6,legend_na,two series no legend box
+optml_2606.03871_page23_chart1,legend_na,multi-series no legend box
+optml_2606.03871_page23_chart10,legend_na,multi-series no legend box
+optml_2606.03871_page23_chart12,legend_na,multi-series no legend box
+optml_2606.03871_page23_chart2,legend_na,multi-series no legend box
+optml_2606.03871_page23_chart3,legend_na,multi-series no legend box
+optml_2606.03871_page23_chart4,legend_na,multi-series no legend box
+optml_2606.03871_page23_chart5,legend_na,multi-series no legend box
+optml_2606.03871_page23_chart6,legend_na,multi-series no legend box
+optml_2606.03871_page23_chart7,legend_na,multi-series no legend box
+optml_2606.03871_page23_chart9,legend_na,multi-series no legend box
+optml_2606.03899_page43_chart2,legend_partial,"3 attn.c_proj labels plausible; 4th '(2T 1)1/4' garbled LaTeX"
+optml_2606.03899_page43_chart4,legend_wrong,"bare marker-code 'o' + garbled '0.99 (2T 1) 1/4'; sin Theta labels lost"
+optml_2606.03899_page43_chart5,legend_missing,"legend sin Theta_U/V + reference line not recovered (Rank 3)"
+optml_2606.03899_page43_chart6,legend_partial,"sin U/sin V drops Theta; exponent garbled '0.26 (2T 1) 1/4'"
+optml_2606.03899_page43_chart7,legend_partial,"sin U/sin V drops Theta; exponent garbled '0.84 (2T 1) 1/4'"
+optml_2606.04053_page17_chart1,legend_na,no legend box (Blue); spurious x-axis text
+optml_2606.04053_page17_chart2,legend_na,no legend box (Square)
+optml_2606.04053_page17_chart4,legend_na,no legend box (Blue AND Square)
+optml_2606.04053_page17_chart5,legend_na,no legend; 'for the boxman environment.' spurious x-axis caption
+optml_2606.04053_page19_chart1,legend_correct,"Original SM/Univ./empty (Ours)/Base tasks BTA recovered exactly"
+optml_2606.04053_page19_chart2,legend_correct,"same 3-entry legend recovered exactly"
+optml_2606.04053_page19_chart3,legend_missing,"violin legend Original SM/Univ./empty (Ours) not recovered"
+optml_2606.04074_page23_chart1,legend_wrong,"spurious annotation '-24.0% to +16.4%' fabricated as legend entry"
+optml_2606.04361_page24_chart1,legend_na,single series no legend
+optml_2606.04361_page24_chart2,legend_na,single series no legend
+optml_2606.04361_page24_chart3,legend_na,single series no legend
+optml_2606.04361_page24_chart4,legend_na,single series no legend
+optml_2606.04522_page10_chart6,legend_na,no legend box (MNIST)
+optml_2606.05555_page33_chart10,legend_na,two series no legend box
+optml_2606.05555_page33_chart11,legend_na,two series no legend box
+optml_2606.05555_page33_chart12,legend_na,two series no legend box
+optml_2606.05555_page33_chart13,legend_na,two series no legend box
+optml_2606.05555_page33_chart14,legend_na,two series no legend box
+optml_2606.05555_page33_chart17,legend_na,two series no legend box
+optml_2606.05555_page33_chart18,legend_na,two series no legend box
+optml_2606.05555_page33_chart19,legend_na,two series no legend box
+optml_2606.05555_page33_chart2,legend_na,two series no legend box
+optml_2606.05555_page33_chart21,legend_na,two series no legend box
+optml_2606.05555_page33_chart26,legend_na,two series no legend box
+optml_2606.05555_page33_chart29,legend_na,two series no legend box
+optml_2606.05555_page33_chart4,legend_na,two series no legend box
+optml_2606.05555_page33_chart6,legend_na,two series no legend box
+optml_2606.05555_page33_chart8,legend_na,two series no legend box
+optml_2606.05555_page33_chart9,legend_na,two series no legend box
+optml_2606.05674_page32_chart3,legend_na,colorbar only no discrete legend box
+optml_2606.05674_page32_chart6,legend_na,colorbar only no discrete legend box
+optml_2606.06156_page10_chart1,legend_missing,"'Linear Trend' legend entry not recovered in re-plot"
+optml_2606.06156_page10_chart2,legend_missing,"'Linear Trend' legend entry not recovered"
+optml_2606.06156_page10_chart3,legend_missing,"'Linear Trend' legend entry not recovered"
+optml_2606.06156_page10_chart4,legend_missing,"'Linear Trend' legend entry not recovered"
+optml_2606.06156_page8_chart10,legend_na,no legend box (continuation panel)
+optml_2606.06156_page8_chart2,legend_missing,"'Ensemble Mean'/'95% Confidence' legend not recovered"
+optml_2606.06156_page8_chart4,legend_na,no legend box (continuation panel)
+optml_2606.06156_page8_chart5,legend_na,no legend box (continuation panel)
+optml_2606.06156_page8_chart6,legend_na,no legend box (continuation panel)
+optml_2606.06156_page8_chart8,legend_na,no legend box (continuation panel)
+optml_2606.06156_page8_chart9,legend_na,no legend box (continuation panel)
