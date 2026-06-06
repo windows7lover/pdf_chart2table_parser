@@ -88,6 +88,39 @@ def test_distinct_marker_series_not_merged():
     assert len(series) == 2
 
 
+def test_numeric_text_not_treated_as_legend_label():
+    """Data markers near purely-numeric text spans (tick labels, annotation
+    numbers like '8', '9', '10') must NOT be dropped as legend swatches.
+
+    A real legend entry always contains at least one letter.  Digit-only
+    strings are axis tick labels or data-point annotation numbers and must
+    be skipped by the swatch filter.  Regression: log-scale scatter charts
+    where point labels are numbers caused data markers to be mis-classified
+    as legend swatches.
+    """
+    region = Region(bbox=(100.0, 100.0, 400.0, 400.0),
+                    path_indices=list(range(4)), text_indices=list(range(3)))
+    # Numeric text spans inside the plot — tick labels / point annotations.
+    texts = [
+        TextSpan(text="8",  bbox=(150, 120, 165, 133)),   # upper area
+        TextSpan(text="9",  bbox=(150, 210, 165, 223)),   # mid-region
+        TextSpan(text="10", bbox=(150, 305, 165, 318)),   # lower area
+    ]
+    # Data marks to the left of each numeric label (well inside the region).
+    paths = [
+        _square(135, 126, fill=(0.0, 0.0, 1.0)),   # left of "8"
+        _square(135, 216, fill=(0.0, 0.0, 1.0)),   # left of "9"
+        _square(135, 311, fill=(0.0, 0.0, 1.0)),   # left of "10"
+        _square(250, 250, fill=(0.0, 0.0, 1.0)),   # interior, no nearby text
+    ]
+    series = classify_marks(region, paths, texts)
+    # All 4 data marks should be kept — numeric text is not legend text.
+    assert len(series) == 1, f"expected 1 series, got {len(series)}"
+    assert len(series[0].marks) == 4, (
+        f"expected 4 marks (numeric text not swatch-filter), got {len(series[0].marks)}"
+    )
+
+
 def test_swatch_inside_plot_box_not_dropped():
     """When a chart has an embedded legend (legend text INSIDE the plot area),
     data markers near the legend text must NOT be dropped as legend swatches.

@@ -167,8 +167,19 @@ def _is_legend_swatch(
     legend entries, and do not trigger swatch filtering.  This avoids false
     positives on charts with embedded annotations whose text happens to be at
     the same y-level as data markers.
+
+    Purely-numeric text spans (tick labels, data-point annotation numbers like
+    "8", "9", "10") are never treated as legend entry labels — a real legend
+    entry always contains at least one letter.  This prevents scatter data
+    markers adjacent to log-axis point labels from being mis-classified as
+    legend swatches.
     """
     for t in texts:
+        # A legend entry label always contains at least one letter.  Skip
+        # purely-numeric strings (axis tick labels, data-point annotations).
+        stripped = t.text.strip()
+        if stripped and not any(c.isalpha() for c in stripped):
+            continue
         tx0, ty0, _, ty1 = t.bbox
         th = ty1 - ty0
         ty_center = 0.5 * (ty0 + ty1)

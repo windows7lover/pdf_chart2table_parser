@@ -211,6 +211,122 @@ def test_sibling_groups_components():
     assert groups == [[0, 1, 2], [3]]
 
 
+def test_multi_legend_colour_match_propagates_to_correct_sibling():
+    """2×3 grid: two legend panels (one per row); each empty panel gets the
+    legend whose entry colors match its data-path colors.
+
+    Mirrors the 2606.03405 page-6 pattern:
+      row 0 (regions 0-2): region 0 has legend with BLUE/RED entries;
+        region 2 has BLUE+RED data paths -> should get the row-0 legend.
+      row 1 (regions 3-5): region 3 has legend with GREEN/ORANGE entries;
+        region 5 has GREEN+ORANGE data paths -> should get the row-1 legend.
+    """
+    GREEN = (0.0, 0.5, 0.0)
+    ORANGE = (1.0, 0.5, 0.0)
+
+    # Row 0: regions 0,1,2 share y-axis (same row).
+    r0 = _region((0, 0, 100, 100), row=0, col=0, shares_y_with=[1, 2], shares_x_with=[3])
+    r1 = _region((110, 0, 210, 100), row=0, col=1, shares_y_with=[0, 2], shares_x_with=[4])
+    r2 = _region((220, 0, 320, 100), row=0, col=2, shares_y_with=[0, 1], shares_x_with=[5])
+    # Row 1: regions 3,4,5 share y-axis.
+    r3 = _region((0, 110, 100, 210), row=1, col=0, shares_y_with=[4, 5], shares_x_with=[0])
+    r4 = _region((110, 110, 210, 210), row=1, col=1, shares_y_with=[3, 5], shares_x_with=[1])
+    r5 = _region((220, 110, 320, 210), row=1, col=2, shares_y_with=[3, 4], shares_x_with=[2])
+
+    # Fake data paths: region 2 has BLUE+RED paths; region 5 has GREEN+ORANGE paths.
+    # Regions 1 and 4 are empty (no paths, no legend).
+    def _data_path(color):
+        return Path(points=[(0, 0), (10, 10)], stroke=color, fill=None,
+                    width=1.0, dashes=None, closed=False, bbox=(0, 0, 10, 10))
+
+    all_paths = [_data_path(BLUE), _data_path(RED), _data_path(GREEN), _data_path(ORANGE)]
+
+    # Assign path indices to regions: region 2 gets paths 0,1; region 5 gets 2,3.
+    r2.path_indices = [0, 1]
+    r5.path_indices = [2, 3]
+
+    legends = [
+        [("line", BLUE, "Alpha"), ("line", RED, "Beta")],  # r0: row-0 legend
+        [],   # r1: no legend
+        [],   # r2: no legend, but has BLUE+RED data paths
+        [("line", GREEN, "Gamma"), ("line", ORANGE, "Delta")],  # r3: row-1 legend
+        [],   # r4: no legend
+        [],   # r5: no legend, but has GREEN+ORANGE data paths
+    ]
+
+    resolved = _resolve_legends(legends, [r0, r1, r2, r3, r4, r5], paths=all_paths)
+
+    # Region 2 should get the row-0 legend (BLUE/RED match).
+    assert resolved[2] == [("line", BLUE, "Alpha"), ("line", RED, "Beta")], \
+        f"region 2 should get row-0 legend, got {resolved[2]}"
+    # Region 5 should get the row-1 legend (GREEN/ORANGE match).
+    assert resolved[5] == [("line", GREEN, "Gamma"), ("line", ORANGE, "Delta")], \
+        f"region 5 should get row-1 legend, got {resolved[5]}"
+    # Regions with no data-path colors and no direct donor stay empty.
+    # Region 1 and 4 have no path_indices → fall back to direct-donor check.
+    # r1 has shares_y_with=[0,2]; neither 0 nor 2 is the only direct legend donor
+    # with an unambiguous link (both r0 and r3 are in the same group but r3 is not
+    # in r1's shares_y_with) → region 1 gets r0's legend via direct_donors=[0].
+    assert resolved[1] == [("line", BLUE, "Alpha"), ("line", RED, "Beta")], \
+        f"region 1 should get row-0 legend via direct donor, got {resolved[1]}"
+    # Region 0 and 3 already had their own legends.
+    assert resolved[0] == legends[0]
+    assert resolved[3] == legends[3]
+
+
+def test_multi_legend_ambiguous_colour_leaves_empty():
+    """When two legend panels have the same entry colors, an empty panel with
+    those data colors cannot be assigned to either uniquely -> stays empty.
+
+    Garbled/duplicate legend scenario: wrong_entry is worse than missing.
+    """
+    # Two legend panels with identical BLUE entries.
+    r0 = _region((0, 0, 100, 100), row=0, col=0, shares_y_with=[1])
+    r1 = _region((110, 0, 210, 100), row=0, col=1, shares_y_with=[0])
+    r2 = _region((220, 0, 320, 100), row=0, col=2)  # unrelated (no sibling links)
+
+    # r2 is not a sibling at all, so no propagation expected regardless.
+    # Both r0 and r1 have BLUE legends; r1 has a sibling BLUE legend too.
+    # For sibling group {0,1}: both have legends -> no empty panel to propagate to.
+    legends = [
+        [("line", BLUE, "LegendA")],
+        [("line", BLUE, "LegendB")],
+        [],
+    ]
+    resolved = _resolve_legends(legends, [r0, r1, r2])
+    # r0 and r1 each keep their own legend; r2 is unrelated and stays empty.
+    assert resolved[0] == [("line", BLUE, "LegendA")]
+    assert resolved[1] == [("line", BLUE, "LegendB")]
+    assert resolved[2] == []
+
+
+def test_multi_legend_tied_score_leaves_empty():
+    """Empty panel whose data path colors match BOTH legend panels equally well
+    must NOT receive either legend (ambiguous -> leave empty).
+    """
+    # Region 0 has legend with BLUE; region 1 has legend with BLUE (same color).
+    # Region 2 has BLUE data path -> tied between r0 and r1 -> stays empty.
+    r0 = _region((0, 0, 100, 100), row=0, col=0, shares_y_with=[1, 2])
+    r1 = _region((110, 0, 210, 100), row=0, col=1, shares_y_with=[0, 2])
+    r2 = _region((220, 0, 320, 100), row=0, col=2, shares_y_with=[0, 1])
+
+    def _data_path(color):
+        return Path(points=[(0, 0), (10, 10)], stroke=color, fill=None,
+                    width=1.0, dashes=None, closed=False, bbox=(0, 0, 10, 10))
+
+    all_paths = [_data_path(BLUE)]
+    r2.path_indices = [0]
+
+    legends = [
+        [("line", BLUE, "LegendA")],
+        [("line", BLUE, "LegendB")],
+        [],
+    ]
+    resolved = _resolve_legends(legends, [r0, r1, r2], paths=all_paths)
+    # Tied: both score 1 for region 2 -> no propagation.
+    assert resolved[2] == [], f"expected empty, got {resolved[2]}"
+
+
 # --------------------------------------------------------------------------
 # 4. Order-based fallback in _apply_legend_labels (black/neutral-swatch pattern)
 # --------------------------------------------------------------------------

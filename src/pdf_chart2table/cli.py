@@ -260,25 +260,94 @@ def _sibling_groups(regions) -> list[list[int]]:
     return list(groups.values())
 
 
-def _resolve_legends(legends, regions):
+def _legend_color_overlap(legend_entries, region, paths) -> int:
+    """Count how many distinct legend entry colors are present in a region's paths.
+
+    Returns the number of legend entry colors (non-None) that have at least one
+    matching stroke color among the region's data paths (those referenced by
+    ``region.path_indices``).  Used to identify which legend panel belongs to
+    which data panel in multi-legend sibling groups.
+    """
+    if paths is None:
+        return 0
+    # Collect non-None legend colors.
+    leg_colors = [e[1] for e in legend_entries if e[1] is not None]
+    if not leg_colors:
+        return 0
+    # Collect stroke colors of paths inside this region.
+    data_colors: list = []
+    for idx in getattr(region, "path_indices", []):
+        if idx < len(paths):
+            c = paths[idx].stroke
+            if c is not None:
+                data_colors.append(c)
+    if not data_colors:
+        return 0
+    matched = 0
+    for lc in leg_colors:
+        if any(sum(abs(a - b) for a, b in zip(lc, dc)) < _COLOR_TOL
+               for dc in data_colors):
+            matched += 1
+    return matched
+
+
+def _resolve_legends(legends, regions, paths=None):
     """Per-region legend after shared-legend propagation across split panels.
 
     A multi-panel figure often draws ONE legend (in a corner of a single panel);
     after the figure is split into sibling regions only that panel carries it.
-    For each sibling group: if exactly one panel has a legend and the rest have
-    none, copy it to the empty panels. When several panels carry their own
-    legend we leave each as-is (no shared legend to propagate).
+
+    Single-legend case: if exactly one panel in a sibling group has a legend,
+    copy it to all empty sibling panels.
+
+    Multi-legend case: when several panels carry legends (e.g. a 2-row × 3-col
+    figure where each row has its own legend in the first panel), propagate each
+    legend to the empty panels whose data-path colors best match that legend's
+    entry colors.  Propagation is blocked when the colour match is ambiguous
+    (two legend panels score equally well for the same empty panel).
     """
     resolved = list(legends)
     for group in _sibling_groups(regions):
         if len(group) < 2:
             continue
         with_leg = [i for i in group if legends[i]]
+        no_leg = [i for i in group if not legends[i]]
+        if not with_leg or not no_leg:
+            continue
+
         if len(with_leg) == 1:
+            # Unambiguous: single legend panel — copy to all empty siblings.
             shared = legends[with_leg[0]]
-            for i in group:
-                if not resolved[i]:
-                    resolved[i] = shared
+            for i in no_leg:
+                resolved[i] = shared
+        else:
+            # Multiple legend panels: match each empty panel to the legend whose
+            # entry colors best overlap with that panel's data-path colors.
+            for i in no_leg:
+                scores = {
+                    L: _legend_color_overlap(legends[L], regions[i], paths)
+                    for L in with_leg
+                }
+                best_score = max(scores.values())
+                if best_score == 0:
+                    # No colour evidence: fall back to order-match if the
+                    # sibling group has a simple row-based layout (each legend
+                    # panel has direct shares_y_with / shares_x_with links to
+                    # the empty panel).
+                    direct_donors = [
+                        L for L in with_leg
+                        if i in list(getattr(regions[L], "shares_y_with", []))
+                        + list(getattr(regions[L], "shares_x_with", []))
+                    ]
+                    if len(direct_donors) == 1:
+                        resolved[i] = legends[direct_donors[0]]
+                    # else: ambiguous with no colour evidence — leave empty.
+                    continue
+                # Check for a unique winner.
+                winners = [L for L, s in scores.items() if s == best_score]
+                if len(winners) == 1:
+                    resolved[i] = legends[winners[0]]
+                # else: tied — leave empty (wrong_entry is worse than missing).
     return resolved
 
 
@@ -307,7 +376,8 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
         # Labels per region, then propagate a shared legend to split panels that
         # have none of their own (one-legend multi-panel figures).
         region_labels = [_region_labels(page, r) for r in regions]
-        legends = _resolve_legends([rl[4] for rl in region_labels], regions)
+        legends = _resolve_legends([rl[4] for rl in region_labels], regions,
+                                   paths=page.paths)
         page_no = page.page_index + 1  # 1-based in output names
         for k, (region, (x_axis, y_axis)) in enumerate(zip(regions, axes), start=1):
             source = {
