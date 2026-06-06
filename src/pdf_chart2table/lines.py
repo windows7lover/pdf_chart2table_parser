@@ -46,6 +46,14 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from .model import Color, Path, Region, TextSpan
+from .primitives import (
+    LEGEND_GAP as _LEGEND_GAP,
+    box_bounds as _box_bounds,
+    is_near_white as _is_near_white_prim,
+    is_saturated as _is_saturated_prim,
+    on_border as _on_border_prim,
+    round_color as _round_color,
+)
 
 # A data curve must span at least this fraction of the region on its long axis.
 _MIN_SPAN_FRAC = 0.25
@@ -58,9 +66,6 @@ _MIN_FRAG_POINTS = 8
 # many-vertex glyph (a marker circle/star outline) is a marker, not a curve
 # fragment, so it must not be collected and merged into a fake curve.
 _MAX_FRAG_VERTS = 6
-# A stroke is a saturated series colour if its RGB spread exceeds this; grays /
-# blacks / whites (gridlines, spines) fall below it.
-_SAT_SPREAD = 0.2
 # An unsaturated (black/gray) stroke qualifies as a DATA curve only if it varies
 # in BOTH axes: its shorter bbox side is at least this fraction of its longer
 # side. Gridlines / spines are ~1-D (one side ~0) and fall below it, so they are
@@ -110,8 +115,6 @@ _NEAR_VERT_RATIO = 2.0
 # curve with total y-extent below this is essentially flat; any adjacent-jump
 # test on it would be dominated by sub-pixel sampling noise, not real scatter.
 _MIN_CLOUD_YSPAN = 2.0
-# Legend swatch: a short colored segment within this gap left of legend text.
-_LEGEND_GAP = 40.0
 # Two same-colour curves "overlap" (and so cannot be cleanly separated) if their
 # x-ranges share more than this fraction of the smaller range.
 _OVERLAP_FRAC = 0.5
@@ -143,16 +146,12 @@ class SeriesLine:
     points: list[tuple[float, float]] = field(default_factory=list)
 
 
-def _round_color(c: Color | None) -> tuple | None:
-    return tuple(round(v, 2) for v in c) if c is not None else None
-
-
 def _is_saturated(c: Color | None) -> bool:
-    return c is not None and (max(c) - min(c)) > _SAT_SPREAD
+    return _is_saturated_prim(c)
 
 
 def _is_near_white(c: Color | None) -> bool:
-    return c is not None and min(c) >= _WHITE_MIN
+    return _is_near_white_prim(c, _WHITE_MIN)
 
 
 def _varies_2d(p: Path) -> bool:
@@ -187,18 +186,7 @@ def _is_data_lowsat(p: Path, region: Region) -> bool:
 
 
 def _on_border(cx: float, cy: float, region: Region) -> bool:
-    x0, y0, x1, y1 = region.bbox
-    return (
-        abs(cx - x0) <= _BORDER_TOL or abs(cx - x1) <= _BORDER_TOL
-        or abs(cy - y0) <= _BORDER_TOL or abs(cy - y1) <= _BORDER_TOL
-    )
-
-
-def _box_bounds(plot_box: tuple) -> tuple[float, float, float, float]:
-    bx0, by0, bx1, by1 = plot_box
-    xlo, xhi = (bx0, bx1) if bx0 <= bx1 else (bx1, bx0)
-    ylo, yhi = (by0, by1) if by0 <= by1 else (by1, by0)
-    return xlo, ylo, xhi, yhi
+    return _on_border_prim(cx, cy, region, _BORDER_TOL)
 
 
 def _clip_to_box(pts, plot_box):

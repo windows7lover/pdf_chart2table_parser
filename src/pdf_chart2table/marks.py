@@ -23,11 +23,22 @@ Public API:
 
 from __future__ import annotations
 
-import colorsys
 from collections import defaultdict
 from dataclasses import dataclass, field
 
 from .model import Color, Path, Region, TextSpan
+from .primitives import (
+    KNOWN_CLOSED_SHAPES as _KNOWN_CLOSED_SHAPES,
+    LEGEND_GAP as _LEGEND_GAP,
+    box_bounds as _box_bounds,
+    centroid as _centroid,
+    hue_dist as _hue_dist,
+    hue_of as _hue_of,
+    is_white as _is_near_white,
+    on_border as _on_border_prim,
+    round_color as _round_color,
+    shape_of as _shape_of,
+)
 
 # ---------------------------------------------------------------------------
 # Fix 1: filled-region interior over-sampling
@@ -71,9 +82,6 @@ _BORDER_TOL = 2.0
 # markers that straddle the spine and minor calibration slack). Beyond it the
 # mark is a legend swatch / annotation / out-of-axis phantom and is dropped.
 _CLIP_FRAC = 0.03
-# Legend swatch: a mark sitting within this gap to the left of a text span and
-# vertically centred on it.
-_LEGEND_GAP = 40.0
 # Two marker groups are the SAME series drawn twice (filled glyph + stroke
 # outline, or two coincident shapes) when their point sets match one-to-one with
 # every pair within this many points: merge them into one series.
@@ -138,80 +146,6 @@ class SeriesMarks:
     marks: list[Mark] = field(default_factory=list)
 
 
-def _round_color(c: Color | None) -> tuple | None:
-    return tuple(round(v, 2) for v in c) if c is not None else None
-
-
-def _hue_of(c: Color | None) -> float | None:
-    """Return hue in degrees [0, 360) for colour ``c``, or None if no colour."""
-    if c is None:
-        return None
-    h, _, _ = colorsys.rgb_to_hsv(c[0], c[1], c[2])
-    return h * 360.0
-
-
-def _hue_dist(a: float, b: float) -> float:
-    """Circular distance between two hue angles (both in degrees)."""
-    d = abs(a - b) % 360.0
-    return min(d, 360.0 - d)
-
-
-def _centroid(points: list[tuple[float, float]]) -> tuple[float, float]:
-    n = len(points)
-    return (sum(p[0] for p in points) / n, sum(p[1] for p in points) / n)
-
-
-def _is_diamond_geometry(p: Path) -> bool:
-    """True when a 5-vertex closed path has diamond (rotated-square) geometry.
-
-    A matplotlib ``D`` diamond marker has its four corners at top (0, +h),
-    right (+w, 0), bottom (0, -h), left (-w, 0) — the top/bottom vertices
-    are centred on the x-axis.  A regular ``s`` square has corners at
-    (±w, ±h) — the top vertices are at x ≈ cx ± w/2.
-
-    Test: the vertex with the highest y-coordinate (the "top" vertex) should
-    be at x ≈ centroid_x (|x_top - cx| < bbox_width / 4).
-    """
-    if p.fill is None:
-        return False  # only filled paths can be diamonds
-    pts = p.points
-    # Remove the closing duplicate (first == last) if present.
-    unique = list(dict.fromkeys(pts))  # preserves order, deduplicates
-    if len(unique) != 4:
-        return False
-    cx = sum(pt[0] for pt in unique) / 4
-    top = max(unique, key=lambda pt: pt[1])
-    bw = p.bbox[2] - p.bbox[0]
-    if bw <= 0:
-        return False
-    return abs(top[0] - cx) < bw / 4
-
-
-def _shape_of(p: Path) -> str:
-    """Classify a small mark path by vertex count / open-vs-closed.
-
-    Counts use the bezier-flattened polyline produced by ``pdf_vector`` (8
-    segments per cubic), so the thresholds are matplotlib-marker specific but
-    robust for vector charts.
-    """
-    n = len(p.points)
-    filled = p.fill is not None
-    if n >= 40:
-        return "circle"
-    if n >= 9:
-        return "star"
-    if n == 5:
-        # A 5-vertex closed path is either a square (axis-aligned corners) or a
-        # diamond (rotated 45°, corners at top/right/bottom/left).  Distinguish
-        # by the position of the top vertex relative to the centroid x.
-        return "diamond" if _is_diamond_geometry(p) else "square"
-    if n == 4:
-        return "triangle" if filled else "plus"
-    if n == 3:
-        return "triangle"
-    return "cross" if not filled else "marker"
-
-
 # Maximum fraction of the plot height/width from any edge that a text span's
 # centre can be and still count as a "legend text" candidate.  Text deeper
 # inside the chart (beyond this fraction from all edges) is axis annotation /
@@ -269,9 +203,7 @@ def _in_plot_box(cx: float, cy: float, plot_box: tuple | None) -> bool:
     pair (edges in either order). With no box given, always True (legacy)."""
     if plot_box is None:
         return True
-    bx0, by0, bx1, by1 = plot_box
-    xlo, xhi = (bx0, bx1) if bx0 <= bx1 else (bx1, bx0)
-    ylo, yhi = (by0, by1) if by0 <= by1 else (by1, by0)
+    xlo, ylo, xhi, yhi = _box_bounds(plot_box)
     xtol = _CLIP_FRAC * (xhi - xlo)
     ytol = _CLIP_FRAC * (yhi - ylo)
     return (xlo - xtol <= cx <= xhi + xtol) and (ylo - ytol <= cy <= yhi + ytol)
@@ -288,24 +220,13 @@ def _strictly_in_plot_box(cx: float, cy: float, plot_box: tuple | None) -> bool:
     """
     if plot_box is None:
         return True
-    bx0, by0, bx1, by1 = plot_box
-    xlo, xhi = (bx0, bx1) if bx0 <= bx1 else (bx1, bx0)
-    ylo, yhi = (by0, by1) if by0 <= by1 else (by1, by0)
+    xlo, ylo, xhi, yhi = _box_bounds(plot_box)
     return (xlo <= cx <= xhi) and (ylo <= cy <= yhi)
 
 
 def _on_border(cx: float, cy: float, region: Region) -> bool:
     """Centroid sits on a region spine/frame edge (where tick marks live)."""
-    x0, y0, x1, y1 = region.bbox
-    return (
-        abs(cx - x0) <= _BORDER_TOL or abs(cx - x1) <= _BORDER_TOL
-        or abs(cy - y0) <= _BORDER_TOL or abs(cy - y1) <= _BORDER_TOL
-    )
-
-
-def _is_near_white(c: Color) -> bool:
-    """True when colour is white or very near white (axes-patch background)."""
-    return c[0] >= 0.95 and c[1] >= 0.95 and c[2] >= 0.95
+    return _on_border_prim(cx, cy, region, _BORDER_TOL)
 
 
 def _collect_large_fills(paths: list[Path], region: Region) -> list[Path]:
@@ -381,9 +302,6 @@ def _is_interior_of_large_fill(
 # Relaxed bounds for recognised closed shapes:
 _KNOWN_SHAPE_MIN_SIDE = 0.5    # smaller than default 1.5 — lets small/thin closed glyphs through
 _KNOWN_SHAPE_MAX_ASPECT = 6.0  # wider than default 3.0 — lets thin diamonds / h-bar markers through
-
-# Shapes returned by _shape_of that are "recognised closed" and get relaxed bounds.
-_KNOWN_CLOSED_SHAPES = frozenset({"circle", "star", "square", "diamond", "triangle", "marker"})
 
 
 def _is_data_mark(

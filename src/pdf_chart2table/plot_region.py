@@ -31,6 +31,7 @@ from collections import defaultdict
 
 from .calibrate import calibrate_region
 from .model import BBox, Path, Region, TextSpan
+from .primitives import is_saturated as _is_saturated
 
 # A candidate plot rectangle must cover at least this fraction of the page
 # (real chart panels are small figures on a text page: ~0.04-0.07) and at most
@@ -94,8 +95,6 @@ _MIN_NUM_TICKS = 2
 # data polylines, must fall inside the candidate.
 _MIN_SATURATED = 3
 _MIN_POLYLINES = 2
-# A path colour is "saturated" (a data series) if its RGB spread exceeds this.
-_SAT_SPREAD = 0.2
 # A polyline is a "data line" if it has more than this many vertices.
 _POLYLINE_VERTS = 10
 # Strict content (rect-frame candidates only): this many saturated-colour
@@ -425,10 +424,6 @@ def _same_panel(a: BBox, b: BBox) -> bool:
     iou = inter / union if union > 0 else 0.0
     contain = inter / min(aa, ab) if min(aa, ab) > 0 else 0.0
     return iou >= _DEDUP_IOU or contain >= _DEDUP_CONTAIN
-
-
-def _is_saturated(color) -> bool:
-    return color is not None and (max(color) - min(color)) > _SAT_SPREAD
 
 
 def _is_numeric_label(text: str) -> bool:

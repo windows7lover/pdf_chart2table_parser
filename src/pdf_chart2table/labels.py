@@ -25,6 +25,7 @@ import re
 from dataclasses import dataclass, field
 
 from .model import BBox, Color, Path, Region, TextSpan
+from .primitives import bbox_center as _bbox_center
 
 # Numeric tick label (to exclude from title detection).
 _NUMERIC = re.compile(r"^[-+]?\d*\.?\d+$")
@@ -141,11 +142,11 @@ class Labels:
 
 
 def _cx(b: BBox) -> float:
-    return 0.5 * (b[0] + b[2])
+    return _bbox_center(b)[0]
 
 
 def _cy(b: BBox) -> float:
-    return 0.5 * (b[1] + b[3])
+    return _bbox_center(b)[1]
 
 
 def _eff_size(t: TextSpan) -> float:

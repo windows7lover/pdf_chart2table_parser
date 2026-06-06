@@ -50,18 +50,7 @@ from .model import (
     TextSpan,
 )
 from .pdf_vector import load_pdf
-
-# Marker class -> the matplotlib-style marker code reported on a Series.
-_MARKER_CODE = {
-    "circle": "o",
-    "square": "s",
-    "triangle": "^",
-    "diamond": "D",
-    "star": "*",
-    "plus": "+",
-    "cross": "x",
-    "marker": None,
-}
+from .primitives import MARKER_CODE as _MARKER_CODE, round_color as _round_color
 
 
 # A real chart yields more than a single isolated data point; <= this many
@@ -114,10 +103,6 @@ def _confidence(x_axis: Axis, y_axis: Axis) -> float:
     """
     r2 = min(x_axis.calibration.get("r2", 1.0), y_axis.calibration.get("r2", 1.0))
     return round(max(0.0, min(1.0, r2)), 3)
-
-
-def _round_color(c):
-    return tuple(round(v, 2) for v in c) if c is not None else None
 
 
 def _points_to_data(xs_px, ys_px, x_axis: Axis, y_axis: Axis) -> list[dict]:

@@ -24,7 +24,8 @@ from __future__ import annotations
 
 import re as _re
 
-from .model import Axis, BBox, Path, Region, Tick, TextSpan
+from .model import Axis, Path, Region, Tick, TextSpan
+from .primitives import bbox_center as _center
 
 # Geometry tolerances (PDF points).
 _SPINE_TOL = 8.0        # how far a tick may sit from the spine coordinate
@@ -62,10 +63,6 @@ _COLUMN_TOL = 6.0
 # Minus-sign glyph: a small filled, unstroked, flat horizontal bar.
 _MINUS_W = (1.5, 9.0)
 _MINUS_H = 2.5
-
-
-def _center(b: BBox) -> tuple[float, float]:
-    return 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
 
 
 def _is_minus_glyph(p: Path) -> bool:
