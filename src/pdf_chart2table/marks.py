@@ -51,6 +51,10 @@ _FILL_BOUNDARY_TOL = 3.0
 
 # A data mark's bbox is at most this fraction of the region on each side.
 _MAX_MARK_FRAC = 0.1
+# Recognised closed shapes (circle, square, diamond, triangle, star) that are
+# used as upper-limit arrows or larger decorative markers may legitimately
+# exceed the default 10% threshold.  Allow up to 20% for these shapes.
+_MAX_MARK_FRAC_KNOWN = 0.20
 # A mark must be at least this many points across (drops degenerate dots and
 # the zero-height horizontal line swatches of a legend).
 _MIN_MARK_SIZE = 0.5
@@ -81,6 +85,16 @@ _DUP_POS_TOL = 1.5
 # Only groups of one mark are merged this way; multi-mark groups keep their
 # identity.
 _HUE_MERGE_DEG = 20.0
+
+# Faint-series locus guard: a small mark cluster (≤ _LOCUS_SMALL_MAX marks)
+# admitted by faint-series recovery must have ALL marks strictly inside the
+# calibrated plot box — the tolerance that normal marks enjoy (_CLIP_FRAC) is
+# NOT extended to small clusters.  This prevents scattered contour / credible-
+# band points from an adjacent marginal panel from slipping through as a
+# spurious "faint series" just because they land within the 3% tolerance zone
+# at the shared border.  Note: the test is applied on pixel centroids using the
+# same plot_box passed to classify_marks.
+_LOCUS_SMALL_MAX = 2  # apply strict check to groups with ≤ this many marks
 
 # Legend-box oversized guard: when the detected legend_bbox covers more than
 # this fraction of the calibrated plot-box area, the detection is likely
@@ -147,6 +161,32 @@ def _centroid(points: list[tuple[float, float]]) -> tuple[float, float]:
     return (sum(p[0] for p in points) / n, sum(p[1] for p in points) / n)
 
 
+def _is_diamond_geometry(p: Path) -> bool:
+    """True when a 5-vertex closed path has diamond (rotated-square) geometry.
+
+    A matplotlib ``D`` diamond marker has its four corners at top (0, +h),
+    right (+w, 0), bottom (0, -h), left (-w, 0) — the top/bottom vertices
+    are centred on the x-axis.  A regular ``s`` square has corners at
+    (±w, ±h) — the top vertices are at x ≈ cx ± w/2.
+
+    Test: the vertex with the highest y-coordinate (the "top" vertex) should
+    be at x ≈ centroid_x (|x_top - cx| < bbox_width / 4).
+    """
+    if p.fill is None:
+        return False  # only filled paths can be diamonds
+    pts = p.points
+    # Remove the closing duplicate (first == last) if present.
+    unique = list(dict.fromkeys(pts))  # preserves order, deduplicates
+    if len(unique) != 4:
+        return False
+    cx = sum(pt[0] for pt in unique) / 4
+    top = max(unique, key=lambda pt: pt[1])
+    bw = p.bbox[2] - p.bbox[0]
+    if bw <= 0:
+        return False
+    return abs(top[0] - cx) < bw / 4
+
+
 def _shape_of(p: Path) -> str:
     """Classify a small mark path by vertex count / open-vs-closed.
 
@@ -161,7 +201,10 @@ def _shape_of(p: Path) -> str:
     if n >= 9:
         return "star"
     if n == 5:
-        return "square"
+        # A 5-vertex closed path is either a square (axis-aligned corners) or a
+        # diamond (rotated 45°, corners at top/right/bottom/left).  Distinguish
+        # by the position of the top vertex relative to the centroid x.
+        return "diamond" if _is_diamond_geometry(p) else "square"
     if n == 4:
         return "triangle" if filled else "plus"
     if n == 3:
@@ -232,6 +275,23 @@ def _in_plot_box(cx: float, cy: float, plot_box: tuple | None) -> bool:
     xtol = _CLIP_FRAC * (xhi - xlo)
     ytol = _CLIP_FRAC * (yhi - ylo)
     return (xlo - xtol <= cx <= xhi + xtol) and (ylo - ytol <= cy <= yhi + ytol)
+
+
+def _strictly_in_plot_box(cx: float, cy: float, plot_box: tuple | None) -> bool:
+    """Centroid is strictly inside the calibrated plot box — NO tolerance.
+
+    Used for the faint-series locus guard: small mark clusters (≤
+    _LOCUS_SMALL_MAX marks) must have every mark strictly inside the plot box,
+    not merely within the _CLIP_FRAC tolerance zone.  This prevents scattered
+    contour/credible-band points from an adjacent marginal panel from being
+    admitted as a faint series just because they sit within the 3% border.
+    """
+    if plot_box is None:
+        return True
+    bx0, by0, bx1, by1 = plot_box
+    xlo, xhi = (bx0, bx1) if bx0 <= bx1 else (bx1, bx0)
+    ylo, yhi = (by0, by1) if by0 <= by1 else (by1, by0)
+    return (xlo <= cx <= xhi) and (ylo <= cy <= yhi)
 
 
 def _on_border(cx: float, cy: float, region: Region) -> bool:
@@ -323,7 +383,7 @@ _KNOWN_SHAPE_MIN_SIDE = 0.5    # smaller than default 1.5 — lets small/thin cl
 _KNOWN_SHAPE_MAX_ASPECT = 6.0  # wider than default 3.0 — lets thin diamonds / h-bar markers through
 
 # Shapes returned by _shape_of that are "recognised closed" and get relaxed bounds.
-_KNOWN_CLOSED_SHAPES = frozenset({"circle", "star", "square", "triangle", "marker"})
+_KNOWN_CLOSED_SHAPES = frozenset({"circle", "star", "square", "diamond", "triangle", "marker"})
 
 
 def _is_data_mark(
@@ -333,16 +393,24 @@ def _is_data_mark(
     rh = region.bbox[3] - region.bbox[1]
     bw = p.bbox[2] - p.bbox[0]
     bh = p.bbox[3] - p.bbox[1]
-    if bw >= _MAX_MARK_FRAC * rw or bh >= _MAX_MARK_FRAC * rh:
-        return False
+    # Quick reject for degenerate/invisible paths before shape classification.
     if bw < _MIN_MARK_SIZE and bh < _MIN_MARK_SIZE:
         return False
     if p.fill is None and p.stroke is None:
         return False
 
-    # Classify shape early so we can apply shape-aware bounds (Fix 2).
+    # Classify shape so we can apply shape-aware bounds (Fix 2 + Fix 3).
     shape = _shape_of(p)
     known_closed = shape in _KNOWN_CLOSED_SHAPES
+
+    # Reject oversized paths: a data mark is small relative to the plot.
+    # Recognised closed shapes (circle, square, diamond, triangle, …) get a
+    # relaxed threshold (_MAX_MARK_FRAC_KNOWN = 20%) to accommodate astronomy
+    # upper-limit arrows and other intentionally larger marker glyphs.
+    # Unrecognised open paths keep the strict 10% limit.
+    max_frac = _MAX_MARK_FRAC_KNOWN if known_closed else _MAX_MARK_FRAC
+    if bw >= max_frac * rw or bh >= max_frac * rh:
+        return False
 
     # Reject ~1D segments (tick marks / spines / gridlines): a real data mark
     # is a 2D glyph (closed shape or fill) with extent on BOTH sides.
@@ -527,7 +595,23 @@ def classify_marks(
     # Order series by first appearance (stable, deterministic); merge groups
     # that mark identical positions (filled+stroke duplicate of one series);
     # then merge isolated single-mark groups with similar hue (gradient scatter).
-    result = _merge_duplicate_series(list(groups.values()))
+    all_groups = list(groups.values())
+
+    # Faint-series locus guard: small mark clusters (≤ _LOCUS_SMALL_MAX) that
+    # have any centroid outside the strict plot-box interior are dropped.
+    # Normal marks already passed _in_plot_box (with 3% tolerance); this extra
+    # check removes marks that are in the tolerance zone at the boundary — a
+    # hallmark of scattered contour/credible-band points from an adjacent
+    # marginal panel that coincidentally overlap the 3% fringe of the main box.
+    # Strong groups (> _LOCUS_SMALL_MAX marks) are unaffected.
+    if plot_box is not None:
+        all_groups = [
+            sm for sm in all_groups
+            if len(sm.marks) > _LOCUS_SMALL_MAX
+            or all(_strictly_in_plot_box(m.cx, m.cy, plot_box) for m in sm.marks)
+        ]
+
+    result = _merge_duplicate_series(all_groups)
     return _merge_hue_gradient_singles(result)
 
 

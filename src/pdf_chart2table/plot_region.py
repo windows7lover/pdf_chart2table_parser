@@ -630,6 +630,79 @@ def _split_multi_row_boxes(
     return out
 
 
+def _split_multi_col_boxes(
+    boxes: list[BBox],
+    paths: list[Path],
+    texts: list[TextSpan],
+    page_area: float,
+) -> list[BBox]:
+    """Split a merged box that contains >=2 x-column groups of calibratable inner panels.
+
+    Complement to ``_split_multi_row_boxes`` for the side-by-side layout: when
+    a merged-spine frame spans multiple adjacent sub-panels in the same row (all
+    at the same y position, different x positions), the row split can't fire
+    because ``len(y_rows) < 2``.  This pass handles that case.
+
+    A common occurrence is a pgfplots or TikZ figure whose two side-by-side
+    panels share a horizontal spine drawn with a very small inter-panel gap
+    (< _SPINE_GAP_MIN); the merged H-segment then yields one wide frame.  If
+    each sub-panel has its own white axes-patch, those patches are collected here
+    and the wide frame is replaced by its two (or more) column-separated panels.
+
+    The same calibratability guard as ``_split_multi_row_boxes`` applies: at
+    least 2 inner patches must independently calibrate on at least one axis.
+    """
+    out: list[BBox] = []
+    already: list[BBox] = []
+
+    for box in boxes:
+        box_area = _area(box)
+
+        # Collect all white unstroked rect patches strictly inside ``box``.
+        inner: list[BBox] = []
+        for p in paths:
+            if p.fill != (1.0, 1.0, 1.0) or p.stroke is not None:
+                continue
+            if not _is_rect_path(p):
+                continue
+            b = p.bbox
+            if not _contains_box(box, b):
+                continue
+            if _area(b) >= _SPLIT_MAX_INNER_FRAC * box_area:
+                continue
+            inner.append(b)
+
+        # Deduplicate inner patches.
+        distinct: list[BBox] = []
+        for b in inner:
+            if not any(_same_panel(b, d) for d in distinct):
+                distinct.append(b)
+
+        # Need at least 2 distinct patches in >= 2 x-columns.
+        if len(distinct) < 2:
+            out.append(box)
+            continue
+
+        x_cols = _cluster_coords([b[0] for b in distinct])
+        if len(x_cols) < 2:
+            out.append(box)
+            continue
+
+        # Guard: require >= 2 independently calibratable inner patches.
+        n_cal = sum(1 for b in distinct if _n_calibrated_axes(b, paths, texts) >= 1)
+        if n_cal < 2:
+            out.append(box)
+            continue
+
+        # Split: emit each distinct inner patch (avoiding duplicates across boxes).
+        for b in distinct:
+            if not any(_same_panel(b, a) for a in already):
+                out.append(b)
+                already.append(b)
+
+    return out
+
+
 def _filled_cells(bbox: BBox, paths: list[Path]) -> list[BBox]:
     """Filled, axis-aligned rectangle-like paths inside ``bbox`` (heatmap cells
     or scatter marker glyphs; both are short filled paths)."""
@@ -967,6 +1040,13 @@ def detect_regions(
     # _split_enclosing_frames, while the calibratability guard prevents
     # over-splitting on pages whose frame encloses non-calibratable insets.
     boxes = _split_multi_row_boxes(boxes, paths, texts, page_area)
+
+    # Complement to the row split: handle the side-by-side layout where a
+    # merged frame spans >=2 adjacent sub-panels in the same row (scatter panel
+    # beside violin/box distribution panel, or adjacent benchmarking panels).
+    # Fires only when inner patches land in >= 2 distinct x-columns AND >= 2
+    # independently calibrate; same guard prevents over-splitting on insets.
+    boxes = _split_multi_col_boxes(boxes, paths, texts, page_area)
 
     # Chart-type gate (part 1): silently drop heatmaps and bar charts.
     # These pass the content+ticks gate but are not line/scatter charts and

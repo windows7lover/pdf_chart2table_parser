@@ -292,6 +292,7 @@ MARKER_FIXTURES = [
     "minimal_scatter_nolegend",
     "convergence_semilogy_3",
     "damped_sine_small",
+    "power_law_loglog",   # mix of circle + diamond markers
 ]
 
 
@@ -399,4 +400,176 @@ def test_normal_legend_bbox_still_filters_marks():
     )
     assert len(series[0].marks) == 4, (
         f"expected 4 blue marks, got {len(series[0].marks)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests for iteration-3 fixes
+# ---------------------------------------------------------------------------
+
+def _diamond(cx, cy, *, fill=None, stroke=None, w=3.0, h=5.0):
+    """A diamond (rotated square) marker: corners at top (0,h), right (w,0),
+    bottom (0,-h), left (-w,0).  5 vertices (4 corners + close).  This matches
+    the matplotlib ``D`` marker pattern: top vertex at x ≈ cx."""
+    pts = [(cx, cy + h), (cx + w, cy), (cx, cy - h), (cx - w, cy), (cx, cy + h)]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=stroke, fill=fill, width=1.0, dashes=None,
+                 closed=True, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def _axis_square(cx, cy, *, fill=None, stroke=None, half=3.0):
+    """An axis-aligned square (corners at ±half in both axes).  5 vertices."""
+    pts = [(cx - half, cy - half), (cx + half, cy - half),
+           (cx + half, cy + half), (cx - half, cy + half),
+           (cx - half, cy - half)]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=stroke, fill=fill, width=1.0, dashes=None,
+                 closed=True, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def test_diamond_shape_detected():
+    """Fix: a 5-vertex path with diamond geometry (top vertex at x≈cx) must be
+    classified as 'diamond', not 'square'.
+
+    The matplotlib ``D`` marker has 4 corners at top/right/bottom/left — the
+    top vertex is at x = centroid x, unlike a square where the top vertices are
+    at x = cx ± w/2.
+    """
+    from pdf_chart2table.marks import _shape_of
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(4)), text_indices=[])
+    # 4 diamond markers at different positions (same fill colour).
+    paths = [_diamond(130 + 30 * i, 200, fill=(0.8, 0.2, 0.4)) for i in range(4)]
+    series = classify_marks(region, paths, [])
+    # All 4 diamonds should form 1 series with shape "diamond".
+    assert len(series) == 1, f"expected 1 diamond series, got {len(series)}"
+    assert series[0].shape == "diamond", (
+        f"expected shape 'diamond', got '{series[0].shape}'"
+    )
+    assert len(series[0].marks) == 4, (
+        f"expected 4 marks, got {len(series[0].marks)}"
+    )
+
+
+def test_square_still_square():
+    """Fix sanity: an axis-aligned 5-vertex square must still classify as
+    'square', not be mislabelled as 'diamond'."""
+    from pdf_chart2table.marks import _shape_of
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(4)), text_indices=[])
+    paths = [_axis_square(130 + 30 * i, 200, fill=(0.2, 0.6, 0.9)) for i in range(4)]
+    series = classify_marks(region, paths, [])
+    assert len(series) == 1, f"expected 1 square series, got {len(series)}"
+    assert series[0].shape == "square", (
+        f"expected shape 'square', got '{series[0].shape}'"
+    )
+
+
+def test_large_triangle_marker_not_dropped():
+    """Fix: an open triangle marker whose height exceeds 10% of the region
+    height must NOT be dropped when it is a recognised triangle shape.
+
+    Astronomy upper-limit arrows are drawn as open triangles (no fill) that
+    can span 12-15% of the plot height.  The relaxed _MAX_MARK_FRAC_KNOWN = 20%
+    threshold must allow them through.
+    """
+    # Region 200 px tall.  Triangle bh = 24 px = 12% of region height.
+    # This exceeds the default _MAX_MARK_FRAC = 10% but not the known-shape
+    # limit of 20%.
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(2)), text_indices=[])
+    # Open triangle (no fill): 3 vertices forming a downward-pointing triangle.
+    pts_a = [(150.0, 210.0), (140.0, 186.0), (160.0, 186.0)]  # bh=24, bw=20
+    pts_b = [(200.0, 230.0), (188.0, 202.0), (212.0, 202.0)]
+    def _tri_path(pts, stroke):
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return VPath(points=pts, stroke=stroke, fill=None, width=1.0,
+                     dashes=None, closed=True,
+                     bbox=(min(xs), min(ys), max(xs), max(ys)))
+    paths = [_tri_path(pts_a, (0.86, 0.08, 0.24)),
+             _tri_path(pts_b, (0.86, 0.08, 0.24))]
+    series = classify_marks(region, paths, [])
+    total = sum(len(s.marks) for s in series)
+    assert total == 2, (
+        f"both large triangles should be captured, got {total} marks"
+    )
+
+
+def test_faint_series_locus_guard_rejects_boundary_marks():
+    """Fix: a 2-mark group where one mark is in the tolerance zone at the
+    plot-box boundary is dropped by the locus guard.
+
+    Marginal-panel contour points can sit just inside the 3% tolerance fringe
+    of the main panel's plot box.  The locus guard requires all marks in small
+    groups to be strictly inside (not in the tolerance zone).
+
+    Chart setup:
+    - plot_box is (130, 130, 270, 270).  x-span = 140, tolerance = 4.2.
+    - Strong blue series (5 marks) inside the box.
+    - Red 2-mark group: one mark at x=126 (4 px outside box left edge) — that
+      would normally be DROPPED by _in_plot_box (outside even with tolerance).
+
+    For the guard test: one mark is just barely inside the tolerance (x=127 is
+    3 px outside, within 4.2 px tol → passes _in_plot_box) but NOT strictly
+    inside (x < 130).  The locus guard removes this group.
+    """
+    plot_box = (130.0, 130.0, 270.0, 270.0)
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(7)), text_indices=[])
+
+    # Strong anchor: 5 blue marks, all strictly inside.
+    strong = [_square(150 + 20 * i, 200, fill=(0.0, 0.0, 1.0)) for i in range(5)]
+
+    # Faint 2-mark red group: one mark strictly inside, one at x=127 (boundary zone).
+    # x=127 is 3 px outside the left edge 130; tolerance is 4.2 px so it passes
+    # _in_plot_box but fails _strictly_in_plot_box.
+    faint = [_square(200, 200, fill=(1.0, 0.0, 0.0)),   # inside
+             _square(127, 220, fill=(1.0, 0.0, 0.0))]    # boundary zone
+
+    paths = strong + faint
+
+    series = classify_marks(region, paths, [], plot_box=plot_box)
+    shapes_and_counts = {(s.fill, len(s.marks)) for s in series}
+
+    # Blue strong series should survive.
+    assert any(f == (0.0, 0.0, 1.0) and n == 5 for f, n in shapes_and_counts), (
+        "strong blue series should be kept"
+    )
+    # Red faint group (one mark at boundary) should be dropped by locus guard.
+    assert not any(f == (1.0, 0.0, 0.0) for f, n in shapes_and_counts), (
+        "boundary-proximate 2-mark red group should be rejected by locus guard"
+    )
+
+
+def test_faint_series_inside_box_not_dropped():
+    """Sanity: a 2-mark group where ALL marks are strictly inside the plot box
+    must still be admitted by the locus guard (normal faint-series recovery).
+
+    This ensures the guard only removes boundary-adjacent groups, not all small
+    groups.
+    """
+    plot_box = (130.0, 130.0, 270.0, 270.0)
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(7)), text_indices=[])
+
+    # Strong anchor: 5 blue marks.
+    strong = [_square(150 + 20 * i, 200, fill=(0.0, 0.0, 1.0)) for i in range(5)]
+
+    # Faint 2-mark green group, both strictly inside.
+    faint = [_square(160, 190, fill=(0.0, 0.8, 0.0)),
+             _square(200, 210, fill=(0.0, 0.8, 0.0))]
+
+    paths = strong + faint
+
+    series = classify_marks(region, paths, [], plot_box=plot_box)
+    green_series = [s for s in series if s.fill == (0.0, 0.8, 0.0)]
+    assert len(green_series) == 1, (
+        f"faint green series (strictly inside box) should be kept, "
+        f"got {len(green_series)}"
+    )
+    assert len(green_series[0].marks) == 2, (
+        f"expected 2 green marks, got {len(green_series[0].marks)}"
     )

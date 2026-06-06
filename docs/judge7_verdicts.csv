@@ -1,0 +1,61 @@
+sample_id,status,verdict,failure_mode,note
+materials_2606.04608_page14_chart5,extracted,partial,missing-series,orange large-peak dashed series still truncated at top; red/blue oscillation captured but upper series still poorly sampled — no change from judge6
+materials_2606.02317_page14_chart2,extracted,correct,none,ALD+PECVD scatter series captured cleanly; linear fit line not sampled — unchanged correct
+materials_2606.01744_page81_chart1,skipped,,,
+materials_2606.00165_page6_chart1,extracted,correct,none,all 6 series (3 rising + 3 flat vs B) captured correctly — unchanged
+materials_2606.00314_page5_chart1,extracted,correct,none,two Lorentzian peaks match well — unchanged
+materials_2606.04724_page21_chart1,extracted,correct,none,3 parabolic arcs over full x range 0-5 — unchanged
+materials_2606.04608_page30_chart1,extracted,correct,none,DMRG vs Heisenberg decay on log-x match — unchanged
+materials_2606.00681_page4_chart3,extracted,correct,none,3-series peak-vs-pole (A2-like pole / electrical peak / offset) match — unchanged
+materials_2606.00479_page2_chart1,extracted,correct,none,two symmetric band curves match; no panel merge; horizontal separator not sampled — unchanged
+materials_2606.05057_page6_chart1,skipped,,,
+materials_2606.03016_page9_chart2,extracted,correct,none,D-C-B single peak curve; inset vector field not contaminating — unchanged
+materials_2606.02317_page11_chart1,extracted,correct,none,4 overlapping XPS peaks at correct x-positions and heights — unchanged
+materials_2606.00403_page8_chart9,extracted,correct,none,3 RDF curves (Si-C Si-Si C-C) match at T=3300K — unchanged
+materials_2606.01444_page35_chart1,extracted,correct,none,3-point linear bending-modulus match — unchanged
+materials_2606.04919_page21_chart3,extracted,wrong,miscalibrated,flat lh,1s resonance extracted but multiple series at wrong y-values; scattered points not on data line — unchanged wrong
+materials_2606.04724_page19_chart1,extracted,correct,none,4 Dirichlet sawtooth series captured over full x range 0-10 — unchanged
+materials_2606.05050_page13_chart1,extracted,partial,missing-series,2 solid reaction curves present on log-y; dashed intermediates fragmented across extra series; count correct but series integrity partial — unchanged
+materials_2606.00165_page20_chart3,extracted,partial,missing-series,only 3 of 6 series (A12 decay + A14 flat + A23 flat) extracted; A13/A24/A34 absent — unchanged
+materials_2606.03497_page23_chart1,extracted,correct,none,two separate bell-peak curves extracted cleanly — unchanged
+materials_2606.03405_page6_chart3,extracted,correct,none,4 zigzag series on log-x match — unchanged
+materials_2606.02085_page6_chart1,extracted,correct,none,6 series vs pressure match; Drude-like peaks at correct positions — unchanged
+materials_2606.04219_page12_chart1,extracted,wrong,panel-merge,green continuous curve traces boundary of scatter panel; scatter+violin separation not achieved — unchanged wrong
+materials_2606.02399_page2_chart2,extracted,correct,none,all 3 series now recovered: thr.em / thr.abs / expt.em cleanly separated; minor single edge-artifact point — IMPROVED from judge6 partial/missing-series
+materials_2606.04958_page6_chart2,extracted,correct,none,4 noisy spectra match — unchanged
+materials_2606.05128_page6_chart2,skipped,,,
+materials_2606.00785_page15_chart2,extracted,correct,none,4 decreasing scatter series (CaMg2Bi2/YbMg2Bi2 poly/single) match — unchanged
+materials_2606.03405_page10_chart1,extracted,correct,none,step-drop QA PIMD single trajectory matches — unchanged
+materials_2606.03016_page16_chart1,extracted,correct,none,5 decay curves (a-f) extracted and match well — unchanged
+materials_2606.00223_page6_chart5,extracted,correct,none,3 overlapping decay curves match — unchanged
+materials_2606.00403_page8_chart6,extracted,correct,none,3 RDF curves at 3200K match — unchanged
+astro_2606.03881_page7_chart1,extracted,correct,none,all 7 series now captured (LHAASO-2024/2021 Fermi-4FGL Fermi-LAT Aharonian ARGO HAWC) on log-log spectrum — IMPROVED from judge6 partial/missing-series
+astro_2606.04793_page6_chart1,extracted,partial,extra-noise,3 power-law fit lines still sampled as series alongside scatter cluster — unchanged
+astro_2606.02593_page3_chart2,skipped,,,
+astro_2606.04309_page9_chart1,extracted,correct,none,3-series log-log scatter clusters (Narrow/Broad/Non-detections) match; error bars captured — unchanged
+astro_2606.02711_page42_chart1,extracted,partial,missing-series,uRMS=0 and uRMS=4 km/s series present; uRMS=8 km/s series absent or merged — unchanged
+astro_2606.02726_page9_chart1,extracted,correct,none,all 4 series now present: 10-16 decay + 10-13 flat + 10-11 flat + Adiabatic dashed; flat series no longer suppressed by geometric filter — IMPROVED from judge6 partial/missing-series
+astro_2606.04140_page9_chart1,extracted,partial,extra-noise,particle flux curves mostly correct; short horizontal reference segments still sampled as extra thin series at bottom — unchanged
+astro_2606.00221_page11_chart2,extracted,partial,missing-series,scatter clusters present but many diamond markers still missed; sparse extraction from color-mapped plot — unchanged
+astro_2606.04894_page7_chart2,extracted,correct,none,clean power-law single series; ref lines not sampled — unchanged
+astro_2606.02711_page53_chart4,extracted,correct,none,shock-tube 6-series (Nx levels + Analytical) match — unchanged
+astro_2606.03707_page18_chart1,skipped,,,
+astro_2606.02698_page7_chart4,extracted,partial,extra-noise,SED spectral shape present but 16-model band over-sampled into many colored series — unchanged
+astro_2606.00221_page20_chart4,extracted,correct,none,Sersic profile 2 series match; vline not sampled — unchanged
+astro_2606.03522_page7_chart4,extracted,correct,none,size-luminosity scatter 5 series match — unchanged
+astro_2606.02732_page4_chart4,extracted,correct,none,dense MB-M scatter single series matches cloud shape — unchanged
+astro_2606.02318_page9_chart2,extracted,partial,extra-noise,4 bell PDF curves present but extra series extend to negative y from adjacent marginal panel contamination — REGRESSED from judge6 correct
+astro_2606.02593_page3_chart1,skipped,,,
+astro_2606.00493_page16_chart1,extracted,correct,none,m/M peaked curve upper+lower branches match — unchanged
+astro_2606.02700_page18_chart1,extracted,correct,none,noisy decay single series match — unchanged
+astro_2606.00209_page2_chart2,skipped,,,
+astro_2606.00218_page12_chart3,extracted,partial,extra-noise,0/1 binary strip partially captured; dashed connector lines still add mid-range spurious points; series fragmented into many colors — unchanged
+astro_2606.03342_page10_chart1,extracted,correct,none,4 mass-function series match — unchanged
+astro_2606.05146_page19_chart3,extracted,partial,missing-series,power-law fit line captured but discrete marker observations (square/diamond/triangle) absent — unchanged
+astro_2606.00258_page13_chart3,extracted,partial,missing-series,two series extracted (emission peak + continuum baseline) but split oddly vs original single-component emission profile — unchanged
+astro_2606.04894_page17_chart1,extracted,correct,none,decreasing curve match; ref lines not sampled — unchanged
+astro_2606.02698_page8_chart12,extracted,correct,none,UVJ scatter 2 series (model track + data) match — unchanged
+astro_2606.04712_page24_chart1,extracted,partial,missing-series,extinction track + J2220-2 scatter present; most individual marker series still absent — unchanged
+astro_2606.02413_page9_chart2,missing,,,
+astro_2606.00258_page13_chart1,extracted,correct,none,P-Cygni 2-series emission+continuum match — unchanged
+astro_2606.01087_page16_chart2,extracted,correct,none,5 model curves including spectral radius and Titarchuk match — unchanged

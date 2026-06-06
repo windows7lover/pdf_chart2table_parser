@@ -422,7 +422,7 @@ def test_split_multi_row_boxes_guard_prevents_over_split():
 
 
 def test_split_multi_row_boxes_single_row_not_split():
-    """A box with inner patches all in one y-row is not split."""
+    """A box with inner patches all in one y-row is not split by the row splitter."""
     from pdf_chart2table.plot_region import _split_multi_row_boxes
     from unittest.mock import patch
 
@@ -436,6 +436,69 @@ def test_split_multi_row_boxes_single_row_not_split():
     with patch("pdf_chart2table.plot_region._n_calibrated_axes",
                side_effect=lambda b, p, t: 1 if b in (left, right) else 0):
         result = _split_multi_row_boxes([merged], paths, [], page_area)
+
+    assert result == [merged]
+
+
+def test_split_multi_col_boxes_splits_sidebyside_panels():
+    """A merged wide box with 2+ x-column groups of calibratable inner patches is split.
+
+    Models a scatter panel beside a violin/box panel: a single merged spine
+    frame spans both, but each panel has its own white axes-patch at a different
+    x position.  The col splitter must recover them.
+    """
+    from pdf_chart2table.plot_region import _split_multi_col_boxes
+    from unittest.mock import patch
+
+    # Wide merged frame spanning two side-by-side panels.
+    merged = (100.0, 100.0, 500.0, 300.0)
+    left = (110.0, 110.0, 240.0, 290.0)   # col 0
+    right = (360.0, 110.0, 490.0, 290.0)  # col 1 (same row)
+
+    paths = [_white_rect(*b) for b in (left, right)]
+    page_area = 600.0 * 800.0
+
+    inner = {left, right}
+    with patch("pdf_chart2table.plot_region._n_calibrated_axes",
+               side_effect=lambda b, p, t: 1 if b in inner else 0):
+        result = _split_multi_col_boxes([merged], paths, [], page_area)
+
+    assert set(result) == inner
+
+
+def test_split_multi_col_boxes_guard_prevents_over_split():
+    """If fewer than 2 inner patches calibrate, the outer box is kept intact."""
+    from pdf_chart2table.plot_region import _split_multi_col_boxes
+    from unittest.mock import patch
+
+    merged = (100.0, 100.0, 500.0, 300.0)
+    left = (110.0, 110.0, 240.0, 290.0)
+    right = (360.0, 110.0, 490.0, 290.0)
+
+    paths = [_white_rect(*b) for b in (left, right)]
+    page_area = 600.0 * 800.0
+
+    with patch("pdf_chart2table.plot_region._n_calibrated_axes", return_value=0):
+        result = _split_multi_col_boxes([merged], paths, [], page_area)
+
+    assert result == [merged]
+
+
+def test_split_multi_col_boxes_single_col_not_split():
+    """A box with all inner patches in one x-column is not split."""
+    from pdf_chart2table.plot_region import _split_multi_col_boxes
+    from unittest.mock import patch
+
+    merged = (100.0, 100.0, 300.0, 500.0)
+    top = (110.0, 110.0, 290.0, 240.0)   # same col
+    bot = (110.0, 360.0, 290.0, 490.0)   # same col
+
+    paths = [_white_rect(*b) for b in (top, bot)]
+    page_area = 600.0 * 800.0
+
+    with patch("pdf_chart2table.plot_region._n_calibrated_axes",
+               side_effect=lambda b, p, t: 1 if b in (top, bot) else 0):
+        result = _split_multi_col_boxes([merged], paths, [], page_area)
 
     assert result == [merged]
 

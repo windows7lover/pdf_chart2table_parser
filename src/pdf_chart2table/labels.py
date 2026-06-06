@@ -30,6 +30,10 @@ from .model import BBox, Color, Path, Region, TextSpan
 _NUMERIC = re.compile(r"^[-+]?\d*\.?\d+$")
 # Caption opener: "Figure 3", "Fig. 3", "Figure 3:" ...
 _CAPTION_RE = re.compile(r"^\s*(figure|fig\.?)\s*\d", re.IGNORECASE)
+# Marker-shape proxy strings emitted by Type3/glyph-path fonts instead of real
+# label text. These are the matplotlib marker codes that appear verbatim when the
+# PDF uses glyph-path rendering for legend text (e.g. circle -> 'o').
+_MARKER_PROXIES: frozenset[str] = frozenset({"o", "s", "^", "v", "D", "*", "+", "x"})
 
 # How far above the top edge to look for the plot title (points).
 _TITLE_ABOVE = 30.0
@@ -82,6 +86,35 @@ _ROW_BIN = 6.0
 # Swatches/labels must lie within the region bbox expanded by this margin
 # (legends sit inside the plot area, occasionally just past an edge).
 _LEGEND_MARGIN = 8.0
+# --- legend_bbox clustering (robust box estimation) ---
+# Two legend rows belong to the same cluster only if the vertical gap between
+# them (top of the lower minus bottom of the upper) is at most this multiple of
+# the taller row's height. Legend rows are stacked tightly (gap < row height);
+# an axis-tick row or a distant annotation sits far below the last legend row
+# and is split off into its own cluster. 1.6 tolerates the slightly looser
+# pitch of 2-row math legends while still cutting at a full blank-row gap.
+_CLUSTER_VGAP_FRAC = 1.6
+# Two legend rows belong to the same cluster only if their x-ranges overlap by
+# at least this fraction of the narrower row's width (legend rows share a left
+# swatch column, so their boxes overlap substantially in x). A row that sits in
+# a different x-column (e.g. a 2-column legend or a stray axis label) gets its
+# own cluster, which is then merged only if mutually close (see below).
+_CLUSTER_XOVERLAP_FRAC = 0.15
+# Two clusters are merged into one legend when they are mutually close: the gap
+# between their boxes (in both x and y) is within this many points. This keeps a
+# genuinely split legend (e.g. two adjacent columns) together while leaving a
+# far-away false row-pair (axis ticks) as a separate, discarded cluster.
+_CLUSTER_MERGE_GAP = 12.0
+# A legend never covers more than this fraction of the plot (region) area. If the
+# best cluster's box still exceeds it, the detection is treated as unreliable and
+# legend_bbox is returned as None (no box) rather than a bloated one. Kept a bit
+# above the 0.30 rule-of-thumb so dense legends in small panels are not dropped;
+# the mark extractor keeps an independent 0.25 backstop.
+_LEGEND_MAX_PLOT_FRAC = 0.40
+# A legend frame is a stroked, (near-)unfilled rectangle inside the region whose
+# area is at most this fraction of the region (it is a sub-box, not the axes
+# patch / spine frame which fills most of the region).
+_FRAME_MAX_PLOT_FRAC = 0.55
 # Caption paragraph: lines within this vertical gap belong to the same block.
 _LINE_GAP = 6.0
 # How far below/above the region to accept a caption opener (points).
@@ -133,6 +166,28 @@ def _eff_size(t: TextSpan) -> float:
 def _is_numeric(text: str) -> bool:
     s = text.strip().replace("−", "-")  # unicode minus
     return bool(_NUMERIC.match(s))
+
+
+def _is_proxy_label(label: str) -> bool:
+    """True when ``label`` is a Type3/glyph-path artifact, not a real legend text.
+
+    Two cases:
+    1. Exact match against a known marker-shape proxy string (matplotlib codes
+       like 'o', 's', '^' that Type3 fonts emit verbatim instead of the real
+       label text when the legend is rendered as glyph paths).
+    2. No alphanumeric character at all — a lone punctuation or box glyph.
+
+    Real single-letter labels (e.g. "A", "B", "R") that happen to not match a
+    marker code are left through. Labels with any multi-character word content
+    (e.g. "9R", "C1", "AT") are always real.
+    """
+    stripped = label.strip()
+    if stripped in _MARKER_PROXIES:
+        return True
+    # No alphanumeric at all -> punctuation/box/arrow glyph artifact.
+    if not re.search(r"[a-zA-Z0-9]", stripped):
+        return True
+    return False
 
 
 def _horizontal(t: TextSpan) -> bool:
@@ -294,6 +349,181 @@ def _assemble_label(
     return label, set(picked)
 
 
+def _union(boxes: list[BBox]) -> BBox:
+    return (min(b[0] for b in boxes), min(b[1] for b in boxes),
+            max(b[2] for b in boxes), max(b[3] for b in boxes))
+
+
+def _box_gap(a: BBox, b: BBox) -> float:
+    """Min separation between two boxes (0 if they overlap/touch)."""
+    dx = max(b[0] - a[2], a[0] - b[2], 0.0)
+    dy = max(b[1] - a[3], a[1] - b[3], 0.0)
+    return max(dx, dy)
+
+
+def _same_cluster(a: BBox, b: BBox) -> bool:
+    """True when two legend-row boxes are tightly stacked in the same column.
+
+    Legend rows sit just below one another (small vertical gap) and share a
+    left swatch column (their x-ranges overlap). A far-below row (an axis-tick
+    line that grabbed a stray swatch) or a row in a different x-column fails
+    one of these and starts a new cluster.
+    """
+    # Vertical adjacency relative to the taller row.
+    h = max(a[3] - a[1], b[3] - b[1], 1.0)
+    vgap = max(b[1] - a[3], a[1] - b[3])  # >0 only when separated
+    if vgap > _CLUSTER_VGAP_FRAC * h:
+        return False
+    # Horizontal overlap relative to the narrower row.
+    ox = min(a[2], b[2]) - max(a[0], b[0])
+    w = min(a[2] - a[0], b[2] - b[0])
+    if w <= 0:
+        return False
+    return ox >= _CLUSTER_XOVERLAP_FRAC * w
+
+
+def _cluster_rows(boxes: list[BBox]) -> list[list[int]]:
+    """Group row-pair boxes into clusters of tightly-stacked, aligned rows.
+
+    Returns lists of indices into ``boxes``. Rows are connected when
+    ``_same_cluster`` holds; the transitive closure forms each cluster.
+    """
+    n = len(boxes)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _same_cluster(boxes[i], boxes[j]):
+                parent[find(i)] = find(j)
+    groups: dict[int, list[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    return list(groups.values())
+
+
+def _merge_close_clusters(
+    cluster_boxes: list[tuple[int, BBox]]
+) -> list[list[int]]:
+    """Merge clusters whose boxes are mutually close (a split / multi-column
+    legend). ``cluster_boxes`` is (cluster_id, box); returns lists of cluster
+    ids. Clusters far apart (a stray axis-tick cluster) stay separate."""
+    n = len(cluster_boxes)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _box_gap(cluster_boxes[i][1], cluster_boxes[j][1]) <= _CLUSTER_MERGE_GAP:
+                parent[find(i)] = find(j)
+    groups: dict[int, list[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(cluster_boxes[i][0])
+    return list(groups.values())
+
+
+def _detect_frame(region: Region, paths: list[Path]) -> BBox | None:
+    """A stroked, (near-)clear-filled rectangle inside the region that is a
+    legend frame candidate (a sub-box, smaller than the axes patch). Returns the
+    smallest such rectangle's bbox, or None.
+
+    Heuristic: a closed path whose bbox is a small-to-moderate fraction of the
+    region, strictly inside it, that is stroked (a border). We do not require a
+    specific fill colour (matplotlib legends are typically white/clear); we only
+    require it not span the whole region (that is the spine/axes patch)."""
+    rx0, ry0, rx1, ry1 = region.bbox
+    region_area = max((rx1 - rx0) * (ry1 - ry0), 1.0)
+    best: BBox | None = None
+    best_area = 0.0
+    for p in paths:
+        if not p.closed or p.stroke is None:
+            continue
+        bx0, by0, bx1, by1 = p.bbox
+        w = bx1 - bx0
+        h = by1 - by0
+        if w <= 8.0 or h <= 8.0:
+            continue
+        area = w * h
+        frac = area / region_area
+        if frac > _FRAME_MAX_PLOT_FRAC or frac < 0.01:
+            continue
+        # Must sit (almost) entirely inside the region.
+        if not (rx0 - _LEGEND_MARGIN <= bx0 and bx1 <= rx1 + _LEGEND_MARGIN
+                and ry0 - _LEGEND_MARGIN <= by0 and by1 <= ry1 + _LEGEND_MARGIN):
+            continue
+        # Roughly rectangular (a real frame, not a diagonal data path): its bbox
+        # area should match a 4-corner box. We approximate by requiring the path
+        # to have few points (rectangles flatten to ~4-6 vertices).
+        if len(p.points) > 8:
+            continue
+        if area > best_area:
+            best, best_area = p.bbox, area
+    return best
+
+
+def _legend_box(
+    entry_boxes: list[BBox], region: Region, paths: list[Path]
+) -> BBox | None:
+    """Robust legend bounding box from the per-entry row boxes.
+
+    Strategy:
+      1. Cluster row boxes into tightly-stacked, x-aligned groups.
+      2. Merge mutually-close clusters (split / multi-column legends).
+      3. Pick the merged group with the most rows (the legend); tie-break by
+         larger area (the denser block).
+      4. If a stroked frame rectangle tightly contains that group, snap to it.
+      5. Reject (return None) if the resulting box exceeds the plot-fraction cap
+         — a real legend is a small fraction of the plot, so a bloated box means
+         the row-pairs did not form a compact legend.
+    """
+    if not entry_boxes:
+        return None
+    rx0, ry0, rx1, ry1 = region.bbox
+    region_area = max((rx1 - rx0) * (ry1 - ry0), 1.0)
+
+    raw = _cluster_rows(entry_boxes)
+    raw_boxes = [_union([entry_boxes[i] for i in g]) for g in raw]
+    merged = _merge_close_clusters(list(enumerate(raw_boxes)))
+
+    candidates: list[tuple[int, BBox]] = []  # (row_count, box)
+    for ids in merged:
+        members = [i for cid in ids for i in raw[cid]]
+        box = _union([entry_boxes[i] for i in members])
+        candidates.append((len(members), box))
+    # Most rows, then largest area.
+    candidates.sort(
+        key=lambda c: (c[0], (c[1][2] - c[1][0]) * (c[1][3] - c[1][1])),
+        reverse=True,
+    )
+    box = candidates[0][1]
+
+    # Prefer a frame rectangle if it tightly wraps the chosen cluster.
+    frame = _detect_frame(region, paths)
+    if frame is not None:
+        fx0, fy0, fx1, fy1 = frame
+        bx0, by0, bx1, by1 = box
+        # Frame contains the cluster (with small slack) -> snap to the frame.
+        if (fx0 - 4.0 <= bx0 and bx1 <= fx1 + 4.0
+                and fy0 - 4.0 <= by0 and by1 <= fy1 + 4.0):
+            box = frame
+
+    bw = box[2] - box[0]
+    bh = box[3] - box[1]
+    if (bw * bh) / region_area > _LEGEND_MAX_PLOT_FRAC:
+        return None
+    return box
+
+
 def _detect_legend(
     region: Region, paths: list[Path], texts: list[TextSpan]
 ) -> tuple[list[tuple[str, Color | None, str]], BBox | None]:
@@ -321,8 +551,9 @@ def _detect_legend(
 
     out: list[tuple[str, Color | None, str]] = []
     used: set[int] = set()
-    # Collect swatch + label bboxes for legend_bbox computation.
-    legend_coords: list[tuple[float, float, float, float]] = []
+    # One merged (swatch + label spans) bbox per emitted entry, fed to the
+    # clustering-based legend_bbox estimator below.
+    entry_boxes: list[BBox] = []
     # Process labels top-to-bottom, left-to-right (legend reading order).
     # Bin cy to a coarse grid so spans on the same visual row (e.g. "ε" and
     # "-PCA" with cy 0.4 pts apart) sort by x rather than by fractional cy,
@@ -352,7 +583,7 @@ def _detect_legend(
         if not row:
             continue
         label, consumed = _assemble_label(ti, ty, texts, used)
-        if not label or _is_numeric(label):
+        if not label or _is_numeric(label) or _is_proxy_label(label):
             continue
         # Prefer a marker swatch (its glyph), else the line sample's style.
         markers = [p for p in row if _swatch_style(p) == "marker"]
@@ -360,19 +591,11 @@ def _detect_legend(
         color = pick.stroke if pick.stroke is not None else pick.fill
         out.append((_swatch_style(pick), color, label))
         used |= consumed
-        # Track the extent of this entry (swatch + all consumed text spans).
-        for p in row:
-            legend_coords.append(p.bbox)
-        for idx in consumed:
-            legend_coords.append(texts[idx].bbox)
+        # Merge this entry's swatch + consumed text spans into one row box.
+        boxes = [p.bbox for p in row] + [texts[idx].bbox for idx in consumed]
+        entry_boxes.append(_union(boxes))
 
-    if not legend_coords:
-        return out, None
-    x0 = min(b[0] for b in legend_coords)
-    y0 = min(b[1] for b in legend_coords)
-    x1 = max(b[2] for b in legend_coords)
-    y1 = max(b[3] for b in legend_coords)
-    return out, (x0, y0, x1, y1)
+    return out, _legend_box(entry_boxes, region, paths)
 
 
 def _detect_caption(region: Region, texts: list[TextSpan]) -> str | None:

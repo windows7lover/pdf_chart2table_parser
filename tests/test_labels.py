@@ -366,3 +366,124 @@ def test_detect_labels_returns_legend_bbox():
     assert bx1 >= 130.0
     assert by0 <= 44.0
     assert by1 >= 56.0
+
+
+# --------------------------------------------------------------------------
+# Type3 / glyph-path proxy label suppression.
+# --------------------------------------------------------------------------
+
+def test_marker_proxy_label_suppressed():
+    """A legend entry whose assembled text is a known marker proxy ('o', 's',
+    '^', etc.) must not be emitted — it is a Type3 glyph artifact, not a real
+    label. The legend should be empty rather than contain the proxy string.
+    """
+    from pdf_chart2table.model import Path, Region
+
+    BLUE = (0.0, 0.0, 1.0)
+
+    def _marker_swatch(cx, cy):
+        half = 3.0
+        pts = [(cx - half, cy - half), (cx + half, cy - half),
+               (cx + half, cy + half), (cx - half, cy + half),
+               (cx - half, cy - half)]
+        return Path(points=pts, stroke=BLUE, fill=BLUE, width=1.0,
+                    dashes=None, closed=True,
+                    bbox=(cx - half, cy - half, cx + half, cy + half))
+
+    region = Region(bbox=(50.0, 40.0, 300.0, 200.0))
+    swatch = _marker_swatch(74.0, 50.0)
+
+    for proxy in ("o", "s", "^", "v", "D", "*", "+", "x"):
+        span = TextSpan(text=proxy, bbox=(81.0, 44.0, 86.0, 56.0),
+                        size=8.0, dir=(1.0, 0.0))
+        lbs = detect_labels(region, [swatch], [span])
+        assert lbs.legend == [], (
+            f"proxy label {proxy!r} should be suppressed; got {lbs.legend}"
+        )
+
+
+def test_punctuation_glyph_label_suppressed():
+    """A legend span containing only non-alphanumeric characters (a box or
+    arrow glyph rendered as a Unicode character) is also suppressed.
+    """
+    from pdf_chart2table.model import Path, Region
+
+    GRAY = (0.5, 0.5, 0.5)
+
+    def _line_swatch(x0, y, x1):
+        return Path(points=[(x0, y), (x1, y)], stroke=GRAY, fill=None,
+                    width=1.0, dashes=None, closed=False,
+                    bbox=(x0, y, x1, y))
+
+    region = Region(bbox=(50.0, 40.0, 300.0, 200.0))
+    swatch = _line_swatch(60.0, 50.0, 80.0)
+
+    for glyph in ("■", "●", "→", "◆"):
+        span = TextSpan(text=glyph, bbox=(84.0, 44.0, 90.0, 56.0),
+                        size=8.0, dir=(1.0, 0.0))
+        lbs = detect_labels(region, [swatch], [span])
+        assert lbs.legend == [], (
+            f"glyph {glyph!r} should be suppressed; got {lbs.legend}"
+        )
+
+
+def test_real_single_char_label_not_suppressed():
+    """A single-letter label that is NOT a marker proxy (e.g. 'A', 'B', 'R')
+    must pass through — these can be real legend labels.
+    """
+    from pdf_chart2table.model import Path, Region
+
+    RED = (1.0, 0.0, 0.0)
+
+    def _line_swatch(x0, y, x1):
+        return Path(points=[(x0, y), (x1, y)], stroke=RED, fill=None,
+                    width=1.0, dashes=None, closed=False,
+                    bbox=(x0, y, x1, y))
+
+    region = Region(bbox=(50.0, 40.0, 300.0, 200.0))
+    swatch = _line_swatch(60.0, 50.0, 80.0)
+
+    for real_char in ("A", "B", "R", "Z", "N"):
+        span = TextSpan(text=real_char, bbox=(84.0, 44.0, 90.0, 56.0),
+                        size=8.0, dir=(1.0, 0.0))
+        lbs = detect_labels(region, [swatch], [span])
+        assert len(lbs.legend) == 1, (
+            f"real single-char label {real_char!r} should not be suppressed; "
+            f"got {lbs.legend}"
+        )
+        assert lbs.legend[0][2] == real_char
+
+
+def test_proxy_mixed_with_real_labels():
+    """When a legend has both proxy entries and real entries, only the proxies
+    are suppressed; the real entries survive.
+
+    Mirrors materials_2606.02489 where 'C1'/'-C2' are correct but two 'o'
+    proxies should be dropped.
+    """
+    from pdf_chart2table.model import Path, Region
+
+    BLUE = (0.0, 0.0, 1.0)
+    RED = (1.0, 0.0, 0.0)
+
+    def _line_swatch(x0, y, x1, color):
+        return Path(points=[(x0, y), (x1, y)], stroke=color, fill=None,
+                    width=1.0, dashes=None, closed=False,
+                    bbox=(x0, y, x1, y))
+
+    region = Region(bbox=(50.0, 40.0, 300.0, 200.0))
+
+    # Entry 1: real label 'C1' on row y=50
+    swatch1 = _line_swatch(60.0, 50.0, 80.0, BLUE)
+    span_c1 = TextSpan(text='C1', bbox=(84.0, 44.0, 96.0, 56.0),
+                       size=8.0, dir=(1.0, 0.0))
+    # Entry 2: proxy label 'o' on row y=70
+    swatch2 = _line_swatch(60.0, 70.0, 80.0, RED)
+    span_o = TextSpan(text='o', bbox=(84.0, 64.0, 90.0, 76.0),
+                      size=8.0, dir=(1.0, 0.0))
+
+    lbs = detect_labels(region, [swatch1, swatch2], [span_c1, span_o])
+    labels_found = [lab for _, _, lab in lbs.legend]
+    assert 'C1' in labels_found, f"real label 'C1' missing from {labels_found}"
+    assert 'o' not in labels_found, f"proxy 'o' should be suppressed; got {labels_found}"
+    assert len(lbs.legend) == 1, f"expected 1 entry, got {lbs.legend}"
