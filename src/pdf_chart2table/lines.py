@@ -134,7 +134,11 @@ _SAME_CURVE_YTOL = 0.1
 # A line is the connector drawn through a marker series if this fraction of its
 # vertices each lie within _COINCIDE_TOL pixels of a marker centroid.
 _COINCIDE_TOL = 5.0   # px – marker centroids are usually ≤1px from line vertices
-_COINCIDE_FRAC = 0.8  # 80 % of line vertices must match a centroid
+_COINCIDE_FRAC = 0.65  # 65 % of line vertices must match a centroid.
+# At 3 vertices (the minimum for a long curve): 2/3 ≈ 0.667 ≥ 0.65, so a
+# connector whose 3rd marker was missed by mark-detection is still suppressed.
+# 80 % was too strict: a single missed marker out of 3 caused frac=0.67 < 0.80,
+# letting the connector escape as a spurious series.
 # Maximum ratio of n_centroids / n_verts to still call a line a connector.
 # When a colour carries two distinct marker trajectories (e.g. a solid and a
 # dashed series both with same-colour markers), the combined centroid count is

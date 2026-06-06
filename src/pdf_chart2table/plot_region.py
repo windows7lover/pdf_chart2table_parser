@@ -370,12 +370,21 @@ def _merged_spine_frames(paths: list[Path], width: float, height: float) -> list
     min_h_span = _SPINE_SPAN_FRAC * width
 
     # Build V edges: coverage-filtered and gap-split into sub-edges.
+    # When the raw segments have low coverage (e.g. only tick-mark endpoints at
+    # the top and bottom of an axis), fall back to the full union span so that
+    # axis-boundary frames are still detected (they will be uncalibratable and
+    # skipped, preserving chart numbering without emitting bad data).
     v_edges: list[tuple[int, float, float]] = []  # (x, vy0, vy1)
     for x, raw_segs in v_by_x.items():
         if _coverage(raw_segs) < _SPINE_COVERAGE_MIN:
-            continue
-        for vy0, vy1 in _sub_edges(raw_segs, min_v_span):
-            v_edges.append((x, vy0, vy1))
+            # Low-coverage V: emit one full-span edge from the union of all segs.
+            vy0 = min(s for s, _ in raw_segs)
+            vy1 = max(e for _, e in raw_segs)
+            if vy1 - vy0 >= min_v_span:
+                v_edges.append((x, vy0, vy1))
+        else:
+            for vy0, vy1 in _sub_edges(raw_segs, min_v_span):
+                v_edges.append((x, vy0, vy1))
 
     # Build H edges as individual segments (not unioned spans) so that when
     # multiple sub-panels share a horizontal spine, each segment pairs only

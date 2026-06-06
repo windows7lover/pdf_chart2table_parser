@@ -426,3 +426,43 @@ def test_dashed_same_color_two_series_kept():
                if r.status == "extracted"]
     assert len(results) == 1
     assert len(results[0].table.series) == 2
+
+
+def test_connector_suppressed_when_one_of_three_markers_missed():
+    """Connector suppression must succeed even when 1 of 3 marker positions was
+    missed by mark detection (frac = 2/3 ≈ 0.667).
+
+    Scenario: an orange line+marker chart with 3 data points.  Mark detection
+    finds only 2 of the 3 orange markers (the 3rd is missed).  The line
+    connecting those 3 points is still a connector (2/3 vertices within
+    _COINCIDE_TOL of a centroid), so it must be suppressed.
+
+    A separate real blue line (different colour, no marker proximity) is
+    checked to ensure the looser threshold does not cause over-suppression.
+    """
+    orange = (1.0, 0.5, 0.0)
+    blue = (0.0, 0.0, 1.0)
+
+    # The connecting line passes through 3 data points.
+    connector = _poly([(120, 250), (200, 200), (280, 170)], orange)
+    # Only 2 of the 3 orange marker centroids detected (3rd at x=280 was missed).
+    centroids_orange = [(120, 250), (200, 200)]   # frac = 2/3 ≈ 0.667
+
+    # A genuine blue line with no proximity to the orange markers.
+    real_line = _poly([(120, 180), (200, 160), (280, 150)], blue)
+
+    region = Region(
+        bbox=REGION.bbox,
+        path_indices=[0, 1],
+        text_indices=[],
+    )
+    series, _ = classify_lines(
+        region,
+        [connector, real_line],
+        [],
+        marker_colors={orange},
+        marker_centroids={orange: centroids_orange},
+    )
+    colors = {s.color for s in series}
+    assert orange not in colors, "Connector with 2/3 marker proximity must be suppressed"
+    assert blue in colors, "Genuine blue line must be kept"

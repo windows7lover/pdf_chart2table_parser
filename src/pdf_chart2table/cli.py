@@ -157,10 +157,21 @@ def _apply_legend_labels(series, legend, region=None, paths=None):
     by style ("marker" / "line" / "dashed"). When the choice stays ambiguous we
     leave the label as ``None`` (precision over recall). Each legend entry is
     used at most once. Mutates ``series`` in place.
+
+    Order-based fallback (applied after colour matching):
+    - Case 1: NO colour match was made at all AND the number of unmatched series
+      equals the number of unused entries -> assign by vertical position (i-th
+      series top-to-bottom <-> i-th entry top-to-bottom). This covers the
+      black/neutral-swatch pattern where legend swatches carry no hue.
+    - Case 2: Exactly ONE series and ONE entry remain unmatched after partial
+      colour matching -> assign unconditionally (N=1 is unambiguous).
+    - Excluded: some colour matches were made AND N>1 remain unmatched ->
+      NO fallback (order is uncertain; a wrong label is worse than missing).
     """
     if not series or not legend:
         return
     used: set[int] = set()
+    color_matched = 0
     for s in series:
         sc = getattr(s, "color", None)
         if sc is None:
@@ -180,6 +191,47 @@ def _apply_legend_labels(series, legend, region=None, paths=None):
         best = cands[0]
         used.add(best)
         s.label = legend[best][2]
+        color_matched += 1
+
+    # Order-based fallback for series still missing a label.
+    unmatched_series = [s for s in series if getattr(s, "label", None) is None]
+    unused_entries = [i for i in range(len(legend)) if i not in used]
+    n_unmatched = len(unmatched_series)
+    n_unused = len(unused_entries)
+
+    if n_unmatched == 0 or n_unused == 0:
+        return  # nothing left to assign
+
+    apply_fallback = False
+    if color_matched == 0 and n_unmatched == n_unused:
+        # Case 1: no colour match at all and counts match -> order-assign.
+        apply_fallback = True
+    elif n_unmatched == 1 and n_unused == 1:
+        # Case 2: single remainder after partial matching -> unambiguous.
+        apply_fallback = True
+    # Excluded: color_matched > 0 and n_unmatched > 1 -> too uncertain.
+
+    if not apply_fallback:
+        return
+
+    # Sort series top-to-bottom by their first point's y_px (or by index if
+    # unavailable). Sort entries by the vertical midpoint of their swatch row
+    # (legend[i][1] is colour; we use entry index as a stable proxy for
+    # top-to-bottom order since legend entries are already emitted in reading
+    # order by _detect_legend).
+    def _series_top_y(s):
+        pts = getattr(s, "points", None) or []
+        if pts and "y_px" in pts[0]:
+            return pts[0]["y_px"]
+        return 0.0
+
+    ordered_series = sorted(unmatched_series, key=_series_top_y)
+    # Legend entries are already in top-to-bottom reading order (index is a
+    # reliable proxy). Sort unused_entries by index to preserve that order.
+    ordered_entries = sorted(unused_entries)
+
+    for s, ei in zip(ordered_series, ordered_entries):
+        s.label = legend[ei][2]
 
 
 def _sibling_groups(regions) -> list[list[int]]:

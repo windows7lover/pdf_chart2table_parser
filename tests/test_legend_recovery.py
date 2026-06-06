@@ -209,3 +209,84 @@ def test_sibling_groups_components():
     groups = _sibling_groups([a, b, c, d])
     groups = sorted(sorted(g) for g in groups)
     assert groups == [[0, 1, 2], [3]]
+
+
+# --------------------------------------------------------------------------
+# 4. Order-based fallback in _apply_legend_labels (black/neutral-swatch pattern)
+# --------------------------------------------------------------------------
+
+def _series_no_color(y0):
+    """A series with no colour (or a black colour that doesn't match swatches)."""
+    return Series(label=None, marker=None, color=None, points=[
+        {"x": 0, "y": 0, "x_px": 0, "y_px": y0},
+    ])
+
+
+def test_order_fallback_full_unmatched_fires():
+    """Case 1: NO colour match at all and counts equal -> assign by order.
+
+    Mirrors 2606.03405 where legend swatches carry neutral/black colours that
+    fail colour matching. With 2 series and 2 entries, both are assigned
+    top-to-bottom (series 0 at lower y_px -> earlier in PDF top-down order).
+    """
+    # Two series with no colour.
+    s0 = _series_no_color(y0=20.0)  # appears first top-down (smaller y_px)
+    s1 = _series_no_color(y0=80.0)  # appears second
+
+    # Two legend entries (already in reading order, i.e. top-to-bottom).
+    legend = [("line", None, "Alpha"), ("line", None, "Beta")]
+
+    _apply_legend_labels([s0, s1], legend)
+    assert s0.label == "Alpha", f"expected 'Alpha', got {s0.label!r}"
+    assert s1.label == "Beta",  f"expected 'Beta', got {s1.label!r}"
+
+
+def test_order_fallback_single_remaining_fires():
+    """Case 2: ONE series and ONE entry remain after partial colour matching.
+
+    Blue series gets matched by colour; the remaining grey series and grey
+    entry are assigned unconditionally.
+    """
+    GREY = (0.5, 0.5, 0.5)
+    s_blue = Series(label=None, marker=None, color=BLUE, points=[
+        {"x": 0, "y": 0, "x_px": 0, "y_px": 10.0},
+    ])
+    s_grey = Series(label=None, marker=None, color=None, points=[
+        {"x": 0, "y": 0, "x_px": 0, "y_px": 50.0},
+    ])
+    # Legend: "BlueLabel" has a matching blue colour; "GreyLabel" has None colour.
+    legend = [("line", BLUE, "BlueLabel"), ("line", None, "GreyLabel")]
+
+    _apply_legend_labels([s_blue, s_grey], legend)
+    assert s_blue.label == "BlueLabel", f"expected 'BlueLabel', got {s_blue.label!r}"
+    assert s_grey.label == "GreyLabel", f"expected 'GreyLabel', got {s_grey.label!r}"
+
+
+def test_order_fallback_partial_multi_blocked():
+    """Excluded case: some colour matches made AND N>1 remain -> NO fallback.
+
+    One blue series matched; two remaining series and two remaining entries are
+    NOT assigned (order is uncertain when partial matching already fired with
+    N>1 left over).
+    """
+    s_blue = Series(label=None, marker=None, color=BLUE, points=[
+        {"x": 0, "y": 0, "x_px": 0, "y_px": 10.0},
+    ])
+    s_grey1 = Series(label=None, marker=None, color=None, points=[
+        {"x": 0, "y": 0, "x_px": 0, "y_px": 50.0},
+    ])
+    s_grey2 = Series(label=None, marker=None, color=None, points=[
+        {"x": 0, "y": 0, "x_px": 0, "y_px": 90.0},
+    ])
+    # Legend: blue entry matched; two unlabelled entries remain.
+    legend = [
+        ("line", BLUE, "BlueLabel"),
+        ("line", None, "Unlabelled1"),
+        ("line", None, "Unlabelled2"),
+    ]
+
+    _apply_legend_labels([s_blue, s_grey1, s_grey2], legend)
+    assert s_blue.label == "BlueLabel", f"expected 'BlueLabel', got {s_blue.label!r}"
+    # The remaining two must NOT be assigned (partial-multi blocked).
+    assert s_grey1.label is None, f"expected None, got {s_grey1.label!r}"
+    assert s_grey2.label is None, f"expected None, got {s_grey2.label!r}"

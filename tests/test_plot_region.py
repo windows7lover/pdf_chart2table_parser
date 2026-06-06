@@ -602,3 +602,33 @@ def test_merged_spine_splits_sidebyside_panels_at_h_segment_boundary():
     xs = sorted(f[0] for f in frames)
     assert abs(xs[0] - 50) <= 5    # left panel x0
     assert abs(xs[1] - 300) <= 5   # right panel x0
+
+
+def test_low_coverage_v_edge_falls_back_to_full_span():
+    """A V spine drawn as sparse tick stubs (low coverage) still forms a frame.
+
+    Models an axis whose vertical boundary is only marked by short tick stubs at
+    the top and bottom rather than a continuous spine: coverage is far below
+    _SPINE_COVERAGE_MIN, but the union span clears min_v_span.  The builder must
+    fall back to one full-span edge so the frame is still detected (it can then
+    be calibrated or skipped downstream) rather than dropping the whole region.
+    """
+    from pdf_chart2table.plot_region import _merged_spine_frames
+
+    # Page 600 x 800 -> min_v_span = 0.06*800 = 48, min_h_span = 0.06*600 = 36.
+    # Left V at x=100 as two short stubs (len 10 each) far apart: union span
+    # 80..300 = 220 >= 48, coverage = 20/220 ~= 0.09 < _SPINE_COVERAGE_MIN (0.4).
+    paths = [
+        _vseg(100, 80, 90),    # top stub
+        _vseg(100, 290, 300),  # bottom stub
+        _vseg(300, 80, 300),   # full right V spine
+        _hseg(80, 100, 300),   # top H spine
+        _hseg(300, 100, 300),  # bottom H spine
+    ]
+    frames = _merged_spine_frames(paths, width=600.0, height=800.0)
+    # Without the low-coverage fallback the sparse left V is dropped and no
+    # frame forms; with it, exactly one frame spanning x=100..300 is found.
+    assert len(frames) == 1
+    f = frames[0]
+    assert abs(f[0] - 100) <= 5    # x0 from the recovered left edge
+    assert abs(f[1] - 80) <= 5     # y0
