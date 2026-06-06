@@ -23,8 +23,27 @@ import os
 import random
 import shutil
 from collections import defaultdict
+from multiprocessing import Pool
 
 from make_examples import render_reconstruction  # same dir on sys.path[0]
+
+
+def _available_cpus() -> int:
+    """CPUs actually available to this process (respects SLURM/cgroup affinity)."""
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # non-Linux fallback
+        return os.cpu_count() or 4
+
+
+def _render_job(job):
+    """Render one reconstruction PNG (worker for the parallel render pass)."""
+    src_pdf, page, rec, out_png = job
+    try:
+        render_reconstruction(src_pdf, page, rec, out_png)
+        return None
+    except Exception as e:
+        return f"render fail {out_png}: {e}"
 
 
 def _title_text(rec):
@@ -50,6 +69,9 @@ def main():
     ap.add_argument("--max-line-series", type=int, default=None,
                     help="skip charts with more than this many LINE series "
                          "(marker-less) -- excludes 'many line plot' figures")
+    ap.add_argument("--jobs", type=int, default=_available_cpus(),
+                    help="parallel workers for the reconstruction render pass "
+                         "(default: CPUs available to this process)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
@@ -92,6 +114,7 @@ def main():
 
     print(f"{len(cand)} kept charts; building {len(chosen)} graphs "
           f"in {len(by_paper)} paper folders")
+    render_jobs = []  # (src_pdf, page, rec, out_png) -- rendered in parallel below
     for pid, items in sorted(by_paper.items()):
         pdir = os.path.join(args.out, pid)
         os.makedirs(pdir, exist_ok=True)
@@ -110,11 +133,8 @@ def main():
                               (".pdf", "chart_crop.pdf"), (".svg", "chart_crop.svg")]:
                 if os.path.exists(base + ext):
                     shutil.copy(base + ext, os.path.join(gdir, name))
-            try:
-                render_reconstruction(src_pdf, rec["source"]["page"], rec,
-                                      os.path.join(gdir, "reconstruction.png"))
-            except Exception as e:
-                print(f"  render fail {pid}/{gname}: {e}")
+            render_jobs.append((src_pdf, rec["source"]["page"], rec,
+                                 os.path.join(gdir, "reconstruction.png")))
             graphs_meta.append({
                 "folder": gname,
                 "page": rec["source"]["page"],
@@ -138,6 +158,14 @@ def main():
         with open(os.path.join(pdir, "metadata.json"), "w") as fh:
             json.dump(meta, fh, indent=2)
         print(f"  {pid}: {len(graphs_meta)} graphs")
+
+    # Parallel render pass (matplotlib Agg is process-safe; the dominant cost).
+    jobs = min(args.jobs, len(render_jobs)) or 1
+    print(f"rendering {len(render_jobs)} reconstructions on {jobs} workers")
+    with Pool(jobs) as pool:
+        for err in pool.imap_unordered(_render_job, render_jobs):
+            if err:
+                print("  " + err)
     print(f"\nDone -> {args.out}")
 
 
