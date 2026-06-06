@@ -340,3 +340,63 @@ def test_extract_matches_truth(name):
 
     ok = EVAL.evaluate(pred, truth, tol=0.01)
     assert ok, f"{name}: eval reported point error beyond tolerance"
+
+
+def test_oversized_legend_bbox_does_not_filter_data_marks():
+    """Guard: when legend_bbox covers > _MAX_LEGEND_PLOT_FRAC of the plot area,
+    it is likely a mis-detection — data marks inside it must NOT be dropped.
+
+    Regression for charts where the label detector returns an oversized legend
+    bbox spanning >50% of the plot box (e.g. 2606.04724 page 21 chart 2), which
+    caused blue and red series to be silently lost.
+    """
+    region = Region(bbox=(100.0, 100.0, 400.0, 400.0),
+                    path_indices=list(range(12)), text_indices=[])
+    plot_box = (110.0, 110.0, 390.0, 390.0)
+    # Oversized legend bbox: covers 80% of the plot box area.
+    # plot_box area = 280*280 = 78400; legend 0.8*78400 = oversized
+    oversized_legend = (115.0, 115.0, 355.0, 355.0)  # 240*240 / 78400 ≈ 73%
+
+    # 4 blue marks + 4 red marks all inside the oversized legend bbox — they ARE
+    # real data but would be lost with naive legend-box filtering.
+    paths = (
+        [_square(130 + 20 * i, 200, fill=(0.0, 0.0, 1.0)) for i in range(4)]
+        + [_square(130 + 20 * i, 250, fill=(1.0, 0.0, 0.0)) for i in range(4)]
+        # 4 extra marks well outside legend (shouldn't affect the test)
+        + [_square(130 + 20 * i, 300, fill=(0.0, 0.6, 0.0)) for i in range(4)]
+    )
+    series = classify_marks(region, paths, [], plot_box=plot_box,
+                            legend_bbox=oversized_legend)
+    # All three colour groups should survive — legend box filtering suppressed.
+    assert len(series) == 3, (
+        f"expected 3 series with oversized legend guard, got {len(series)}"
+    )
+    counts = sorted(len(s.marks) for s in series)
+    assert counts == [4, 4, 4], f"expected [4,4,4] marks, got {counts}"
+
+
+def test_normal_legend_bbox_still_filters_marks():
+    """Sanity check: a properly-sized legend bbox (< _MAX_LEGEND_PLOT_FRAC of
+    plot area) still filters marks inside it as before.
+    """
+    region = Region(bbox=(100.0, 100.0, 400.0, 400.0),
+                    path_indices=list(range(8)), text_indices=[])
+    plot_box = (110.0, 110.0, 390.0, 390.0)
+    # Small legend bbox: covers ~5% of plot area (fits in top-right corner).
+    small_legend = (340.0, 120.0, 385.0, 155.0)  # 45*35 / (280*280) ≈ 2%
+
+    # 4 blue marks outside the legend (data) + 4 red marks inside the legend
+    # (mini-curve decorations that should be dropped).
+    paths = (
+        [_square(130 + 20 * i, 250, fill=(0.0, 0.0, 1.0)) for i in range(4)]
+        + [_square(345 + 8 * i, 135, fill=(1.0, 0.0, 0.0)) for i in range(4)]
+    )
+    series = classify_marks(region, paths, [], plot_box=plot_box,
+                            legend_bbox=small_legend)
+    # Only blue marks survive; red marks (inside valid legend bbox) filtered out.
+    assert len(series) == 1, (
+        f"expected 1 series (red filtered by small legend), got {len(series)}"
+    )
+    assert len(series[0].marks) == 4, (
+        f"expected 4 blue marks, got {len(series[0].marks)}"
+    )

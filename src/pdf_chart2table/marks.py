@@ -82,6 +82,13 @@ _DUP_POS_TOL = 1.5
 # identity.
 _HUE_MERGE_DEG = 20.0
 
+# Legend-box oversized guard: when the detected legend_bbox covers more than
+# this fraction of the calibrated plot-box area, the detection is likely
+# wrong (it is misidentifying part of the plot as a legend).  In that case
+# the legend-box mark filter is suppressed so real data marks inside the
+# erroneously large bbox are not discarded.
+_MAX_LEGEND_PLOT_FRAC = 0.25
+
 # Sparse-on-dense guard: skip an extraction if the number of extracted marker
 # points is very small relative to the region's total path count AND the region
 # contains at least a few dense (line/curve) paths.  Such regions have the real
@@ -480,6 +487,23 @@ def classify_marks(
     region_texts = [texts[i] for i in region.text_indices]
     # Build large-fill set once for the region (Fix 1: interior over-sampling).
     large_fills = _collect_large_fills(paths, region)
+
+    # Legend-box oversized guard: if the detected legend_bbox covers too large a
+    # fraction of the plot area it is likely a mis-detection; suppress legend-box
+    # mark filtering in that case so real data marks are not discarded.
+    effective_legend_bbox = legend_bbox
+    if legend_bbox is not None and plot_box is not None:
+        bx0, by0, bx1, by1 = plot_box
+        plot_w = abs(bx1 - bx0)
+        plot_h = abs(by1 - by0)
+        plot_area = plot_w * plot_h
+        lx0, ly0, lx1, ly1 = legend_bbox
+        leg_w = abs(lx1 - lx0)
+        leg_h = abs(ly1 - ly0)
+        leg_area = leg_w * leg_h
+        if plot_area > 0 and leg_area / plot_area > _MAX_LEGEND_PLOT_FRAC:
+            effective_legend_bbox = None
+
     groups: dict[tuple, SeriesMarks] = {}
     for i in region.path_indices:
         p = paths[i]
@@ -488,7 +512,7 @@ def classify_marks(
         cx, cy = _centroid(p.points)
         if not _in_plot_box(cx, cy, plot_box):
             continue
-        if _in_legend_box(cx, cy, legend_bbox):
+        if _in_legend_box(cx, cy, effective_legend_bbox):
             continue
         if _is_legend_swatch(cx, cy, region_texts, plot_box):
             continue

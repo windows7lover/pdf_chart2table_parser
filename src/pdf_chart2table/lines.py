@@ -96,7 +96,20 @@ _SPINE_BAND_FRAC = 0.02
 # avoids dropping legitimate near-flat data curves (which pass the flat test but
 # are far from every edge) or legitimate high-variation edge-grazing series.
 _SPINE_FLAT_YSPAN_FRAC = 0.02   # y-extent < 2 % of plot height => "essentially flat"
-_SPINE_FLAT_EDGE_FRAC  = 0.05   # all pts within 5 % of one edge => "hugging an edge"
+_SPINE_FLAT_EDGE_FRAC  = 0.03   # all pts within 3 % of one edge => "hugging an edge"
+#   Rationale: 3 % catches zero-floor artefacts that barely miss the tight 2 %
+#   band (e.g. an artefact at 2.2 % from the spine) while correctly keeping
+#   genuine flat data series that sit 4-5 % from the spine edge (e.g. the
+#   Thomson opacity plateau that IS the bottom data curve on a log y-axis).
+# A DASHED path whose y-extent exceeds its x-extent by this factor is a
+# near-vertical connector (e.g. an errorbar or state-transition connector drawn
+# as a dashed diagonal between stacked data points) and is rejected.  Real
+# dashed data series are roughly horizontal or diagonal, not near-vertical.
+_NEAR_VERT_RATIO = 2.0
+# Minimum y-span in pixels for the scatter-cloud check to be meaningful.  A
+# curve with total y-extent below this is essentially flat; any adjacent-jump
+# test on it would be dominated by sub-pixel sampling noise, not real scatter.
+_MIN_CLOUD_YSPAN = 2.0
 # Legend swatch: a short colored segment within this gap left of legend text.
 _LEGEND_GAP = 40.0
 # Two same-colour curves "overlap" (and so cannot be cleanly separated) if their
@@ -307,6 +320,11 @@ def _is_long_curve(p: Path, region: Region, texts: list[TextSpan]) -> bool:
     rh = region.bbox[3] - region.bbox[1]
     if max(bw, bh) < _MIN_SPAN_FRAC * min(rw, rh):
         return False
+    # A dashed path that is near-vertical (y-extent >> x-extent) is a connector
+    # drawn between stacked states (errorbar, state-transition line), not a data
+    # series.  Real dashed data series are roughly horizontal or diagonal.
+    if p.dashes is not None and bw > 0 and bh > bw * _NEAR_VERT_RATIO:
+        return False
     return not _off_chart(p, region, texts)
 
 
@@ -361,12 +379,20 @@ def _is_noise_cloud(pts: list[tuple[float, float]]) -> bool:
     """True if x-sorted ``pts`` look like a scatter / noise cloud rather than a
     coherent curve: too many x-neighbours jump by more than half the y-extent (a
     single-valued curve moves smoothly in y as x advances; a cloud is multivalued
-    everywhere). Used to drop shattered/noisy candidate "series"."""
+    everywhere). Used to drop shattered/noisy candidate "series".
+
+    A curve with total y-extent below ``_MIN_CLOUD_YSPAN`` (2 px) is essentially
+    flat; any per-step jump would be dominated by sub-pixel rendering noise
+    rather than real multivaluedness, so we skip the cloud check entirely for
+    near-flat curves.  This preserves genuine constant-value data series (e.g. a
+    Thomson opacity plateau on a log y-axis) that would otherwise appear "noisy"
+    when sorted by x because their 0.1 px y-variation exceeds half the 0.15 px
+    total yspan."""
     if len(pts) < _MIN_FRAG_POINTS:
         return False  # too few to judge as a cloud; other guards handle these
     ys = [y for _, y in pts]
     yspan = max(ys) - min(ys)
-    if yspan <= 0:
+    if yspan <= 0 or yspan < _MIN_CLOUD_YSPAN:
         return False
     big = 0.5 * yspan
     jumps = sum(abs(pts[i + 1][1] - pts[i][1]) > big for i in range(len(pts) - 1))

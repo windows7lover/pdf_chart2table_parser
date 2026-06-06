@@ -309,11 +309,12 @@ def test_lowsat_filled_fragment_not_merged_as_line():
 
 def test_flat_near_bottom_edge_curve_rejected():
     """A long, nearly-flat (y-span < 2 % of chart height) curve that also sits
-    within 5 % of the bottom edge is a zero-floor artefact and must be dropped.
+    within 3 % of the bottom edge is a zero-floor artefact and must be dropped.
     A real data curve with similar x-span but proper vertical variation is kept."""
     plot_box = (110.0, 110.0, 290.0, 290.0)  # height = 180 px
 
-    # Zero-floor artefact: 213 pts, all at y ≈ 286 (within 5 % of bottom at y=290).
+    # Zero-floor artefact: 213 pts, all at y ≈ 286 (2.2 % from bottom at y=290,
+    # within the 3 % edge band = 5.4 px).
     # y-span = 0.15 px  (<< 2 % * 180 = 3.6 px) -- essentially horizontal.
     flat_pts = [(110 + k * 0.85, 286.0 + (k % 3) * 0.05) for k in range(213)]
     flat = _poly(flat_pts, (0.8, 0.47, 0.65))
@@ -327,6 +328,57 @@ def test_flat_near_bottom_edge_curve_rejected():
     colors = [s.color for s in series]
     assert (0.8, 0.47, 0.65) not in colors, "Flat near-bottom artefact must be rejected"
     assert any(abs(c[2] - 0.7) < 0.01 for c in colors if c), "Real data curve must be kept"
+
+
+def test_flat_data_series_not_at_spine_kept():
+    """A genuinely flat data series (like a Thomson-opacity plateau) that sits
+    close to the bottom of the chart but NOT within the 3 % spine-edge band must
+    NOT be suppressed.  This is the regression guard for 2606.02726 chart 1 where
+    the pink flat line (y ~4.6 % from the bottom spine) was incorrectly dropped.
+
+    Two guards must pass:
+      1. _is_noise_cloud: a flat curve with yspan < 2 px must not be flagged as
+         a scatter cloud even if adjacent-y jumps exceed 0.5 * yspan.
+      2. _is_spine_line: the flat-and-near check only fires within 3 % of an
+         edge; 4.6 % is outside that band, so the series must survive."""
+    plot_box = (110.0, 110.0, 290.0, 290.0)  # height = 180 px
+    # Flat plateau at y ≈ 281.7, bottom of box at y=290; distance = 8.3 px = 4.6 %
+    # of height.  Use cyclic y (matches the 2606.02726 rendering) so _is_noise_cloud
+    # sub-pixel jumps are covered -- the fix skips the cloud check when yspan < 2 px.
+    flat_data_pts = [(110 + k * 0.85, 281.7 + (k % 3) * 0.05) for k in range(213)]
+    flat_data = _poly(flat_data_pts, (0.8, 0.47, 0.65))
+    region = Region(bbox=REGION.bbox, path_indices=[0], text_indices=[])
+    series, _ = classify_lines(region, [flat_data], [], plot_box=plot_box)
+    colors = [s.color for s in series]
+    assert (0.8, 0.47, 0.65) in colors, "Flat data plateau outside 3 % edge band must be kept"
+
+
+def test_dashed_near_vertical_connector_rejected():
+    """A dashed path whose height is much larger than its width (near-vertical,
+    e.g. an errorbar or state-transition connector between stacked data points)
+    must NOT be emitted as a data series.  Real dashed data series are roughly
+    horizontal or gently diagonal, not near-vertical."""
+    plot_box = (110.0, 110.0, 290.0, 290.0)
+    # Near-vertical dashed connector: bw=15, bh=50 -> bh/bw = 3.3 > _NEAR_VERT_RATIO=2.0
+    near_vert_pts = [(120, 200), (123, 210), (121, 220), (122, 230),
+                     (120, 240), (121, 250), (122, 260)]
+    connector = _poly(near_vert_pts, (1.0, 0.27, 0.0), dashes="[2 2] 0")
+    region = Region(bbox=REGION.bbox, path_indices=[0], text_indices=[])
+    series, _ = classify_lines(region, [connector], [], plot_box=plot_box)
+    assert series == [], "Near-vertical dashed connector must be rejected"
+
+
+def test_dashed_diagonal_curve_kept():
+    """A dashed curve that is diagonal (roughly equal x and y extents) must be
+    kept — it is a real data series, not a near-vertical connector."""
+    plot_box = (110.0, 110.0, 290.0, 290.0)
+    # Diagonal dashed series: bw≈90, bh≈50 -> bh/bw ≈ 0.56 < 2.0 -> keep
+    diag_pts = [(120, 150), (140, 160), (160, 175), (180, 185),
+                (200, 195), (220, 200), (240, 205)]
+    diag = _poly(diag_pts, (1.0, 0.27, 0.0), dashes="[2 2] 0")
+    region = Region(bbox=REGION.bbox, path_indices=[0], text_indices=[])
+    series, _ = classify_lines(region, [diag], [], plot_box=plot_box)
+    assert len(series) == 1, "Diagonal dashed curve must be kept"
 
 
 def test_line_plus_marker_fixture_no_duplicate_series():
