@@ -37,8 +37,8 @@ Public API:
 from __future__ import annotations
 
 from .calibrate import calibrate_panels, to_data_array
-from .lines import SeriesLine, classify_lines
-from .marks import SeriesMarks, classify_marks, is_sparse_on_dense
+from .lines import SeriesLine
+from .marks import SeriesMarks, is_sparse_on_dense
 from .plot_region import detect_regions
 from .model import (
     Axis,
@@ -51,6 +51,7 @@ from .model import (
 )
 from .pdf_vector import load_pdf
 from .primitives import MARKER_CODE as _MARKER_CODE, round_color as _round_color
+from .roles import SKIP_REASON as _AMBIGUOUS_REASON, classify_roles
 
 
 # A real chart yields more than a single isolated data point; <= this many
@@ -256,33 +257,24 @@ def extract_region(
         plot_box = (x_axis.pixel_range[0], y_axis.pixel_range[0],
                     x_axis.pixel_range[1], y_axis.pixel_range[1])
 
-    all_marks = classify_marks(region, paths, texts, plot_box, legend_bbox)
+    # Single authority decides every contested path's role (marker / curve /
+    # swatch) ONCE; the marker→curve cross-talk (former marker_colors /
+    # marker_centroids plumbing) now lives inside classify_roles, so a connector
+    # line tracing a marker series is already suppressed and a distinct same-
+    # colour line is already kept.
+    region_roles = classify_roles(region, paths, texts, plot_box, legend_bbox)
+
+    # Task 2: a region whose contested data paths are largely ambiguous (markers
+    # and curves genuinely contend over the same paths) is low-confidence -> skip
+    # for precision rather than emit an untrustworthy table.
+    if region_roles.ambiguous:
+        return ChartResult(status="skipped", skip_reason=_AMBIGUOUS_REASON)
+
+    all_marks = region_roles.marker_series
     # Strong anchor series (≥ _MIN_MARKS_PER_SERIES): always kept.
     strong_marks = [sm for sm in all_marks if len(sm.marks) >= _MIN_MARKS_PER_SERIES]
-
-    # Marker-less line curves: dedupe against colours already drawn as markers
-    # (line+marker plots -> keep the markers), then add the clean ones.
-    # Build a centroid map for the geometric connector test: a line sharing a
-    # marker colour is only suppressed when its vertices coincide with those
-    # centroids (it is the connector through the markers), not merely by colour.
-    # When two series share the same colour (e.g. blue circles AND blue stars),
-    # accumulate ALL centroids for that colour so the multitrack-ratio guard
-    # correctly sees 2× centroids and falls back to solid-only suppression.
-    # Deduplication uses strong marks only: 2-mark faint series rarely have a
-    # matching line connector that would need suppression.
-    marker_colors = {_round_color(sm.fill or sm.stroke) for sm in strong_marks}
-    marker_centroids: dict[tuple, list[tuple[float, float]]] = {}
-    for sm in strong_marks:
-        color = _round_color(sm.fill or sm.stroke)
-        if color is not None:
-            pts = [(m.cx, m.cy) for m in sm.marks]
-            if color in marker_centroids:
-                marker_centroids[color].extend(pts)
-            else:
-                marker_centroids[color] = pts
-    line_series, line_skips = classify_lines(region, paths, texts, marker_colors,
-                                             plot_box,
-                                             marker_centroids=marker_centroids)
+    line_series = region_roles.line_series
+    line_skips = region_roles.line_skips
 
     # Fix II: merge same-color line series that are x-tiled pieces of one curve.
     merged_line_series = _merge_tiled_line_series(

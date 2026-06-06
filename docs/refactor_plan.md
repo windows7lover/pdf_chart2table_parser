@@ -140,3 +140,85 @@ Left in place (deliberately), calling the shared vocabulary:
   byte-identical extracted/series/point counts before vs after the refactor
   (e.g. 1512.03385: 8 charts / 40 series / 2595 points unchanged;
   1608.03983: 8 / 93 / 2892 unchanged) — behaviour fully preserved on the sample.
+
+## 5. Layer B — single role authority (`roles.py`)
+
+Layer A centralised the shared *vocabulary* but left three classifiers
+(`marks.classify_marks`, `lines.classify_lines`, the legend-swatch detection)
+each INDEPENDENTLY deciding what a path is, coordinating through a fragile hack:
+`extract.extract_region` re-derived `marker_colors` + `marker_centroids` from the
+marker output and passed them to `classify_lines`. That orchestrator-level
+cross-talk caused the top-2 failures (double-count: a connector kept as an extra
+series; drop: a real solid line suppressed because its colour matched a marker
+colour). Layer B makes ONE pass decide each contested path's role so the
+classifiers AGREE on a single assignment.
+
+### The role API
+`roles.classify_roles(region, paths, texts, plot_box=None, legend_bbox=None)
+ -> RegionRoles`.
+
+`RegionRoles` exposes:
+- `roles: dict[int, str]` — the single role for each CONTESTED in-region path:
+  `marker`, `data_curve`, `fill_band`, or `ambiguous`. Plain decorations
+  (spines / ticks / gridlines / frames / background) are deliberately omitted
+  (uncontested, no signal). Role constants live in `roles.py`:
+  `MARKER, DATA_CURVE, FILL_BAND, AMBIGUOUS`.
+- `marker_series` / `line_series` / `line_skips` — the exact objects
+  `classify_marks` / `classify_lines` produced. The curve pass already had the
+  marker colours/centroids applied, so the line+marker connector suppression is
+  baked in here, not in the orchestrator.
+- `n_data_paths` / `n_ambiguous` / `ambiguous` — the contention summary and the
+  region-level skip flag.
+
+Authority order inside `classify_roles`:
+1. `classify_marks` → marker series (markers win a contested glyph).
+2. The colours/centroids of the STRONG marker series (≥ `_MIN_STRONG_MARKS`,
+   mirroring extract's `_MIN_MARKS_PER_SERIES`) are computed ONCE — this is the
+   former `marker_colors`/`marker_centroids` cross-talk, now internal to the role
+   authority.
+3. `classify_lines(..., marker_colors, marker_centroids)` → curve series with the
+   geometric connector test applied: a same-colour line tracing the markers is
+   suppressed; a distinct same-colour line is kept.
+4. A per-path role map is built; a path accepted by BOTH `_is_data_mark` and
+   (`_is_long_curve` or `_is_fragment`) is `ambiguous` (the two authorities
+   contend over it).
+
+### Consumers
+- `extract.extract_region` now calls `classify_roles` ONCE and consumes
+  `marker_series` / `line_series` / `line_skips`. The `marker_colors` /
+  `marker_centroids` derivation and the `classify_marks` / `classify_lines`
+  calls were REMOVED from `extract.py` (the role authority owns them).
+- `classify_marks` / `classify_lines` keep their public signatures unchanged
+  (tests still call them directly); `classify_roles` is the single orchestrating
+  caller in the pipeline.
+
+### Preserving the intentional line+marker case
+A series drawn as BOTH a line and markers still yields the markers (role
+`marker`) and the coincident connector is handled exactly as before: because
+`classify_roles` runs markers first and feeds their colours+centroids into the
+curve pass, the connector is suppressed by the SAME geometric-coincidence rule
+(`_is_connector`, multitrack-ratio guard) that the cross-talk drove. A distinct
+same-colour line (far from the markers) is still kept. Verified: the
+`convergence_semilogy_3`, `dotted_3styles`, `four_dashed_semilogy` and
+`dashed_same_color` fixtures still give the correct series counts, and the new
+`tests/test_roles.py` asserts the suppress-vs-keep split through the role pass.
+
+### Ambiguity → confidence/skip (Task 2, deterministic)
+When a path plausibly fits >1 role (accepted by both the marker and the curve
+classifier) it is `ambiguous`. When a region's aggregate ambiguity is high — at
+least `AMBIGUITY_MIN_DATA_PATHS` (4) contested data paths AND a fraction
+≥ `AMBIGUITY_SKIP_FRAC` (0.5) of them ambiguous — the extraction is
+low-confidence and the region is SKIPPED via the existing skip path with reason
+`"ambiguous primitive roles"` (precision over recall). This is purely
+deterministic: a single classification pass, no retry-with-modified-parameters
+loop. On the real_pdfs sample the per-path ambiguity metric is live (e.g.
+1608.03983 p4 reaches 17/37 ≈ 0.46) but never crosses the 0.5 region gate, so no
+region is skipped and series/point counts are byte-identical to base.
+
+### Layer-B verification
+- `pytest`: 967 passed (961 baseline + 6 new `tests/test_roles.py`), 27 skipped,
+  5 xfailed, 1 xpassed.
+- Page-limited (`pages=1-12`) `parse` over the real_pdfs corpus: extracted /
+  series / point counts byte-identical before vs after Layer B (1512.03385:
+  8/40/2595; 1608.03983: 8/93/2892; 1609.04836: 16/58/5241; 1412.6980:
+  5/24/2089; 2010.11929: 4/25/455 — all unchanged).
