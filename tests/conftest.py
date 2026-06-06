@@ -22,12 +22,6 @@ FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 # Key = pytest node-id substring (parametrize id); value = reason string.
 # ---------------------------------------------------------------------------
 _KNOWN_FAILING = {
-    # exponent_ticks_large: x-axis tick detection reads normalised 0–1 values
-    # instead of absolute 1e6–1e8; calibration bug with scientific-notation x.
-    "exponent_ticks_large-r0c0-x": (
-        "open bug: axes.py reads tick values as 0–1 normalised instead of "
-        "1e6–1e8 for large-magnitude scientific-notation x-axis ticks"
-    ),
     # twinx_log_linear: right y-axis ticks bleed into left-axis detection, producing
     # spurious negative values [-1, -1] in the left log-axis tick list.
     "twinx_log_linear-r0c0-y": (

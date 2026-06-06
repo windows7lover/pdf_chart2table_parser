@@ -159,6 +159,33 @@ def test_assemble_label_subscript_joined():
     assert consumed == {0, 1, 2, 3, 4, 5}
 
 
+def test_assemble_label_raised_superscript_joined():
+    """A raised exponent ("^2") is a SMALLER span whose centre-y sits higher
+    than a lowered subscript drops, so its offset can reach ~0.65× the base
+    size. It must still be stitched into the label, not dropped.
+
+    Mirrors the "‖Z_t‖_F^2 ratio (update scale)" math legend in 2606.04662
+    where the raised '2' (size 3.87, cy offset 3.6 pt on a 5.53 pt base) was
+    silently dropped, yielding "‖Zt‖F" instead of "‖Zt‖2F".
+    """
+    base_size = 5.53
+    sub_size = 3.87
+    # Anchor '‖' cy = 110.25; raised '2' cy = 106.65 → offset 3.6 pt.
+    # 3.6 / 5.53 = 0.65 < _SUB_ROW_TOL_FRAC (0.75) → admitted.
+    texts = [
+        _span("‖", 447.1, 107.0, 449.9, 113.5, size=base_size),  # 0 anchor
+        _span("Z", 449.9, 105.1, 453.6, 111.6, size=base_size),  # 1
+        _span("t", 453.6, 107.5, 455.0, 111.9, size=sub_size),   # 2 subscript
+        _span("‖", 455.4, 107.0, 458.1, 113.5, size=base_size),  # 3
+        _span("2", 458.4, 104.3, 460.3, 109.0, size=sub_size),   # 4 superscript
+        _span("F", 458.4, 107.7, 460.9, 112.6, size=sub_size),   # 5 subscript
+    ]
+    ty = 0.5 * (texts[0].bbox[1] + texts[0].bbox[3])
+    label, consumed = _assemble_label(0, ty, texts, set())
+    assert "2" in label, f"raised superscript '2' missing from {label!r}"
+    assert consumed == {0, 1, 2, 3, 4, 5}
+
+
 def test_assemble_label_same_size_row_tol_respected():
     """Same-size spans with cy offset > _LABEL_ROW_TOL are NOT merged
     (they belong to the next legend entry, not a subscript of this one).
@@ -172,3 +199,170 @@ def test_assemble_label_same_size_row_tol_respected():
     label, consumed = _assemble_label(0, ty, texts, set())
     assert "B" not in label, f"next-row span should not be merged into {label!r}"
     assert consumed == {0}
+
+
+# --------------------------------------------------------------------------
+# Effective-font-size gap fix (LaTeX-scaled size artefact).
+# --------------------------------------------------------------------------
+
+def test_assemble_label_latex_scaled_size_bridges_gap():
+    """When span.size is a LaTeX scaling artifact (much smaller than bbox height),
+    _eff_size() must use the bbox height so that a normal inter-word gap is not
+    treated as a label-column separator.
+
+    Mirrors "Linear cavit y(y), g' = 0.4" in 2606.01373 where size≈0.87 but
+    bbox height ≈11.7 pt. Gap between "Linear" and "cavit" is ~2.4 pt — fine
+    for 11.7 pt text but exceeds _SPAN_GAP * 0.87.
+    """
+    # size=0.87 (LaTeX artifact), bbox height ~11.7 pt.
+    # Gap between spans: 2.4 pt.  With real height the ratio = 2.4/11.7 ≈ 0.21,
+    # well within _SPAN_GAP=1.2. Without the fix: 2.4/0.87 = 2.76 > 1.2 → break.
+    tiny_size = 0.87
+    h = 11.7
+    texts = [
+        _span("Linear", 441.1, 323.9, 463.1, 323.9 + h, size=tiny_size),   # 0 anchor
+        _span("cavit",  465.5, 323.9, 478.0, 323.9 + h, size=tiny_size),   # 1 gap=2.4
+        _span("y",      478.5, 323.9, 480.0, 323.9 + h, size=tiny_size),   # 2 adjacent
+    ]
+    ty = 0.5 * (texts[0].bbox[1] + texts[0].bbox[3])
+    label, consumed = _assemble_label(0, ty, texts, set())
+    assert "cavit" in label, f"'cavit' should be included; label={label!r}"
+    assert consumed == {0, 1, 2}
+
+
+# --------------------------------------------------------------------------
+# Row-sort order fix: leftmost anchor wins when spans share a visual row.
+# --------------------------------------------------------------------------
+
+def test_legend_leftmost_span_anchors_when_same_row():
+    """Two spans on the same visual row (cy within _ROW_BIN/2) with the same
+    swatch: the leftmost must become the anchor so that the right span is its
+    continuation, not an independent entry.
+
+    Mirrors the ε-PCA split in 2606.03553 where 'ε' (lx=145.9) and '-PCA'
+    (lx=150.0) have cy 0.36 pt apart, causing '-PCA' to sort first under the
+    old exact-cy ordering.
+    """
+    from pdf_chart2table.model import Path
+    from pdf_chart2table.labels import detect_labels
+
+    ORANGE = (0.84, 0.37, 0.0)
+
+    def _marker(x0, y, x1):
+        """Tiny filled marker swatch."""
+        cx, cy = 0.5 * (x0 + x1), y
+        half = 2.0
+        pts = [(cx - half, cy - half), (cx + half, cy - half),
+               (cx + half, cy + half), (cx - half, cy + half),
+               (cx - half, cy - half)]
+        return Path(points=pts, stroke=ORANGE, fill=ORANGE, width=1.0,
+                    dashes=None, closed=True,
+                    bbox=(cx - half, cy - half, cx + half, cy + half))
+
+    region = TextSpan.__mro__  # just need a Region-like for _inside check
+    from pdf_chart2table.model import Region
+    region = Region(bbox=(120.0, 470.0, 420.0, 550.0))
+
+    swatch = _marker(127.7, 505.05, 131.7)   # single swatch for both spans
+
+    # 'ε' at cy = 505.83, '-PCA' at cy = 505.47 — should be same row
+    span_eps  = TextSpan(text='ε',    bbox=(145.9, 501.43, 150.0, 510.22), size=8.8, dir=(1.0, 0.0))
+    span_pca  = TextSpan(text='-PCA', bbox=(150.0, 499.02, 170.0, 511.92), size=8.8, dir=(1.0, 0.0))
+
+    labels = detect_labels(region, [swatch], [span_eps, span_pca])
+    entries = {lab for _, _, lab in labels.legend}
+    assert 'ε-PCA' in entries, f"expected 'ε-PCA' but got {entries}"
+    assert len(labels.legend) == 1, f"expected 1 entry, got {labels.legend}"
+
+
+# --------------------------------------------------------------------------
+# legend_bbox computation.
+# --------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------
+# Numeric-anchor label assembly (e.g. "0 ≤ J ≤ 15" where ≤ is a path glyph).
+# --------------------------------------------------------------------------
+
+def test_numeric_anchor_with_nonnumeric_continuation():
+    """A numeric span is allowed as the legend anchor when a swatch is
+    immediately to its left AND the assembled label contains non-numeric text.
+
+    Mirrors the "0 ≤ J ≤ 15" pattern in astro_2606.05237 where the ≤ signs
+    are rendered as path glyphs (invisible in text extraction), leaving spans
+    '0', 'J', '15' that together form the label '0 J 15'.
+    """
+    from pdf_chart2table.model import Path, Region
+
+    GRAY = (0.5, 0.5, 0.5)
+
+    def _line_swatch(x0, y, x1):
+        return Path(points=[(x0, y), (x1, y)], stroke=GRAY, fill=None,
+                    width=1.0, dashes=None, closed=False,
+                    bbox=(x0, y, x1, y))
+
+    region = Region(bbox=(400.0, 400.0, 550.0, 580.0))
+    swatch = _line_swatch(446.0, 513.0, 461.0)   # right edge x=461
+
+    # '0' is numeric, immediately right of swatch (gap ~10pt)
+    span0 = TextSpan(text='0',  bbox=(471.0, 507.0, 476.0, 519.0), size=7.2, dir=(1.0, 0.0))
+    # 'J' is non-numeric, gap from '0' right edge (476) = 8.5pt (< 1.3×7.2=9.4)
+    spanJ = TextSpan(text='J',  bbox=(484.5, 508.0, 487.0, 518.0), size=7.2, dir=(1.0, 0.0))
+    # '15' is numeric continuation of 'J', gap from 'J' right edge (487) = 8.5pt
+    span15 = TextSpan(text='15', bbox=(495.5, 507.0, 504.7, 519.0), size=7.2, dir=(1.0, 0.0))
+
+    lbs = detect_labels(region, [swatch], [span0, spanJ, span15])
+    entries = {lab for _, _, lab in lbs.legend}
+    assert entries, f"expected legend entry but got none"
+    # The label should contain the non-numeric 'J' and numeric range parts
+    assert any('J' in lab for lab in entries), f"'J' not found in {entries}"
+
+
+def test_pure_numeric_anchor_still_filtered():
+    """A purely numeric assembled label (e.g. '42') is never emitted as a
+    legend entry even when a swatch is immediately to its left.
+    """
+    from pdf_chart2table.model import Path, Region
+
+    BLUE = (0.0, 0.0, 1.0)
+
+    def _line_swatch(x0, y, x1):
+        return Path(points=[(x0, y), (x1, y)], stroke=BLUE, fill=None,
+                    width=1.0, dashes=None, closed=False,
+                    bbox=(x0, y, x1, y))
+
+    region = Region(bbox=(50.0, 40.0, 300.0, 200.0))
+    swatch = _line_swatch(60.0, 50.0, 80.0)
+    # Only a numeric span to the right of the swatch — should NOT be a legend entry.
+    span_num = TextSpan(text='42', bbox=(84.0, 44.0, 98.0, 56.0), size=8.0, dir=(1.0, 0.0))
+
+    lbs = detect_labels(region, [swatch], [span_num])
+    assert lbs.legend == [], f"numeric-only entry should be filtered; got {lbs.legend}"
+
+
+# --------------------------------------------------------------------------
+
+def test_detect_labels_returns_legend_bbox():
+    """detect_labels must populate legend_bbox enclosing swatches+labels."""
+    from pdf_chart2table.model import Path, Region
+
+    BLUE = (0.0, 0.0, 1.0)
+
+    def _line_swatch(x0, y, x1):
+        return Path(points=[(x0, y), (x1, y)], stroke=BLUE, fill=None,
+                    width=1.0, dashes=None, closed=False,
+                    bbox=(x0, y, x1, y))
+
+    region = Region(bbox=(50.0, 40.0, 300.0, 200.0))
+    swatch = _line_swatch(60.0, 50.0, 80.0)
+    label_span = TextSpan(text='Series A', bbox=(84.0, 44.0, 130.0, 56.0),
+                          size=6.0, dir=(1.0, 0.0))
+
+    lbs = detect_labels(region, [swatch], [label_span])
+    assert len(lbs.legend) == 1
+    assert lbs.legend_bbox is not None
+    bx0, by0, bx1, by1 = lbs.legend_bbox
+    # Must enclose the swatch (x0=60) and the label (x1=130, y0=44, y1=56)
+    assert bx0 <= 60.0
+    assert bx1 >= 130.0
+    assert by0 <= 44.0
+    assert by1 >= 56.0

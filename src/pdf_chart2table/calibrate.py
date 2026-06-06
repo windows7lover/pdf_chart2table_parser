@@ -60,8 +60,27 @@ def _linfit(px: np.ndarray, val: np.ndarray) -> tuple[float, float, float]:
 
 # Below this R² gap the linear/log fits are a tie and we look at minor ticks.
 _R2_TIE = 1e-3
-# A minor tick is "log-consistent" if its mantissa is within this of an integer.
-_LOG_MANTISSA_TOL = 0.12
+# A minor tick is "log-consistent" if its fractional log10 position is within
+# this of one of the expected minor-tick positions (log10(2..9)).
+# Checking in fractional-logv space is more robust than mantissa-space: a small
+# pixel error (~1-2pt) corresponds to ~0.025-0.05 in log10 space regardless of
+# the actual mantissa value, whereas the equivalent mantissa-space deviation is
+# amplified near the boundaries between consecutive integers (e.g. mant=8.4
+# rounds to 8 with deviation 0.4 even though it is only 0.02 in logv from the
+# expected position log10(9)≈0.954).
+_LOG_FRAC_TOL = 0.04
+_LOG_MINOR_EXPECTED_FRACS = [math.log10(k) for k in range(2, 10)]
+# Decade-span heuristic: when the labeled-tick R² fits are tied AND the tick
+# values are all positive AND their log10 values are all near integers (within
+# this tolerance), the axis is almost certainly a log axis printed at decade
+# markers (10^1, 10^2, ...).  We prefer LOG in that case even without minor
+# ticks, provided the span is at least this many decades.  A true linear axis
+# can have values 1,10,100 only if the range spans those exact decades — but a
+# linear axis showing e.g. 1,10,100 has wildly uneven visual spacing (95% of
+# ticks crowd near 1), which matplotlib will never produce.
+_LOG_DECADE_SPAN = 1.0       # require at least 1 full decade
+_LOG_DECADE_MAX = 12.0       # reject implausibly-wide "decade" span (mis-parse)
+_LOG_INT_TOL = 0.05          # log10(v) within this of an integer -> "decade tick"
 # Outlier rejection: a label-band contaminant (e.g. a stray corner label parsed
 # as a tick) ruins the linear fit. If the fit is this poor and there are at
 # least this many labeled ticks, drop the single worst-residual tick and refit;
@@ -92,22 +111,48 @@ _TICK_GAP_OUTLIER = 50.0
 
 
 def _log_minor_consistent(a: float, b: float, minor_px: list[float]) -> bool:
-    """Do the unlabeled minor ticks land on log minor positions (mantissa 1-9)?
+    """Do the unlabeled minor ticks land on log minor positions (mantissa 2-9)?
 
-    Under a log fit the value of a minor tick is ``10**(a*px+b)``; its mantissa
-    ``value / 10**floor(log10 value)`` should be a near-integer 2..9. This
-    distinguishes a genuine log axis from a linear one when only two labeled
-    decade ticks are available (both fits then have R²=1).
+    Under a log fit the value of a minor tick is ``10**(a*px+b)``. We test
+    whether the fractional part of ``a*px+b`` (i.e. the fractional log10 of the
+    tick value) is close to one of the expected positions log10(2..9).
+
+    Checking in fractional-log10 space avoids the large apparent deviation that
+    the old mantissa-space check suffered near integer-mantissa boundaries: a
+    1-2 pt pixel-render error corresponds to only ~0.02-0.05 in fractional-log10
+    space regardless of the mantissa value.
     """
     if len(minor_px) < 2:
         return False
     good = 0
     for px in minor_px:
         logv = a * px + b
-        mant = 10.0 ** (logv - math.floor(logv))
-        if abs(mant - round(mant)) <= _LOG_MANTISSA_TOL and 1 <= round(mant) <= 9:
+        frac = logv - math.floor(logv)
+        min_dist = min(abs(frac - ef) for ef in _LOG_MINOR_EXPECTED_FRACS)
+        if min_dist <= _LOG_FRAC_TOL:
             good += 1
     return good >= max(2, int(0.7 * len(minor_px)))
+
+
+def _all_decade_ticks(val: np.ndarray) -> bool:
+    """Return True if every positive value is at (or very near) a power of ten.
+
+    This catches the common log-axis pattern where matplotlib places labeled
+    ticks only at 10^0, 10^1, 10^2, … (pure decade ticks).  A linear axis
+    whose tick values happen to be e.g. 1, 10 is a valid counter-example, but
+    matplotlib will never place linear ticks at powers of 10 that span a full
+    decade unless the axis is actually log-scaled — the spacing would look
+    wildly unequal.  We require all values > 0 (caller ensures this).
+    """
+    if len(val) < 2:
+        return False
+    for v in val:
+        if v <= 0:
+            return False
+        frac = math.log10(v) % 1.0
+        if frac > _LOG_INT_TOL and frac < (1.0 - _LOG_INT_TOL):
+            return False
+    return True
 
 
 def _drop_outlier(px: np.ndarray, val: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -196,13 +241,38 @@ def fit_calibration(ticks) -> dict | None:
         log_fit = {"scale": "log", "a": a_log, "b": b_log, "r2": r2_log}
         if r2_log > r2_lin + _R2_TIE:
             best = log_fit
-        elif abs(r2_log - r2_lin) <= _R2_TIE and _log_minor_consistent(
-            a_log, b_log, minor_px
-        ):
-            # Fits tie on the labeled ticks; minor ticks reveal a log axis.
-            best = log_fit
+        elif abs(r2_log - r2_lin) <= _R2_TIE:
+            log10s = np.log10(val)
+            span = float(np.max(log10s) - np.min(log10s))
+            if _log_minor_consistent(a_log, b_log, minor_px):
+                # Minor ticks land on log positions -> log axis.
+                best = log_fit
+            elif (_LOG_DECADE_SPAN <= span <= _LOG_DECADE_MAX
+                  and _all_decade_ticks(val)):
+                # All labeled ticks are at exact powers of ten spanning a
+                # plausible number of decades: a real linear axis would never
+                # look like this (spacing would be wildly uneven).
+                best = log_fit
     if best["r2"] < _MIN_FIT_R2:
-        return None
+        # R² floor fallback: try dropping the single worst-residual tick before
+        # giving up.  A stray mis-parsed label can drag an otherwise good fit
+        # below the threshold.  Require >= 4 ticks to have any slack to drop.
+        if len(px) >= 4:
+            a, b, _ = _linfit(px, val if best["scale"] == "linear" else np.log10(val))
+            fit_val = val if best["scale"] == "linear" else np.log10(val)
+            resid = np.abs(fit_val - (a * px + b))
+            worst = int(np.argmax(resid))
+            keep = np.arange(len(px)) != worst
+            px2, val2 = px[keep], val[keep]
+            if len(set(val2.tolist())) >= 2:
+                a2, b2, r2_2 = _linfit(px2, val2 if best["scale"] == "linear"
+                                       else np.log10(val2))
+                if r2_2 >= _MIN_FIT_R2:
+                    # Dropped one bad tick and fit is now acceptable; use it.
+                    best = {"scale": best["scale"], "a": a2, "b": b2, "r2": r2_2}
+                    px, val = px2, val2
+        if best["r2"] < _MIN_FIT_R2:
+            return None
     if not _values_sane(best["scale"], val):
         return None
     return best
@@ -278,19 +348,40 @@ def calibrate_panels(
     def borrow(i: int, which: int, siblings: list[int]) -> None:
         """which: 0=x axis, 1=y axis."""
         target = axes[i][which]
-        if target.calibration is not None:
+        target_labeled = [t for t in target.ticks if t.value is not None]
+
+        # Check whether target already has a reliable calibration:
+        # a panel with calibration AND >=3 labeled ticks is self-sufficient.
+        if target.calibration is not None and len(target_labeled) >= 3:
             return
-        # Only the genuine shared-axis case borrows: a panel with NO tick labels
-        # at all. A panel that has some labels but too few to fit is its own
-        # independent (uncalibratable) axis, not a sibling of the labeled one.
-        if any(t.value is not None for t in target.ticks):
+
+        # Panels with NO tick labels borrow unconditionally (the genuine
+        # shared-axis case). Panels with exactly 1 or 2 labeled ticks have a
+        # calibration only if they achieved a fit, but two-point fits always
+        # give R²=1.0 regardless of scale; they can be contaminated by stray
+        # labels from neighbouring panels. If a well-calibrated sibling
+        # (>=3 labeled ticks) disagrees on scale AND the pixel ranges match,
+        # the sibling's calibration supersedes the noisy two-point fit.
+        # A panel with calibration=None and labeled ticks is its own
+        # independent (uncalibratable) axis; don't borrow for it.
+        if target.calibration is None and len(target_labeled) > 0:
             return
+
         for j in siblings:
             src = axes[j][which]
             if src.calibration is None:
                 continue
             if not _ranges_match(target.pixel_range, src.pixel_range):
                 continue
+            src_labeled = [t for t in src.ticks if t.value is not None]
+            # If target already has a (possibly wrong) calibration from a
+            # two-point fit, only override it when the sibling is well-
+            # calibrated (>=3 labeled ticks) and disagrees on scale.
+            if target.calibration is not None:
+                if len(src_labeled) < 3:
+                    continue
+                if src.scale == target.scale:
+                    continue  # no scale disagreement, leave target alone
             target.scale = src.scale
             target.calibration = dict(src.calibration)
             if target.pixel_range is not None:

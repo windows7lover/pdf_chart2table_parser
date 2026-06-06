@@ -106,6 +106,18 @@ _OVERLAP_FRAC = 0.5
 # (so dedup to one) when, over their shared x range, their y values agree within
 # this fraction of the combined y-extent; beyond it they are distinct curves.
 _SAME_CURVE_YTOL = 0.1
+# Geometric coincidence test for marker-connector suppression.
+# A line is the connector drawn through a marker series if this fraction of its
+# vertices each lie within _COINCIDE_TOL pixels of a marker centroid.
+_COINCIDE_TOL = 5.0   # px – marker centroids are usually ≤1px from line vertices
+_COINCIDE_FRAC = 0.8  # 80 % of line vertices must match a centroid
+# Maximum ratio of n_centroids / n_verts to still call a line a connector.
+# When a colour carries two distinct marker trajectories (e.g. a solid and a
+# dashed series both with same-colour markers), the combined centroid count is
+# ~2× the per-trajectory count; a line on one trajectory would still pass the
+# proximity test (each vertex is near ONE of the two per-x centroids), but the
+# bloated ratio reveals the multi-trajectory scenario and prevents suppression.
+_COINCIDE_MULTITRACK_RATIO = 1.5
 
 
 @dataclass
@@ -249,12 +261,24 @@ def _off_chart(p: Path, region: Region, texts: list[TextSpan]) -> bool:
     The legend test applies only to *small* paths (swatches / marker glyphs):
     a wide data curve whose centroid happens to fall near a legend label (it can
     end up beside the legend) is data, not a swatch, so it is not excluded.
+
+    The border test uses the centroid of the path's bbox CLIPPED to the region,
+    not the raw bbox centroid.  A data curve extending slightly beyond the region
+    (e.g. into an adjacent panel) has its unconstrained centroid near the edge;
+    using the clipped centroid avoids mis-rejecting such curves as frame/spine
+    artefacts.
     """
     b = p.bbox
-    cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
-    if _on_border(cx, cy, region):
+    rx0, ry0, rx1, ry1 = region.bbox
+    # Clip the bbox to the region before computing the centroid for the border
+    # check.  An out-of-region path extension pulls the raw centroid toward the
+    # edge; the clipped centroid stays inside the region where the real data is.
+    clipped_cx = 0.5 * (max(b[0], rx0) + min(b[2], rx1))
+    clipped_cy = 0.5 * (max(b[1], ry0) + min(b[3], ry1))
+    if _on_border(clipped_cx, clipped_cy, region):
         return True
-    rw = region.bbox[2] - region.bbox[0]
+    rw = rx1 - rx0
+    cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
     small = (b[2] - b[0]) < _MIN_SPAN_FRAC * rw
     return small and _near_legend(cx, cy, texts)
 
@@ -265,8 +289,12 @@ def _is_long_curve(p: Path, region: Region, texts: list[TextSpan]) -> bool:
     (black/gray) qualify when DASHED (a dashed multi-vertex path is a data curve,
     not a solid gridline) OR when the SOLID path is clearly data: long,
     multi-vertex, 2-D and interior (``_is_data_lowsat`` -- so a black/gray data
-    curve is kept while an axis-aligned/2-point gridline or spine is rejected)."""
+    curve is kept while an axis-aligned/2-point gridline or spine is rejected).
+    Paths with a non-white fill are shade/band regions (fill_between overlays),
+    not data lines, and are rejected."""
     if p.closed or p.stroke is None:
+        return False
+    if p.fill is not None and not _is_near_white(p.fill):
         return False
     if len(p.points) < _MIN_VERTS:
         return False
@@ -300,11 +328,11 @@ def _is_fragment(p: Path, region: Region, texts: list[TextSpan]) -> bool:
     """
     if p.closed or p.stroke is None or len(p.points) > _MAX_FRAG_VERTS:
         return False
-    if not _is_saturated(p.stroke) and (_is_near_white(p.stroke) or not _varies_2d(p)):
+    # A non-white fill indicates a shade/band region or a marker glyph, never a
+    # data curve fragment -- reject regardless of stroke saturation.
+    if p.fill is not None and not _is_near_white(p.fill):
         return False
-    # Marker-outline guard: unsaturated stroke + filled body = marker glyph, not a
-    # curve segment.  Saturated strokes (coloured series lines) are unaffected.
-    if not _is_saturated(p.stroke) and p.fill is not None:
+    if not _is_saturated(p.stroke) and (_is_near_white(p.stroke) or not _varies_2d(p)):
         return False
     return not _off_chart(p, region, texts)
 
@@ -364,6 +392,30 @@ def _merge_long(parts: list[Path]) -> list[tuple[float, float]] | None:
     if _is_noise_cloud(pts):
         return None
     return pts
+
+
+def _split_into_curves(parts: list[Path]) -> list[list[Path]]:
+    """Split a set of possibly x-overlapping same-colour paths into groups where
+    each group's paths tile the x-axis without overlap (i.e. each group can be
+    merged into one curve).
+
+    This handles the case where a colour carries multiple distinct curves, each
+    drawn as several x-disjoint segments. The greedy assignment places each path
+    into the first existing group that has no x-overlap with it, or starts a new
+    group. The result is a list of groups, each ready for ``_merge_long``.
+    """
+    clusters: list[list[Path]] = []
+    for p in parts:
+        xr = (p.bbox[0], p.bbox[2])
+        placed = False
+        for cluster in clusters:
+            if not any(_x_overlap(xr, (c.bbox[0], c.bbox[2])) for c in cluster):
+                cluster.append(p)
+                placed = True
+                break
+        if not placed:
+            clusters.append([p])
+    return clusters
 
 
 def _merge_fragments(parts: list[Path]) -> list[tuple[float, float]] | None:
@@ -433,17 +485,40 @@ def _same_curve(a: list[tuple[float, float]], b: list[tuple[float, float]]) -> b
     return True
 
 
+def _marker_proximity_frac(
+    verts: list[tuple[float, float]],
+    centroids: list[tuple[float, float]],
+) -> float:
+    """Fraction of ``verts`` that lie within ``_COINCIDE_TOL`` of any centroid."""
+    if not centroids or not verts:
+        return 0.0
+    n_close = sum(
+        1 for x, y in verts
+        if any(abs(x - cx) <= _COINCIDE_TOL and abs(y - cy) <= _COINCIDE_TOL
+               for cx, cy in centroids)
+    )
+    return n_close / len(verts)
+
+
 def classify_lines(
     region: Region,
     paths: list[Path],
     texts: list[TextSpan],
     marker_colors: set[tuple] | None = None,
     plot_box: tuple | None = None,
+    marker_centroids: dict[tuple, list[tuple[float, float]]] | None = None,
 ) -> tuple[list[SeriesLine], list[str]]:
     """Extract clean marker-less line series from ``region``.
 
     ``marker_colors`` is the set of rounded colours already emitted as marker
-    series; line curves of those colours are dropped (line+marker dedupe).
+    series.  ``marker_centroids`` maps each rounded colour to the list of its
+    marker pixel centroids.  When ``marker_centroids`` is provided, a line in a
+    marker colour is suppressed only when its vertices *geometrically coincide*
+    with those centroids (it is the connector drawn through the markers).  This
+    replaces the old colour-equality-only rule and correctly keeps a line of the
+    same colour that is a DISTINCT data series (its vertices are far from the
+    marker positions), while still dropping dashed or solid connectors whose
+    vertices match the markers point-for-point.
 
     Each colour may be drawn as one long solid/dashed path, several x-disjoint
     long paths, or many short fragments, and may carry two genuinely different
@@ -455,7 +530,41 @@ def classify_lines(
     each colour/form found but skipped (curves that cannot be cleanly ordered).
     """
     marker_colors = marker_colors or set()
+    marker_centroids = marker_centroids or {}
     region_texts = [texts[i] for i in region.text_indices]
+
+    def _is_connector(verts, color, form):
+        """True when ``verts`` are a connector through a same-colour marker series.
+
+        Decision tree (with centroid data available):
+        1. If most vertices are close to centroids (frac >= _COINCIDE_FRAC) AND
+           the centroid count is not much larger than the vertex count
+           (n_centroids <= _COINCIDE_MULTITRACK_RATIO * n_verts, i.e. ~1:1
+           scenario) -> suppress (clear connector case).
+        2. If proximity passes but the centroid count is 2× (multitrack scenario:
+           same colour carries two marker trajectories) -> suppress solid
+           connectors only; keep dashed/dotted lines (they are distinct series
+           paired with the solid+marker one in the same colour).
+        3. If proximity fails (line is geometrically far from markers) -> keep.
+        4. Without centroid data: legacy rule — suppress solid only.
+        """
+        if color not in marker_colors:
+            return False
+        if color in marker_centroids:
+            ctrs = marker_centroids[color]
+            frac = _marker_proximity_frac(verts, ctrs)
+            if frac < _COINCIDE_FRAC:
+                # Line is far from the markers: definitely a distinct series.
+                return False
+            if len(ctrs) <= _COINCIDE_MULTITRACK_RATIO * len(verts):
+                # ~1:1 centroid-to-vertex ratio: line traces the single trajectory.
+                return True
+            # Multitrack scenario (centroids span two trajectories): solid
+            # connector is still a connector (suppress); dashed/dotted line is
+            # a distinct series alongside the solid+marker series (keep).
+            return form == "solid"
+        # No centroid data: legacy solid-only suppression.
+        return form == "solid"
 
     # Per (colour, dash-form): long-path parts; fragments are dash-dot pieces.
     long_groups: dict[tuple, list[Path]] = defaultdict(list)
@@ -483,29 +592,42 @@ def classify_lines(
     candidates: dict[tuple, list[tuple[list[tuple[float, float]], Path]]] = defaultdict(list)
     reasons: list[str] = []
     for (color, form), parts in long_groups.items():
-        # A solid line in the same colour as a marker series is the connecting
-        # line drawn through the markers -- it duplicates the markers, so skip
-        # it.  A DASHED line in a marker colour is a distinct series (e.g. a
-        # dashed Training curve paired with solid+marker Testing curve drawn in
-        # the same colour): keep it.
-        if color in marker_colors and form == "solid":
-            continue
         verts = _merge_long(parts)
         if verts is None:
-            reasons.append(f"line color {color}: overlapping curves, cannot separate")
+            # Some paths overlap in x: try to split into x-compatible groups,
+            # each of which tiles one distinct curve (e.g. two solid red curves
+            # of the same colour, each drawn as two x-disjoint segments).
+            sub_groups = _split_into_curves(parts)
+            if len(sub_groups) <= 1:
+                # Cannot split further: truly ambiguous.
+                reasons.append(f"line color {color}: overlapping curves, cannot separate")
+                continue
+            for sg in sub_groups:
+                v = _merge_long(sg)
+                if v is None:
+                    reasons.append(f"line color {color}: overlapping sub-curve, skipped")
+                    continue
+                v = _box_ok(v)
+                if v is None:
+                    continue
+                if _is_connector(v, color, form):
+                    continue
+                candidates[color].append((v, sg[0]))
             continue
         verts = _box_ok(verts)
         if verts is None:
             continue
+        if _is_connector(verts, color, form):
+            continue
         candidates[color].append((verts, parts[0]))
     for (color, form), parts in frag_groups.items():
-        if color in marker_colors and form == "solid":
-            continue
         verts = _merge_fragments(parts)
         if verts is None:
             continue  # too few / multivalued fragments: not a usable curve
         verts = _box_ok(verts)
         if verts is None:
+            continue
+        if _is_connector(verts, color, form):
             continue
         candidates[color].append((verts, parts[0]))
 

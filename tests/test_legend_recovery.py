@@ -97,6 +97,42 @@ def test_style_aware_matching_solid_vs_dashed():
     assert s_dashed.label == "Train"
 
 
+def test_style_matching_with_path_closeback():
+    """Two blue series whose source paths close back to the axis after the last
+    data vertex (a common PDF convention for filled area / log plot lines).
+
+    The series endpoint (last x_px/y_px) matches an *interior* point of the
+    path, not p.points[-1]. _series_style must search all path points to find
+    the matching path and return the correct solid/dashed style.
+
+    Mirrors the astro_2606.02711 pattern where all 8 legend entries were None
+    because _series_style could not match any path.
+    """
+    # Solid path: real data ends at (150, 130), then path closes back to (150, 200).
+    solid = Path(
+        points=[(60, 100), (90, 110), (120, 120), (150, 130), (150, 200)],
+        stroke=BLUE, fill=None, width=1.0, dashes=None, closed=False,
+        bbox=(60, 100, 150, 200),
+    )
+    # Dashed path: data ends at (150, 165), then closes back to (150, 200).
+    dashed = Path(
+        points=[(60, 150), (90, 155), (120, 160), (150, 165), (150, 200)],
+        stroke=BLUE, fill=None, width=1.0, dashes="[2 2] 0",
+        closed=False, bbox=(60, 150, 150, 200),
+    )
+    region = _region((50, 40, 300, 250), path_indices=[0, 1])
+    paths = [solid, dashed]
+
+    legend = [("dashed", BLUE, "Train"), ("line", BLUE, "Test")]
+    # Series endpoints are the last *data* points, not the axis-closing vertex.
+    s_solid = _series_at(BLUE, 60, 100, 150, 130)   # last data at (150, 130)
+    s_dashed = _series_at(BLUE, 60, 150, 150, 165)  # last data at (150, 165)
+
+    _apply_legend_labels([s_solid, s_dashed], legend, region, paths)
+    assert s_solid.label == "Test", f"solid should be 'Test', got {s_solid.label!r}"
+    assert s_dashed.label == "Train", f"dashed should be 'Train', got {s_dashed.label!r}"
+
+
 def test_marker_vs_line_same_colour():
     """A marker series and a line series share a colour; style picks correctly."""
     legend = [("marker", BLUE, "scatter"), ("line", BLUE, "curve")]

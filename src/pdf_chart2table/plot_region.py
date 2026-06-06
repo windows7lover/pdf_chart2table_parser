@@ -559,6 +559,77 @@ def _dedup_candidates(
     return kept
 
 
+def _split_multi_row_boxes(
+    boxes: list[BBox],
+    paths: list[Path],
+    texts: list[TextSpan],
+    page_area: float,
+) -> list[BBox]:
+    """Split a merged box that contains >=2 y-row groups of calibratable inner panels.
+
+    After deduplication, a merged-spine box may still span multiple stacked
+    sub-panels when the individual panel patches were too small to be collected
+    by ``_inner_patch_boxes`` (i.e. their area fraction falls below
+    ``_SPLIT_MIN_AREA_FRAC``).  This pass recovers those panels by scanning
+    all white unstroked rectangle patches contained within each box.
+
+    Guard: at least 2 of the distinct inner patches must be independently
+    calibratable (``_n_calibrated_axes >= 1``).  If fewer are calibratable the
+    outer box is kept intact.  This prevents over-splitting on pages whose
+    large outer frame encloses non-calibratable phantom sub-patches (e.g. inset
+    zoom boxes, schematic overlays).
+    """
+    out: list[BBox] = []
+    already: list[BBox] = []
+
+    for box in boxes:
+        box_area = _area(box)
+
+        # Collect all white unstroked rect patches strictly inside ``box``.
+        inner: list[BBox] = []
+        for p in paths:
+            if p.fill != (1.0, 1.0, 1.0) or p.stroke is not None:
+                continue
+            if not _is_rect_path(p):
+                continue
+            b = p.bbox
+            if not _contains_box(box, b):
+                continue
+            if _area(b) >= _SPLIT_MAX_INNER_FRAC * box_area:
+                continue
+            inner.append(b)
+
+        # Deduplicate inner patches (e.g. two signals for the same sub-panel).
+        distinct: list[BBox] = []
+        for b in inner:
+            if not any(_same_panel(b, d) for d in distinct):
+                distinct.append(b)
+
+        # Need at least 2 distinct patches in >= 2 y-rows.
+        if len(distinct) < 2:
+            out.append(box)
+            continue
+
+        y_rows = _cluster_coords([b[1] for b in distinct])
+        if len(y_rows) < 2:
+            out.append(box)
+            continue
+
+        # Guard: require >= 2 independently calibratable inner patches.
+        n_cal = sum(1 for b in distinct if _n_calibrated_axes(b, paths, texts) >= 1)
+        if n_cal < 2:
+            out.append(box)
+            continue
+
+        # Split: emit each distinct inner patch (avoiding duplicates across boxes).
+        for b in distinct:
+            if not any(_same_panel(b, a) for a in already):
+                out.append(b)
+                already.append(b)
+
+    return out
+
+
 def _filled_cells(bbox: BBox, paths: list[Path]) -> list[BBox]:
     """Filled, axis-aligned rectangle-like paths inside ``bbox`` (heatmap cells
     or scatter marker glyphs; both are short filled paths)."""
@@ -888,6 +959,14 @@ def detect_regions(
     # Deduplicate candidates that describe the same panel (figure-background
     # patch + inner axes patch, merged spine, stroked frame); keep one each.
     boxes = _dedup_candidates(candidates, paths, texts)
+
+    # Split any remaining merged box that spans >=2 y-row groups of inner
+    # panel patches, provided >=2 of those patches are independently
+    # calibratable.  This recovers stacked sub-panels whose individual patch
+    # areas fall below the _SPLIT_MIN_AREA_FRAC floor used by
+    # _split_enclosing_frames, while the calibratability guard prevents
+    # over-splitting on pages whose frame encloses non-calibratable insets.
+    boxes = _split_multi_row_boxes(boxes, paths, texts, page_area)
 
     # Chart-type gate (part 1): silently drop heatmaps and bar charts.
     # These pass the content+ticks gate but are not line/scatter charts and

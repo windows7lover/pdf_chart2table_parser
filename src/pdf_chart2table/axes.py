@@ -22,6 +22,8 @@ Public API:
 
 from __future__ import annotations
 
+import re as _re
+
 from .model import Axis, BBox, Path, Region, Tick, TextSpan
 
 # Geometry tolerances (PDF points).
@@ -395,6 +397,82 @@ def _y_ticks(paths: list[Path], texts: list[TextSpan], region: Region) -> list[T
 
 
 # --------------------------------------------------------------------------
+# Axis scale multiplier (matplotlib offset text, e.g. "1e8")
+# --------------------------------------------------------------------------
+
+# Matplotlib renders large/small axis values with a normalised tick range (e.g.
+# 0..1) and a separate "offset text" span (e.g. "1e8") placed just past the
+# last tick label at the far end of the axis.  We detect this span, use it to
+# rescale all tick values, and strip it from the axis title.
+# The regex matches "1e8", "1E+8", "2.5e6", etc. (broader than the original
+# "^1[eE][+-]?\d+$" which missed mantissas other than 1).
+_OFFSET_RE = _re.compile(r'^\d+(\.\d+)?[eE][+-]?\d+$')
+
+
+def _x_axis_multiplier(
+    texts: list[TextSpan], region: Region, label_band_spans: list[TextSpan]
+) -> float:
+    """Return the axis-scale multiplier from a matplotlib offset-text span.
+
+    Looks for a span matching a scientific-notation number in the x-label-band
+    area that is NOT one of the already-identified tick-label spans (i.e. it
+    sits outside the tight label-band height range or at the far right past the
+    last tick) and whose center-x is beyond the rightmost tick label.  Returns
+    1.0 if none found.
+    """
+    x0, _, x1, y1 = region.bbox
+    # Pixel centre of the rightmost detected tick-label span.
+    right_x = max((_center(s.bbox)[0] for s in label_band_spans), default=x0)
+    # Look in a slightly wider vertical band than _LABEL_BAND.
+    for t in texts:
+        if t in label_band_spans:
+            continue
+        cx, cy = _center(t.bbox)
+        if cy <= y1 or cy > y1 + _LABEL_BAND + 10:
+            continue
+        if cx <= right_x:
+            continue
+        s = t.text.strip()
+        if _OFFSET_RE.match(s):
+            val = _parse_plain(s)
+            if val is not None and val != 0:
+                return val
+    return 1.0
+
+
+def _y_axis_multiplier(
+    texts: list[TextSpan], region: Region, label_band_spans: list[TextSpan]
+) -> float:
+    """Return the axis-scale multiplier from a matplotlib y-axis offset-text span.
+
+    Matplotlib places the y-axis offset text just above the topmost tick label,
+    to the left of the left spine (in the same horizontal band as the tick
+    labels).  We look for a scientific-notation span in the y-label band that
+    is NOT already a tick label and whose center-y is above (lower PDF y-coord
+    than) the topmost tick label.  Returns 1.0 if none found.
+    """
+    x0, y0, _, _ = region.bbox
+    # Pixel centre of the topmost (highest on page, smallest y in PDF coords)
+    # detected tick-label span.
+    top_y = min((_center(s.bbox)[1] for s in label_band_spans), default=y0)
+    # Look in a slightly wider horizontal band than _YLABEL_BAND.
+    for t in texts:
+        if t in label_band_spans:
+            continue
+        cx, cy = _center(t.bbox)
+        if cx >= x0 or cx < x0 - _YLABEL_BAND - 10:
+            continue
+        if cy >= top_y:
+            continue
+        s = t.text.strip()
+        if _OFFSET_RE.match(s):
+            val = _parse_plain(s)
+            if val is not None and val != 0:
+                return val
+    return 1.0
+
+
+# --------------------------------------------------------------------------
 # Axis titles
 # --------------------------------------------------------------------------
 
@@ -463,18 +541,22 @@ def _title_from_rows(
 def _x_title(texts: list[TextSpan], region: Region, label_spans: list[TextSpan]) -> str | None:
     """Horizontal text below the numeric tick labels, centered on the region.
 
-    Excludes panel sub-captions (``(a) Network``), single stray letters, and
-    numeric/tick text; prefers the centered word(s) on the row just beyond the
-    tick labels (the real axis title) over anything further down.
+    Excludes panel sub-captions (``(a) Network``), single stray letters,
+    numeric/tick text, and matplotlib offset-text spans (``1eN``) that appear
+    just past the last tick; prefers the centered word(s) on the row just
+    beyond the tick labels (the real axis title) over anything further down.
     """
     x0, _, x1, y1 = region.bbox
     numeric = [t for t in label_spans if _is_numeric_span(t.text)]
     label_y = max((_center(t.bbox)[1] for t in numeric), default=y1)
     # Keep candidates whose center lies within the region's horizontal extent so a
     # sibling panel's title (same text row, different panel) is not absorbed.
+    # Also exclude axis-offset spans (1eN) which are not title text.
     cands = [
         t for t in texts
-        if t.dir == (1.0, 0.0) and x0 - _ALIGN_TOL <= _center(t.bbox)[0] <= x1 + _ALIGN_TOL
+        if t.dir == (1.0, 0.0)
+        and x0 - _ALIGN_TOL <= _center(t.bbox)[0] <= x1 + _ALIGN_TOL
+        and not _OFFSET_RE.match(t.text.strip())
     ]
     return _title_from_rows(
         cands, label_y + 1, y1 + _TITLE_BAND, 0.5 * (x0 + x1), x1 - x0, along=1
@@ -514,13 +596,35 @@ def detect_axes(
     numeric label was matched), the axis title text if found, and the pixel
     extent of the axis. Ticks without a matched numeric label keep ``value=None``
     and are kept (callers filter to labeled ticks for calibration).
+
+    Handles matplotlib's axis-scale offset text (e.g. ``1e8`` placed beyond the
+    last x-tick label, or above the topmost y-tick label): detected tick values
+    are multiplied by the offset and the offset span is stripped from the title.
     """
     x0, y0, x1, y1 = region.bbox
 
-    x_ticks = _x_ticks(paths, texts, region)
-    y_ticks = _y_ticks(paths, texts, region)
-
     x_labels = _x_label_spans(texts, region)
+    x_mult = _x_axis_multiplier(texts, region, x_labels)
+
+    x_ticks = _x_ticks(paths, texts, region)
+    if x_mult != 1.0:
+        x_ticks = [
+            Tick(pixel=t.pixel, value=t.value * x_mult, label=t.label)
+            if t.value is not None else t
+            for t in x_ticks
+        ]
+
+    y_labels = _y_label_spans(texts, region)
+    y_mult = _y_axis_multiplier(texts, region, y_labels)
+
+    y_ticks = _y_ticks(paths, texts, region)
+    if y_mult != 1.0:
+        y_ticks = [
+            Tick(pixel=t.pixel, value=t.value * y_mult, label=t.label)
+            if t.value is not None else t
+            for t in y_ticks
+        ]
+
     x_axis = Axis(
         title=_x_title(texts, region, x_labels),
         pixel_range=(x0, x1),

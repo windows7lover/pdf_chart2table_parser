@@ -53,19 +53,32 @@ _ROW_TOL = 6.0
 # row's text. Half the typical row pitch keeps rows separate.
 _LABEL_ROW_TOL = 2.5
 # Subscript/superscript glyphs are smaller than the base span and their centre-y
-# can shift by up to ~0.5× the base font size (e.g. "E_N" where N is a small
-# raised/lowered character). We allow them as continuations when their cy offset
-# is within this fraction of the anchor font size AND they are smaller.
-_SUB_ROW_TOL_FRAC = 0.6
+# can shift by up to ~0.75× the base font size (e.g. "E_N" where N is a small
+# raised/lowered character, or a raised "^2" exponent). We allow them as
+# continuations when their cy offset is within this fraction of the anchor font
+# size AND they are smaller. A raised exponent sits higher than a lowered index
+# drops, so the fraction must cover ~0.65 of the base size (seen on
+# "‖Z_t‖_F^2" math legends) while staying under half the legend row pitch
+# (~0.8-1.0× the base size) so it never grabs the next row's text.
+_SUB_ROW_TOL_FRAC = 0.75
 # A legend marker glyph is small; a path larger than this in either dimension is
 # a data curve / box overlapping the legend, not a marker swatch.
 _MARKER_SWATCH_MAX = 14.0
 # Within a label row, consecutive spans further apart than this (relative to
-# font size) start a new field -> stop assembling (next swatch's label, etc.).
-_SPAN_GAP = 1.2
+# effective font size) start a new field -> stop assembling. A slightly wider
+# gap (1.3 vs a tighter 1.2) tolerates invisible math operator glyphs rendered
+# as paths (e.g. ≤ in "0 ≤ J ≤ 15") that leave a gap between adjacent spans.
+_SPAN_GAP = 1.3
 # Adjacent spans closer than this (relative to font size) are joined with no
 # space (a hyphenated token split across spans); wider gaps get a space.
 _ADJ_GAP = 0.25
+# When the declared span size is implausibly small (LaTeX scaling artifact), use
+# this fraction of the bbox height as the effective size for gap calculations.
+_SIZE_BBOX_FRAC = 0.6
+# Bin cy to this grid (points) when sorting legend text anchors so that spans
+# on the same visual row but with slightly different cy values are ordered by x
+# (leftmost first). Half a typical row pitch keeps adjacent rows distinct.
+_ROW_BIN = 6.0
 # Swatches/labels must lie within the region bbox expanded by this margin
 # (legends sit inside the plot area, occasionally just past an edge).
 _LEGEND_MARGIN = 8.0
@@ -88,6 +101,10 @@ class Labels:
     # dashed line sample) or "line" (a solid line sample).
     legend: list[tuple[str, Color | None, str]] = field(default_factory=list)
     caption: str | None = None
+    # Bounding box enclosing all detected legend swatches and their label spans,
+    # or None when no legend was found. Used by the mark extractor to exclude
+    # legend-region mini-curve decorations from data extraction.
+    legend_bbox: BBox | None = None
 
 
 def _cx(b: BBox) -> float:
@@ -96,6 +113,21 @@ def _cx(b: BBox) -> float:
 
 def _cy(b: BBox) -> float:
     return 0.5 * (b[1] + b[3])
+
+
+def _eff_size(t: TextSpan) -> float:
+    """Effective font size for gap calculations.
+
+    PyMuPDF returns a scaled ``size`` for LaTeX-generated PDFs that can be a
+    fraction of the visual point size (e.g. 0.87 for ~12pt text). Using it
+    directly makes ``_SPAN_GAP * size`` too tight, truncating multi-span labels
+    like "Linear cavit y(y), g'=0.4". We cap from below by
+    ``_SIZE_BBOX_FRAC * bbox_height`` so that normal inter-word gaps are
+    accepted regardless of the declared size.
+    """
+    s = t.size or 10.0
+    h = t.bbox[3] - t.bbox[1]
+    return max(s, _SIZE_BBOX_FRAC * h)
 
 
 def _is_numeric(text: str) -> bool:
@@ -223,7 +255,7 @@ def _assemble_label(
     labels like "E_N(a⁻ : CR)" are not truncated to "E(a : CR)".
     """
     first = texts[start]
-    base_size = first.size or 10.0
+    base_size = _eff_size(first)
 
     def _same_row(t: TextSpan) -> bool:
         cy_off = abs(_cy(t.bbox) - ty)
@@ -247,7 +279,7 @@ def _assemble_label(
     prev = first
     for i in cont:
         t = texts[i]
-        if t.bbox[0] - prev.bbox[2] > _SPAN_GAP * (prev.size or 10.0):
+        if t.bbox[0] - prev.bbox[2] > _SPAN_GAP * _eff_size(prev):
             break
         picked.append(i)
         prev = t
@@ -256,7 +288,7 @@ def _assemble_label(
     parts = [texts[picked[0]].text]
     for pa, pb in zip(picked, picked[1:]):
         a, b = texts[pa], texts[pb]
-        sep = " " if b.bbox[0] - a.bbox[2] > _ADJ_GAP * (a.size or 10.0) else ""
+        sep = " " if b.bbox[0] - a.bbox[2] > _ADJ_GAP * _eff_size(a) else ""
         parts.append(sep + b.text)
     label = re.sub(r"\s+", " ", "".join(parts)).strip()
     return label, set(picked)
@@ -264,7 +296,7 @@ def _assemble_label(
 
 def _detect_legend(
     region: Region, paths: list[Path], texts: list[TextSpan]
-) -> list[tuple[str, Color | None, str]]:
+) -> tuple[list[tuple[str, Color | None, str]], BBox | None]:
     """Pair each legend label with the swatch immediately to its left.
 
     A legend entry is a text label whose left edge has a small swatch (a short
@@ -274,6 +306,11 @@ def _detect_legend(
     assemble any continuation spans into the full label, and capture the swatch
     ``style`` ("marker" / "line" / "dashed") and colour. Anchoring on the label
     (not the swatch) keeps stray data markers near the legend from hijacking it.
+
+    Returns ``(entries, legend_bbox)`` where ``legend_bbox`` is the bounding box
+    enclosing all swatch paths and label spans, or None when no legend found.
+    That bbox lets the mark extractor exclude mini-curve decorations rendered
+    inside legend boxes from data extraction.
     """
     swatches = [
         p for p in paths
@@ -284,20 +321,34 @@ def _detect_legend(
 
     out: list[tuple[str, Color | None, str]] = []
     used: set[int] = set()
+    # Collect swatch + label bboxes for legend_bbox computation.
+    legend_coords: list[tuple[float, float, float, float]] = []
     # Process labels top-to-bottom, left-to-right (legend reading order).
-    order = sorted(range(len(texts)), key=lambda i: (_cy(texts[i].bbox), texts[i].bbox[0]))
+    # Bin cy to a coarse grid so spans on the same visual row (e.g. "ε" and
+    # "-PCA" with cy 0.4 pts apart) sort by x rather than by fractional cy,
+    # ensuring the leftmost span on a row is always the anchor.
+    order = sorted(range(len(texts)),
+                   key=lambda i: (round(_cy(texts[i].bbox) / _ROW_BIN), texts[i].bbox[0]))
     for ti in order:
         t = texts[ti]
-        if ti in used or not _horizontal(t) or not t.text.strip() or _is_numeric(t.text):
+        if ti in used or not _horizontal(t) or not t.text.strip():
             continue
         if not _inside(t.bbox, region, _LEGEND_MARGIN):
             continue
+        # Skip purely numeric anchors unless a swatch is immediately to the
+        # left — a numeric like "0" in "0 ≤ J ≤ 15" can start a legend entry
+        # when the ≤ signs are rendered as path glyphs (invisible in text).
+        # We admit numeric anchors only when there IS a swatch match; the
+        # assembled-label non-numeric check below then guards against bare
+        # tick labels that accidentally pick up a swatch.
         ty = _cy(t.bbox)
         lx = t.bbox[0]
         # Swatches on this row ending just left of the label.
         row = [p for p in swatches
                if abs(_cy(p.bbox) - ty) <= _ROW_TOL
                and 0 <= lx - p.bbox[2] <= _SWATCH_GAP]
+        if _is_numeric(t.text) and not row:
+            continue
         if not row:
             continue
         label, consumed = _assemble_label(ti, ty, texts, used)
@@ -309,7 +360,19 @@ def _detect_legend(
         color = pick.stroke if pick.stroke is not None else pick.fill
         out.append((_swatch_style(pick), color, label))
         used |= consumed
-    return out
+        # Track the extent of this entry (swatch + all consumed text spans).
+        for p in row:
+            legend_coords.append(p.bbox)
+        for idx in consumed:
+            legend_coords.append(texts[idx].bbox)
+
+    if not legend_coords:
+        return out, None
+    x0 = min(b[0] for b in legend_coords)
+    y0 = min(b[1] for b in legend_coords)
+    x1 = max(b[2] for b in legend_coords)
+    y1 = max(b[3] for b in legend_coords)
+    return out, (x0, y0, x1, y1)
 
 
 def _detect_caption(region: Region, texts: list[TextSpan]) -> str | None:
@@ -362,10 +425,12 @@ def detect_labels(
     ``page`` is accepted for API symmetry with the rest of the pipeline but is
     unused (all geometry comes from ``region``, ``paths`` and ``texts``).
     """
+    legend_entries, legend_bbox = _detect_legend(region, paths, texts)
     return Labels(
         title=_detect_title(region, texts),
         x_title=_detect_x_title(region, texts),
         y_title=_detect_y_title(region, texts),
-        legend=_detect_legend(region, paths, texts),
+        legend=legend_entries,
         caption=_detect_caption(region, texts),
+        legend_bbox=legend_bbox,
     )

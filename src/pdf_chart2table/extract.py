@@ -17,6 +17,22 @@ Public API:
     extract_region(region, axes, paths, texts, source) -> ChartResult
     extract_pdf(path, pages=None) -> list[ChartResult]
 """
+# Iteration-7 precision / recall improvements (marks.py + extract.py scope):
+#
+# Fix I  – Faint/short marker series recovery
+#   A marker series of exactly 2 marks is retained when the region already
+#   contains at least one "anchor" series (≥ _MIN_MARKS_PER_SERIES marks) or at
+#   least one clean line series.  This rescues a faint or partially-visible
+#   series (e.g. the third of three lines whose data points are sparse on that
+#   page) without admitting lone 2-mark annotation glyphs in otherwise empty
+#   regions.
+#
+# Fix II – Over-segmented same-color line series merge
+#   When _split_into_curves (lines.py) produces multiple same-color line series
+#   whose x-ranges form non-overlapping tiles (i.e. together they cover one
+#   contiguous x-span), they are merged back into one series.  This corrects
+#   resonance / spectral-peak charts where one physical curve is split across
+#   many short same-color segments.
 
 from __future__ import annotations
 
@@ -55,13 +71,38 @@ _MIN_TOTAL_POINTS = 1
 
 # A marker series of fewer than this many points is a degenerate tiny-n group
 # (an annotation glyph, a "Peak" cross, a lone corner mark), not a real scatter
-# series -> drop it.
+# series -> drop it unconditionally.
 _MIN_MARKS_PER_SERIES = 3
+# A "small" series (exactly this many marks) is retained when the region has at
+# least one strong anchor (Fix I: faint / partially-visible series recovery).
+_MIN_MARKS_SMALL = 2
+
+# Maximum pixel-space x-gap between two same-color line series (as a fraction of
+# the combined x-span) to be considered x-tiled pieces of the same physical
+# curve (Fix II: over-segmented line series merge).
+_LINE_TILE_GAP_FRAC = 0.05
 
 
-def _is_real_series(sm: SeriesMarks) -> bool:
-    """Reject degenerate tiny-n marker groups (annotation glyphs) as series."""
-    return len(sm.marks) >= _MIN_MARKS_PER_SERIES
+def _filter_mark_series(
+    series_marks: list[SeriesMarks],
+    has_line_anchor: bool,
+) -> list[SeriesMarks]:
+    """Filter marker groups by mark count.
+
+    Strong series (≥ _MIN_MARKS_PER_SERIES marks) always pass.
+    Small series (== _MIN_MARKS_SMALL marks) are accepted when at least one
+    strong series is present OR ``has_line_anchor`` is True (the region already
+    has a clean line series as independent evidence of a real chart).  This
+    recovers faint / partially-visible series that happen to show only 2 data
+    points on the page while keeping annotation glyphs out of empty regions.
+    """
+    strong = [sm for sm in series_marks if len(sm.marks) >= _MIN_MARKS_PER_SERIES]
+    small = [sm for sm in series_marks if len(sm.marks) == _MIN_MARKS_SMALL]
+    if not small:
+        return strong
+    if strong or has_line_anchor:
+        return strong + small
+    return strong
 
 
 def _confidence(x_axis: Axis, y_axis: Axis) -> float:
@@ -110,14 +151,114 @@ def _build_line_series(sl: SeriesLine, x_axis: Axis, y_axis: Axis) -> Series:
     )
 
 
+def _merge_tiled_line_series(series: list[Series]) -> list[Series]:
+    """Merge same-color line series whose x-pixel ranges form non-overlapping
+    tiles (Fix II: over-segmented series from _split_into_curves).
+
+    When ``classify_lines`` encounters x-overlapping paths of the same color it
+    calls ``_split_into_curves``, which may produce multiple same-color line
+    series each covering a disjoint sub-range of the x-axis.  These are pieces
+    of ONE physical curve (e.g. a resonance spectrum or spectral envelope) and
+    should be merged back into one series.
+
+    Two same-color series are candidates to merge when:
+      * their x-pixel ranges do NOT overlap (they tile the x-axis), AND
+      * the gap between their x-ranges is at most ``_LINE_TILE_GAP_FRAC`` of the
+        combined x-span (a small gap may arise from clipping or rendering).
+
+    Merged series inherit the color of the first (widest) piece; their points are
+    concatenated and sorted by x_px.  Series that do NOT share a tiling partner
+    are returned unchanged.
+    """
+    if not series:
+        return series
+
+    # Group by rounded color.
+    from collections import defaultdict
+    color_groups: dict[tuple | None, list[int]] = defaultdict(list)
+    for idx, s in enumerate(series):
+        color_groups[_round_color(s.color)].append(idx)
+
+    merged_indices: set[int] = set()
+    result: list[Series] = []
+
+    for color, idxs in color_groups.items():
+        if len(idxs) == 1:
+            continue  # nothing to merge
+
+        # For each index compute its x_px range.
+        def _xrange(s: Series) -> tuple[float, float] | None:
+            xs = [p["x_px"] for p in s.points if "x_px" in p]
+            return (min(xs), max(xs)) if xs else None
+
+        candidates = [(i, _xrange(series[i])) for i in idxs]
+        candidates = [(i, r) for i, r in candidates if r is not None]
+
+        # Sort by x_lo.
+        candidates.sort(key=lambda c: c[1][0])
+
+        # Greedy tile merge: repeatedly merge adjacent non-overlapping series.
+        groups: list[list[int]] = []
+        for i, (idx, xr) in enumerate(candidates):
+            placed = False
+            for g in groups:
+                # Check if idx's range tiles (doesn't overlap) with ALL members.
+                g_ranges = [_xrange(series[gi]) for gi in g]
+                g_ranges = [r for r in g_ranges if r is not None]
+                all_lo = min(r[0] for r in g_ranges)
+                all_hi = max(r[1] for r in g_ranges)
+                combined_span = max(all_hi, xr[1]) - min(all_lo, xr[0])
+                # Overlap check: two ranges overlap if lo1 < hi2 AND lo2 < hi1.
+                overlaps_any = any(
+                    r[0] < xr[1] and xr[0] < r[1] for r in g_ranges
+                )
+                if overlaps_any:
+                    continue
+                # Gap check: gap between this range and the group must be small.
+                gap = max(0.0, max(xr[0] - all_hi, all_lo - xr[1]))
+                if combined_span > 0 and gap / combined_span > _LINE_TILE_GAP_FRAC:
+                    continue
+                g.append(idx)
+                placed = True
+                break
+            if not placed:
+                groups.append([idx])
+
+        # Only merge groups with ≥2 members.
+        for g in groups:
+            if len(g) < 2:
+                continue
+            # All members merge into one series.
+            all_pts = []
+            for gi in g:
+                all_pts.extend(series[gi].points)
+            all_pts.sort(key=lambda p: p.get("x_px", p["x"]))
+            color_val = series[g[0]].color
+            result.append(Series(label=None, marker=None, color=color_val,
+                                 points=all_pts))
+            merged_indices.update(g)
+
+    # Add all unmerged series.
+    for idx, s in enumerate(series):
+        if idx not in merged_indices:
+            result.append(s)
+    return result
+
+
 def extract_region(
     region: Region,
     axes: tuple[Axis, Axis],
     paths: list[Path],
     texts: list[TextSpan],
     source: dict | None = None,
+    legend_bbox: tuple | None = None,
 ) -> ChartResult:
-    """Extract one region into a ``ChartResult`` (extracted or skipped)."""
+    """Extract one region into a ``ChartResult`` (extracted or skipped).
+
+    ``legend_bbox`` is the bounding box of the detected legend (from
+    ``labels.detect_labels``), used to exclude legend mini-curve markers from
+    data extraction. When None, no legend-box filtering is applied.
+    """
     x_axis, y_axis = axes
     if x_axis.calibration is None or y_axis.calibration is None:
         return ChartResult(status="skipped", skip_reason="axis not calibrated")
@@ -130,16 +271,45 @@ def extract_region(
         plot_box = (x_axis.pixel_range[0], y_axis.pixel_range[0],
                     x_axis.pixel_range[1], y_axis.pixel_range[1])
 
-    series_marks = classify_marks(region, paths, texts, plot_box)
-    series_marks = [sm for sm in series_marks if _is_real_series(sm)]
-    series = [_build_series(sm, x_axis, y_axis) for sm in series_marks]
+    all_marks = classify_marks(region, paths, texts, plot_box, legend_bbox)
+    # Strong anchor series (≥ _MIN_MARKS_PER_SERIES): always kept.
+    strong_marks = [sm for sm in all_marks if len(sm.marks) >= _MIN_MARKS_PER_SERIES]
 
     # Marker-less line curves: dedupe against colours already drawn as markers
     # (line+marker plots -> keep the markers), then add the clean ones.
-    marker_colors = {_round_color(sm.fill or sm.stroke) for sm in series_marks}
+    # Build a centroid map for the geometric connector test: a line sharing a
+    # marker colour is only suppressed when its vertices coincide with those
+    # centroids (it is the connector through the markers), not merely by colour.
+    # When two series share the same colour (e.g. blue circles AND blue stars),
+    # accumulate ALL centroids for that colour so the multitrack-ratio guard
+    # correctly sees 2× centroids and falls back to solid-only suppression.
+    # Deduplication uses strong marks only: 2-mark faint series rarely have a
+    # matching line connector that would need suppression.
+    marker_colors = {_round_color(sm.fill or sm.stroke) for sm in strong_marks}
+    marker_centroids: dict[tuple, list[tuple[float, float]]] = {}
+    for sm in strong_marks:
+        color = _round_color(sm.fill or sm.stroke)
+        if color is not None:
+            pts = [(m.cx, m.cy) for m in sm.marks]
+            if color in marker_centroids:
+                marker_centroids[color].extend(pts)
+            else:
+                marker_centroids[color] = pts
     line_series, line_skips = classify_lines(region, paths, texts, marker_colors,
-                                             plot_box)
-    series += [_build_line_series(sl, x_axis, y_axis) for sl in line_series]
+                                             plot_box,
+                                             marker_centroids=marker_centroids)
+
+    # Fix II: merge same-color line series that are x-tiled pieces of one curve.
+    merged_line_series = _merge_tiled_line_series(
+        [_build_line_series(sl, x_axis, y_axis) for sl in line_series]
+    )
+
+    # Fix I: accept 2-mark series when the region has an anchor (strong marker
+    # or line series), avoiding lone annotation glyphs in empty regions.
+    has_anchor = bool(strong_marks) or bool(merged_line_series)
+    series_marks = _filter_mark_series(all_marks, has_line_anchor=has_anchor)
+    series = [_build_series(sm, x_axis, y_axis) for sm in series_marks]
+    series += merged_line_series
 
     if not series:
         reason = "no clean series found"

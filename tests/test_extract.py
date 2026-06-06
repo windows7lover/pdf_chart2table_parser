@@ -120,15 +120,31 @@ def _spine(x0, y0, x1, y1, *, stroke=(0.0, 0.0, 0.0)):
 
 
 def test_sparse_on_dense_skips():
-    """A region with few marker points but many paths (including dense lines)
-    is rejected as sparse noise on a dense chart, not emitted as extracted."""
-    # 4 data markers (2 series x 3 marks, but enough for _is_real_series)
+    """A region with few marker points but many dense closed-glyph paths is
+    rejected as sparse noise on a dense chart, not emitted as extracted.
+
+    Dense paths that are CLOSED (filled glyphs, not open data lines) cannot be
+    recovered as line series, so n_points stays at the few marker points.  The
+    is_sparse_on_dense guard then fires because n_points <= threshold AND the
+    region contains several dense (high-vertex) paths."""
+    # 6 data markers (2 series x 3 marks each)
     markers = [_square(130 + 20 * i, 250 - 8 * i, fill=(0.0, 0.0, 1.0))
                for i in range(3)]
     markers += [_square(135 + 20 * i, 240 - 8 * i, fill=(1.0, 0.0, 0.0))
                 for i in range(3)]
-    # 3 dense data-curve paths (each > 8 vertices -> "dense")
-    dense = [_dense_line(120, 130 + 20 * i, 280, 160 + 20 * i) for i in range(3)]
+    # 3 dense closed-glyph paths (each > 8 vertices, closed=True -> not a line).
+    # Closed filled shapes (marker glyphs drawn individually) are a dense chart
+    # signature but cannot be extracted as line series.
+    def _closed_poly(cx, cy, r=5.0, n=20, fill=(0.5, 0.5, 0.5)):
+        import math
+        pts = [(cx + r * math.cos(2 * math.pi * k / n),
+                cy + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+        pts.append(pts[0])
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return VPath(points=pts, stroke=None, fill=fill, width=None, dashes=None,
+                     closed=True, bbox=(min(xs), min(ys), max(xs), max(ys)))
+    dense = [_closed_poly(150, 150 + 20 * i, r=50.0, n=20) for i in range(3)]
     # 75 spine/tick 2-vertex segments: total_paths = 6+3+75 = 84, ratio = 84/6 = 14 > 12
     spines = [_spine(110 + i, 100, 110 + i, 290) for i in range(75)]
     all_paths = markers + dense + spines

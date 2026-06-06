@@ -49,12 +49,12 @@ def _parse_pages(spec: str | None, n_pages: int) -> list[int]:
     return [i for i in range(start - 1, end) if 0 <= i < n_pages]
 
 
-def _region_series(page, region, x_axis, y_axis, source):
+def _region_series(page, region, x_axis, y_axis, source, legend_bbox=None):
     """Best-effort per-region series via the optional ``extract`` module.
 
     Uses ``extract.extract_region(region, (x_axis, y_axis), paths, texts,
-    source) -> ChartResult`` and pulls ``.table.series``. Returns a list
-    (possibly empty) of Series-like objects; never raises.
+    source, legend_bbox) -> ChartResult`` and pulls ``.table.series``. Returns
+    a list (possibly empty) of Series-like objects; never raises.
     """
     if _extract is None:
         return []
@@ -62,7 +62,8 @@ def _region_series(page, region, x_axis, y_axis, source):
     if not callable(fn):
         return []
     try:
-        result = fn(region, (x_axis, y_axis), page.paths, page.texts, source)
+        result = fn(region, (x_axis, y_axis), page.paths, page.texts, source,
+                    legend_bbox)
     except Exception:
         return []
     table = getattr(result, "table", None)
@@ -75,21 +76,23 @@ def _region_labels(page, region):
     """Best-effort labels via the optional ``labels`` module.
 
     Uses ``labels.detect_labels(region, paths, texts, page) -> Labels`` and
-    returns ``(title, caption, x_title, y_title, legend)`` (any may be None;
-    legend is a list of ``(shape, color, label)`` or empty). Never raises.
+    returns ``(title, caption, x_title, y_title, legend, legend_bbox)`` (any
+    may be None; legend is a list of ``(shape, color, label)`` or empty;
+    legend_bbox is a ``(x0, y0, x1, y1)`` tuple or None). Never raises.
     """
     if _labels is None:
-        return None, None, None, None, []
+        return None, None, None, None, [], None
     fn = getattr(_labels, "detect_labels", None)
     if not callable(fn):
-        return None, None, None, None, []
+        return None, None, None, None, [], None
     try:
         res = fn(region, page.paths, page.texts)
     except Exception:
-        return None, None, None, None, []
+        return None, None, None, None, [], None
     return (getattr(res, "title", None), getattr(res, "caption", None),
             getattr(res, "x_title", None), getattr(res, "y_title", None),
-            list(getattr(res, "legend", []) or []))
+            list(getattr(res, "legend", []) or []),
+            getattr(res, "legend_bbox", None))
 
 
 _COLOR_TOL = 0.15  # max summed-RGB distance for a colour match
@@ -131,8 +134,13 @@ def _series_style(s, region, paths):
         if sum(abs(a - b) for a, b in zip(sc, p.stroke)) >= _COLOR_TOL:
             continue
         px0, py0 = p.points[0]
-        px1, py1 = p.points[-1]
-        d = abs(px0 - sx0) + abs(py0 - sy0) + abs(px1 - sx1) + abs(py1 - sy1)
+        d_start = abs(px0 - sx0) + abs(py0 - sy0)
+        # The series' last point may be an interior point of the path (some
+        # PDF paths close back to the axis after the last data vertex, so
+        # p.points[-1] diverges from the series endpoint). Match against the
+        # nearest point in the path instead of only the last point.
+        d_end = min(abs(px - sx1) + abs(py - sy1) for px, py in p.points)
+        d = d_start + d_end
         if d < best_d:
             best, best_d = p, d
     if best is None:
@@ -269,14 +277,17 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
                     "no axis calibration", source, outdir, page_no, k))
                 continue
 
-            series = _region_series(page, region, x_axis, y_axis, source)
+            rl = region_labels[k - 1]
+            legend_bbox = rl[5] if len(rl) > 5 else None
+            series = _region_series(page, region, x_axis, y_axis, source,
+                                    legend_bbox)
             # An extraction with no clean series / no data points is a skip, not
             # an empty "extracted" record (precision over recall).
             if not series:
                 rows.append(io_store.write_skip(
                     "no series extracted", source, outdir, page_no, k))
                 continue
-            title, caption, _x_title, _y_title, _ = region_labels[k - 1]
+            title, caption, _x_title, _y_title, _ = rl[:5]
             legend = legends[k - 1]
             _apply_legend_labels(series, legend, region, page.paths)
             # Axis titles come from axes.py (robust: rejects sub-captions/figure

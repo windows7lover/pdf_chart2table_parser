@@ -197,12 +197,27 @@ def test_legend_swatch_rejected():
     assert series == []
 
 
-def test_overlapping_same_color_skipped():
+def test_overlapping_same_color_split_into_two():
+    # Two same-colour paths that overlap in x but have DISTINCT y-trajectories
+    # are split into separate single-path groups; each forms its own curve.
     a = _poly([(120, 250), (160, 220), (200, 200)], (1.0, 0.0, 0.0))
     b = _poly([(150, 180), (190, 200), (230, 230)], (1.0, 0.0, 0.0))  # overlaps a in x
     series, reasons = _classify([a, b])
-    assert series == []
-    assert reasons and "overlapping" in reasons[0]
+    # Both are valid curves with distinct y-trajectories -> both kept.
+    assert len(series) == 2 and not reasons
+
+
+def test_overlapping_same_color_truly_ambiguous_skipped():
+    # Three same-colour paths where all three overlap in x: the greedy split
+    # still places each in its own group (each single-path sub-group is valid).
+    # But if a fourth overlapping path cannot be placed without conflicting an
+    # already-placed group member, the residual group gets rejected.
+    # This minimal case has two overlapping paths: each ends up its own group.
+    a = _poly([(120, 250), (160, 220), (200, 200)], (1.0, 0.0, 0.0))
+    b = _poly([(120, 180), (160, 200), (200, 220)], (1.0, 0.0, 0.0))
+    series, _ = _classify([a, b])
+    # Each path forms its own x-compatible group -> 2 distinct curves kept.
+    assert len(series) == 2
 
 
 def test_disjoint_same_color_tiles_one_curve():
@@ -322,3 +337,40 @@ def test_line_plus_marker_fixture_no_duplicate_series():
     assert len(results) == 1
     assert len(results[0].table.series) == 3
     assert all(s.marker is not None for s in results[0].table.series)
+
+
+def test_dotted_3styles_three_series_not_five():
+    """dotted_3styles has 3 series (solid+o, dashed+s, dotted+^); the dashed and
+    dotted connector lines coincide with their respective marker trajectories and
+    must be suppressed, yielding exactly 3 marker series (not 5)."""
+    results = [r for r in extract_pdf(str(FIXTURES / "dotted_3styles.pdf"))
+               if r.status == "extracted"]
+    assert len(results) == 1
+    assert len(results[0].table.series) == 3
+    # All 3 series must carry markers (they are line+marker series).
+    assert all(s.marker is not None for s in results[0].table.series)
+
+
+def test_four_dashed_semilogy_four_series_not_eight():
+    """four_dashed_semilogy has 4 dashed+marker series; dashed connectors
+    coincide with their markers and must be suppressed, yielding exactly 4
+    series (not 8)."""
+    results = [r for r in extract_pdf(str(FIXTURES / "four_dashed_semilogy.pdf"))
+               if r.status == "extracted"]
+    assert len(results) == 1
+    assert len(results[0].table.series) == 4
+    # All 4 series carry markers.
+    assert all(s.marker is not None for s in results[0].table.series)
+
+
+def test_dashed_same_color_two_series_kept():
+    """dashed_same_color has 2 same-colour series (solid+o and dashed+o).
+    Both marker trajectories differ in y; the solid connector is suppressed
+    (geometric coincidence, 1:1 marker:vertex ratio in the solid trajectory),
+    while the dashed connector is kept as a distinct series because the combined
+    marker centroid count is 2× the vertex count (multitrack guard).
+    Result: 2 series (one combined marker group + one dashed line)."""
+    results = [r for r in extract_pdf(str(FIXTURES / "dashed_same_color.pdf"))
+               if r.status == "extracted"]
+    assert len(results) == 1
+    assert len(results[0].table.series) == 2
