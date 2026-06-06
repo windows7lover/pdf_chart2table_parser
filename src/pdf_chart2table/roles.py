@@ -49,7 +49,7 @@ from .marks import (
     classify_marks,
 )
 from .model import Path, Region, TextSpan
-from .primitives import round_color as _round_color
+from .primitives import centroid as _centroid, round_color as _round_color
 
 # --------------------------------------------------------------------------
 # Role vocabulary
@@ -161,6 +161,26 @@ def classify_roles(
     large_fills = _collect_large_fills(paths, region)
     large_fill_ids = {id(fp) for fp in large_fills}
 
+    # Build the set of path indices already claimed by classify_marks.  A path
+    # claimed as a marker is unambiguously a marker — the authority has already
+    # decided — so the raw-predicate ambiguity check must not override it.
+    # We match paths to marks by centroid: a path whose centroid coincides with
+    # a claimed mark centroid (within _CLAIMED_TOL px) is the marker path.
+    # This is the same path-to-mark correspondence classify_marks uses internally.
+    _CLAIMED_TOL = 1.5
+    _claimed_mark_indices: set[int] = set()
+    _all_mark_centroids: list[tuple[float, float]] = [
+        (m.cx, m.cy) for sm in marker_series for m in sm.marks
+    ]
+    for i in region.path_indices:
+        p = paths[i]
+        cx, cy = _centroid(p.points)
+        if any(
+            abs(cx - mx) <= _CLAIMED_TOL and abs(cy - my) <= _CLAIMED_TOL
+            for mx, my in _all_mark_centroids
+        ):
+            _claimed_mark_indices.add(i)
+
     roles: dict[int, str] = {}
     n_data = 0
     n_ambiguous = 0
@@ -171,11 +191,21 @@ def classify_roles(
             p, region, region_texts
         )
         if is_mark and is_curve:
-            # A single path that BOTH the marker and the curve classifier accept
-            # is genuinely ambiguous: the two authorities contend over it.
-            roles[i] = AMBIGUOUS
-            n_ambiguous += 1
-            n_data += 1
+            if i in _claimed_mark_indices:
+                # classify_marks already claimed this path as a marker.
+                # Markers win the authority order: record it as MARKER, not
+                # AMBIGUOUS.  Without this, small scatter glyphs rendered as
+                # 4-5 vertex open polylines (which _is_fragment also accepts)
+                # would all count as ambiguous, triggering the region skip.
+                roles[i] = MARKER
+                n_data += 1
+            else:
+                # A single path that BOTH the marker and the curve classifier
+                # accept, but classify_marks did NOT claim it, is genuinely
+                # ambiguous: the two authorities contend over it.
+                roles[i] = AMBIGUOUS
+                n_ambiguous += 1
+                n_data += 1
         elif is_mark:
             roles[i] = MARKER
             n_data += 1
