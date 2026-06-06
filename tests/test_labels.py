@@ -487,3 +487,109 @@ def test_proxy_mixed_with_real_labels():
     assert 'C1' in labels_found, f"real label 'C1' missing from {labels_found}"
     assert 'o' not in labels_found, f"proxy 'o' should be suppressed; got {labels_found}"
     assert len(lbs.legend) == 1, f"expected 1 entry, got {lbs.legend}"
+
+
+# --------------------------------------------------------------------------
+# Inline colored-text legend detection.
+# --------------------------------------------------------------------------
+
+def test_inline_colored_text_legend_detected():
+    """Colored text inside the region whose color matches a path stroke is
+    detected as an inline legend entry when no swatch-based entries exist.
+
+    Mirrors charts like materials_2606.02317 where series names ('Silica',
+    'Alumina', 'Hafnia') are written in the curve's own color directly on
+    the plot, with no legend box.
+    """
+    from pdf_chart2table.model import Path, Region
+
+    RED = (0.945, 0.251, 0.251)
+    BLUE = (0.102, 0.435, 0.875)
+
+    def _curve(x0, y, x1, color):
+        return Path(points=[(x0, y), (x1, y)], stroke=color, fill=None,
+                    width=1.0, dashes=None, closed=False, bbox=(x0, y, x1, y))
+
+    region = Region(bbox=(50.0, 40.0, 300.0, 200.0))
+    curve_red = _curve(60.0, 80.0, 200.0, RED)
+    curve_blue = _curve(60.0, 120.0, 200.0, BLUE)
+
+    # Colored text labels (no swatch to their left).
+    span_red = TextSpan(text='Alumina', bbox=(140.0, 75.0, 180.0, 87.0),
+                        size=8.0, dir=(1.0, 0.0), color=RED)
+    span_blue = TextSpan(text='Hafnia', bbox=(150.0, 115.0, 185.0, 127.0),
+                         size=8.0, dir=(1.0, 0.0), color=BLUE)
+
+    lbs = detect_labels(region, [curve_red, curve_blue], [span_red, span_blue])
+    labels_found = {lab for _, _, lab in lbs.legend}
+    assert 'Alumina' in labels_found, f"'Alumina' not in {labels_found}"
+    assert 'Hafnia' in labels_found, f"'Hafnia' not in {labels_found}"
+    # Colors should be the matched path colors.
+    for _, col, lab in lbs.legend:
+        assert col is not None, f"inline entry {lab!r} has no color"
+
+
+def test_inline_colored_text_not_triggered_when_swatch_legend_exists():
+    """The inline fallback must not fire when the swatch-based detector already
+    found legend entries — mixing strategies would produce duplicate entries.
+    """
+    from pdf_chart2table.model import Path, Region
+
+    RED = (1.0, 0.0, 0.0)
+
+    def _line_swatch(x0, y, x1):
+        return Path(points=[(x0, y), (x1, y)], stroke=RED, fill=None,
+                    width=1.0, dashes=None, closed=False, bbox=(x0, y, x1, y))
+
+    region = Region(bbox=(50.0, 40.0, 300.0, 200.0))
+    swatch = _line_swatch(60.0, 50.0, 80.0)
+    label_span = TextSpan(text='Series A', bbox=(84.0, 44.0, 130.0, 56.0),
+                          size=6.0, dir=(1.0, 0.0), color=None)  # black text, swatch-based
+    # Also add a colored span that would be an inline candidate.
+    inline_span = TextSpan(text='InlineLabel', bbox=(150.0, 90.0, 210.0, 102.0),
+                           size=6.0, dir=(1.0, 0.0), color=RED)
+
+    lbs = detect_labels(region, [swatch], [label_span, inline_span])
+    labels_found = [lab for _, _, lab in lbs.legend]
+    # Swatch detection finds 'Series A'; inline fallback should NOT add 'InlineLabel'.
+    assert 'Series A' in labels_found, f"swatch entry missing from {labels_found}"
+    assert 'InlineLabel' not in labels_found, (
+        f"inline fallback fired despite swatch legend; got {labels_found}"
+    )
+
+
+def test_inline_numeric_labels_not_emitted():
+    """Pure-numeric colored text (e.g. axis tick coloring) must not be emitted
+    as inline legend entries.
+    """
+    from pdf_chart2table.model import Path, Region
+
+    BLUE = (0.0, 0.4, 0.8)
+
+    region = Region(bbox=(50.0, 40.0, 300.0, 200.0))
+    curve = Path(points=[(60, 80), (200, 80)], stroke=BLUE, fill=None, width=1.0,
+                 dashes=None, closed=False, bbox=(60, 80, 200, 80))
+    # Colored numeric span (looks like a colored axis tick).
+    span_num = TextSpan(text='310', bbox=(100.0, 75.0, 120.0, 87.0),
+                        size=8.0, dir=(1.0, 0.0), color=BLUE)
+
+    lbs = detect_labels(region, [curve], [span_num])
+    assert lbs.legend == [], f"numeric inline label should be suppressed; got {lbs.legend}"
+
+
+def test_inline_short_labels_filtered_by_alnum_count():
+    """A single alphanumeric character colored span (e.g. '5') is not emitted
+    because _INLINE_MIN_ALNUM requires at least 2 alphanumeric chars.
+    """
+    from pdf_chart2table.model import Path, Region
+
+    GREEN = (0.0, 0.6, 0.0)
+
+    region = Region(bbox=(50.0, 40.0, 300.0, 200.0))
+    curve = Path(points=[(60, 80), (200, 80)], stroke=GREEN, fill=None, width=1.0,
+                 dashes=None, closed=False, bbox=(60, 80, 200, 80))
+    span_single = TextSpan(text='5', bbox=(100.0, 75.0, 106.0, 87.0),
+                           size=8.0, dir=(1.0, 0.0), color=GREEN)
+
+    lbs = detect_labels(region, [curve], [span_single])
+    assert lbs.legend == [], f"single-char inline label should be filtered; got {lbs.legend}"

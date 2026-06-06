@@ -45,6 +45,10 @@ class TextSpan:
     size: float | None = None
     # Writing direction unit vector (dx, dy); (1, 0) is horizontal.
     dir: tuple[float, float] = (1.0, 0.0)
+    # Text fill color as an (R, G, B) float tuple (0–1 each), or None when the
+    # color is black / unavailable.  Used by the inline-label detector to match
+    # colored annotation text against curve colors.
+    color: Color | None = None
 
 
 @dataclass

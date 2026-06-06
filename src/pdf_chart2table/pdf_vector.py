@@ -116,12 +116,23 @@ def load_page(page: fitz.Page) -> tuple[list[Path], list[TextSpan]]:
                 if text == "":
                     continue
                 bb = span["bbox"]
+                # PyMuPDF encodes text color as 0xRRGGBB integer; 0 = black.
+                c_int = span.get("color", 0) or 0
+                if c_int:
+                    tc: tuple[float, float, float] | None = (
+                        ((c_int >> 16) & 0xFF) / 255.0,
+                        ((c_int >> 8) & 0xFF) / 255.0,
+                        (c_int & 0xFF) / 255.0,
+                    )
+                else:
+                    tc = None
                 texts.append(
                     TextSpan(
                         text=text,
                         bbox=(bb[0], bb[1], bb[2], bb[3]),
                         size=span.get("size"),
                         dir=(float(ldir[0]), float(ldir[1])),
+                        color=tc,
                     )
                 )
 

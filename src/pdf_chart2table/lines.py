@@ -118,6 +118,14 @@ _MIN_CLOUD_YSPAN = 2.0
 # Two same-colour curves "overlap" (and so cannot be cleanly separated) if their
 # x-ranges share more than this fraction of the smaller range.
 _OVERLAP_FRAC = 0.5
+# A filled path whose bbox width spans at least this fraction of the region width
+# is treated as a shaded background band (DOS envelope, confidence region, etc.).
+# A stroked path whose colour matches the fill colour of such a band is the
+# band's boundary outline -- NOT a data series -- and is rejected.
+# (Lower than marks._LARGE_FILL_WIDTH_FRAC = 0.6 to catch slightly narrower bands.)
+_FILL_BAND_MIN_WIDTH_FRAC = 0.4
+# Same for height: a fill must be non-trivially tall to count as a band.
+_FILL_BAND_MIN_HEIGHT_FRAC = 0.04
 # Two same-colour curves of different dash form are the SAME path drawn twice
 # (so dedup to one) when, over their shared x range, their y values agree within
 # this fraction of the combined y-extent; beyond it they are distinct curves.
@@ -242,6 +250,35 @@ def _is_spine_line(pts, plot_box) -> bool:
         ):
             return True
     return False
+
+
+def _fill_band_colors(paths: list[Path], region: Region) -> set[tuple]:
+    """Return rounded fill colours of wide non-white filled bands in the region.
+
+    A filled path is a "band" when its bbox width spans at least
+    ``_FILL_BAND_MIN_WIDTH_FRAC`` of the region width AND its height spans at
+    least ``_FILL_BAND_MIN_HEIGHT_FRAC`` of the region height (so individual
+    small marker fills are excluded).  Any stroked path whose stroke colour
+    matches one of these is the boundary outline of the band, not a data series.
+    """
+    rw = region.bbox[2] - region.bbox[0]
+    rh = region.bbox[3] - region.bbox[1]
+    if rw <= 0 or rh <= 0:
+        return set()
+    min_bw = _FILL_BAND_MIN_WIDTH_FRAC * rw
+    min_bh = _FILL_BAND_MIN_HEIGHT_FRAC * rh
+    colors: set[tuple] = set()
+    for idx in region.path_indices:
+        p = paths[idx]
+        if p.fill is None or _is_near_white(p.fill):
+            continue
+        bw = p.bbox[2] - p.bbox[0]
+        bh = p.bbox[3] - p.bbox[1]
+        if bw >= min_bw and bh >= min_bh:
+            c = _round_color(p.fill)
+            if c is not None:
+                colors.add(c)
+    return colors
 
 
 def _near_legend(cx: float, cy: float, texts: list[TextSpan]) -> bool:
@@ -546,6 +583,7 @@ def classify_lines(
     marker_colors = marker_colors or set()
     marker_centroids = marker_centroids or {}
     region_texts = [texts[i] for i in region.text_indices]
+    band_colors = _fill_band_colors(paths, region)
 
     def _is_connector(verts, color, form):
         """True when ``verts`` are a connector through a same-colour marker series.
@@ -590,6 +628,34 @@ def classify_lines(
             long_groups[(color, _dash_form(p.dashes))].append(p)
         elif _is_fragment(p, region, region_texts):
             frag_groups[(color, _dash_form(p.dashes))].append(p)
+
+    # Suppress fill-region boundary outlines: a stroked path whose colour
+    # matches the fill colour of a wide background band is the band's
+    # boundary, not a data series — BUT only when at least one GENUINE
+    # non-fill-band data element (another curve colour OR a marker colour)
+    # already exists.  When every candidate colour is a fill-band colour the
+    # fills ARE the data representation (e.g. a violin / stacked-area chart)
+    # and we keep all boundary curves intact.
+    if band_colors:
+        # Genuine non-band colours: LONG-curve candidates (not fragments) in
+        # non-band colours, OR marker colours not in the band.  We exclude
+        # fragment-only colours (e.g. short unsaturated ticks that happen to
+        # pass _is_fragment) because those never form a real series and would
+        # otherwise mask the fill-as-data case (e.g. a violin/stacked-area
+        # chart where every long-curve colour matches a fill-band colour but
+        # axis ticks happen to create a black fragment entry).
+        non_band_curve_keys = {k[0] for k in long_groups
+                               if k[0] not in band_colors}
+        non_band_marker_colors = {c for c in marker_colors if c not in band_colors}
+        if non_band_curve_keys or non_band_marker_colors:
+            # At least one genuine non-band data element exists: the
+            # band-coloured strokes are background region outlines — drop them.
+            for key in list(long_groups):
+                if key[0] in band_colors:
+                    del long_groups[key]
+            for key in list(frag_groups):
+                if key[0] in band_colors:
+                    del frag_groups[key]
 
     # Clip a merged curve to the plot box and reject axis/baseline/connector
     # lines: drop the out-of-box tail, then drop the whole curve if most of it

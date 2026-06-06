@@ -121,6 +121,16 @@ _LINE_GAP = 6.0
 # How far below/above the region to accept a caption opener (points).
 _CAPTION_BELOW = 90.0
 _CAPTION_ABOVE = 60.0
+# Inline colored-text legend: max Euclidean distance (in [0,1]^3 RGB space)
+# between a text span's color and a path stroke color for them to be considered
+# the same color.  0.05 tolerates small gamma/rounding differences between
+# the color used by the PDF path renderer and the text renderer.
+_INLINE_COLOR_TOL = 0.05
+# Minimum number of alphanumeric characters in an inline label.  Single-char
+# labels (except clearly letter-labels like "a"/"b") tend to be axis-tick
+# annotations written in a colored font rather than series names.  We require
+# at least 2 characters to suppress stray tick coloring.
+_INLINE_MIN_ALNUM = 2
 
 
 @dataclass
@@ -599,6 +609,87 @@ def _detect_legend(
     return out, _legend_box(entry_boxes, region, paths)
 
 
+def _color_dist(a: Color, b: Color) -> float:
+    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2) ** 0.5
+
+
+def _detect_inline_labels(
+    region: Region, paths: list[Path], texts: list[TextSpan]
+) -> list[tuple[str, Color | None, str]]:
+    """Detect inline colored-text series labels (no swatch box).
+
+    Some charts write series names directly on/beside the curve in the curve's
+    own color rather than placing a separate legend box. Strategy:
+      1. Collect stroke colors of data paths inside the region (excluding black
+         and white, which are axis / background colors).
+      2. Find horizontal, non-numeric text spans inside the region whose own
+         text color is close to one of those path stroke colors.
+      3. Deduplicate: if the same label text appears multiple times with the
+         same color (e.g. repeated in multiple sub-panels sharing one page),
+         emit it only once per unique (color, text) pair.
+
+    Conservative guards:
+      - Only triggers when the swatch-based detector found no legend at all.
+      - Requires at least _INLINE_MIN_ALNUM alphanumeric characters in the
+        assembled label to avoid picking up isolated colored axis tick numerals.
+      - Excludes known marker-proxy labels.
+    """
+    # Collect non-black, non-white path stroke colors inside the region.
+    path_colors: list[Color] = []
+    for p in paths:
+        c = p.stroke
+        if c is None:
+            continue
+        if not _inside(p.bbox, region, _LEGEND_MARGIN):
+            continue
+        # Skip black (axis spines / tick marks) and white (background).
+        if c == (0.0, 0.0, 0.0) or c == (1.0, 1.0, 1.0):
+            continue
+        path_colors.append(c)
+
+    if not path_colors:
+        return []
+
+    seen: set[tuple[Color, str]] = set()
+    out: list[tuple[str, Color | None, str]] = []
+    order = sorted(range(len(texts)),
+                   key=lambda i: (round(_cy(texts[i].bbox) / _ROW_BIN), texts[i].bbox[0]))
+    used: set[int] = set()
+    for ti in order:
+        t = texts[ti]
+        if ti in used:
+            continue
+        if not _horizontal(t) or not t.text.strip():
+            continue
+        if not _inside(t.bbox, region, _LEGEND_MARGIN):
+            continue
+        tc = t.color
+        if tc is None:
+            continue  # black text — not an inline colored label
+        # Find the closest path color.
+        best_dist = min(_color_dist(tc, pc) for pc in path_colors)
+        if best_dist > _INLINE_COLOR_TOL:
+            continue  # text color not close to any curve color
+        # Assemble the full label from this anchor span.
+        label, consumed = _assemble_label(ti, _cy(t.bbox), texts, used)
+        if not label or _is_numeric(label) or _is_proxy_label(label):
+            continue
+        # Require enough alphanumeric content to avoid colored axis ticks.
+        if sum(1 for c in label if c.isalnum()) < _INLINE_MIN_ALNUM:
+            continue
+        # Find which path color this text is closest to.
+        matched_pc = min(path_colors, key=lambda pc: _color_dist(tc, pc))
+        key = (matched_pc, label)
+        if key in seen:
+            used |= consumed
+            continue
+        seen.add(key)
+        out.append(("line", matched_pc, label))
+        used |= consumed
+
+    return out
+
+
 def _detect_caption(region: Region, texts: list[TextSpan]) -> str | None:
     """Nearest "Figure N"/"Fig. N" paragraph below (fallback above) the region.
 
@@ -650,6 +741,10 @@ def detect_labels(
     unused (all geometry comes from ``region``, ``paths`` and ``texts``).
     """
     legend_entries, legend_bbox = _detect_legend(region, paths, texts)
+    # Fallback: if the swatch-based detector found nothing, try the inline
+    # colored-text strategy (series names written directly on the curves).
+    if not legend_entries:
+        legend_entries = _detect_inline_labels(region, paths, texts)
     return Labels(
         title=_detect_title(region, texts),
         x_title=_detect_x_title(region, texts),
