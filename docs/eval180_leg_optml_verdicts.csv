@@ -1,0 +1,61 @@
+sample_id,legend_verdict,note
+optml_2605.03357_page22_chart4,legend_correct,Vanilla/Adaptive both recovered correctly
+optml_2605.03357_page34_chart1,legend_na,single series no legend; garbled =0.1 text is axis label
+optml_2605.03357_page34_chart2,legend_na,single series no legend
+optml_2605.03357_page34_chart4,legend_na,single series no legend
+optml_2605.03357_page34_chart5,legend_na,single series no legend
+optml_2605.06585_page11_chart3,legend_na,4 series but original has no legend box
+optml_2605.06585_page11_chart4,legend_na,5 series but original has no legend box
+optml_2605.06821_page60_chart12,legend_correct,LaTeX norm-delta labels recovered (subscripts flattened, text correct)
+optml_2605.06821_page60_chart16,legend_correct,single-entry |cos(...)| recovered correctly
+optml_2605.06821_page60_chart4,legend_partial,4-entry legend; one garbled to o and w_SF series missing
+optml_2605.06821_page7_chart3,legend_wrong,original norm-nu label replaced with wrong text lambda_max(P-1H)
+optml_2605.07529_page31_chart4,legend_na,dense band plot no legend
+optml_2605.07795_page50_chart3,legend_correct,Train accuracy/Test accuracy recovered
+optml_2605.07795_page50_chart4,legend_na,single series no legend
+optml_2605.08751_page14_chart2,legend_missing,clear 2-entry LaTeX legend not recovered
+optml_2605.08751_page14_chart5,legend_missing,clear 2-entry LaTeX legend not recovered
+optml_2605.08751_page14_chart7,legend_missing,clear 2-entry LaTeX legend not recovered
+optml_2605.08751_page14_chart8,legend_missing,clear 2-entry LaTeX legend not recovered
+optml_2605.09552_page108_chart5,legend_missing,2-entry legend (1-w_i, MC norm) not recovered
+optml_2605.15563_page10_chart5,legend_na,multiple curves no legend box
+optml_2605.15563_page10_chart7,legend_missing,2-entry legend (10 trials, Median error) not recovered
+optml_2605.23761_page22_chart17,legend_na,single decay curve no legend
+optml_2605.23761_page22_chart2,legend_na,nos5 overlapping series no legend
+optml_2605.25255_page13_chart6,legend_na,no legend box
+optml_2605.25318_page18_chart1,legend_partial,4-entry legend; s garbled (was Linear) and Ground Truth missing
+optml_2605.25490_page16_chart3,legend_na,legend box has color swatches but no text labels in original
+optml_2605.25490_page16_chart4,legend_na,legend box has color swatches but no text labels in original
+optml_2605.29291_page30_chart1,legend_partial,7-entry legend; 4 recovered (one garbled to o), 3 non-mono missing
+optml_2605.29291_page30_chart2,legend_correct,all 7 method labels recovered correctly
+optml_2606.00656_page7_chart18,legend_na,multiple series no legend box (star annotation only)
+optml_2606.00656_page7_chart2,legend_missing,top-row multi-entry legend not recovered
+optml_2606.00656_page7_chart9,legend_na,multiple series no legend box
+optml_2606.00795_page10_chart1,legend_na,single series; MAE=0.845 is annotation not per-series legend
+optml_2606.00795_page10_chart2,legend_na,single series; MAE annotation (recovered with spurious 10 prefix)
+optml_2606.00795_page10_chart4,legend_na,single series; MAE annotation
+optml_2606.00984_page43_chart10,legend_missing,multi-entry legend (BLCE...) not recovered
+optml_2606.00984_page43_chart7,legend_partial,only BLCE(0.1) recovered of 5+ series
+optml_2606.00984_page43_chart9,legend_correct,single series BLCE(0.9) label recovered
+optml_2606.01612_page24_chart4,legend_correct,3 IoU labels recovered correctly
+optml_2606.01908_page6_chart1,legend_na,single series no legend (star marker only)
+optml_2606.02607_page23_chart16,legend_na,single series; legend belongs to adjacent panel
+optml_2606.02607_page23_chart21,legend_na,single series; legend belongs to adjacent panel
+optml_2606.02623_page31_chart1,legend_na,multiple latent-mode curves no legend
+optml_2606.02623_page31_chart24,legend_na,single series no legend
+optml_2606.02623_page31_chart33,legend_na,single series no legend (garbled OSSM text is axis label)
+optml_2606.02623_page31_chart5,legend_na,multiple curves no legend
+optml_2606.02886_page7_chart2,legend_missing,4-method legend (AIFS/Aurora/...) not recovered
+optml_2606.02886_page7_chart9,legend_missing,3-entry legend (Mean/Median/IQR) not recovered
+optml_2606.03821_page34_chart5,legend_na,3 series dual-axis no legend box
+optml_2606.03821_page36_chart1,legend_na,3 series dual-axis no legend box
+optml_2606.03821_page36_chart3,legend_na,3 series dual-axis no legend box
+optml_2606.03871_page21_chart2,legend_na,2 series no legend box
+optml_2606.03871_page23_chart11,legend_na,multiple series no legend box
+optml_2606.03871_page23_chart8,legend_na,multiple series no legend box
+optml_2606.03899_page43_chart3,legend_wrong,3-entry LaTeX legend garbled (o + mangled 0.84(2T-1)^-1/4)
+optml_2606.05555_page33_chart22,legend_na,2 series no legend box
+optml_2606.05555_page33_chart23,legend_na,2 series no legend box
+optml_2606.05555_page33_chart28,legend_na,2 series no legend box
+optml_2606.06156_page8_chart3,legend_na,single noisy series no legend
+optml_2606.06156_page8_chart7,legend_na,single noisy series no legend

@@ -1,0 +1,28 @@
+sample_id,legend_verdict,note
+materials_2606.04608_page14_chart5,legend_correct,"recovered 3 LaTeX labels (Δc t=0, Δc t=0.1Γ, Δs t=0) with subscripts/Gamma intact"
+materials_2606.02317_page14_chart2,legend_missing,"original has ALD/PECVD legend box; re-plot has no legend"
+materials_2606.00165_page6_chart1,legend_wrong,"6 labels recovered but subscript-minus a_- mangled to blank ('D(a :CR)' etc.)"
+materials_2606.00314_page5_chart1,legend_na,no legend (two unlabeled curves)
+materials_2606.04724_page21_chart1,legend_missing,"original legend tau=0.5/1.0/2.0; re-plot has no legend"
+materials_2606.04608_page30_chart1,legend_correct,"recovered DMRG and Heisenberg correctly"
+materials_2606.00681_page4_chart3,legend_missing,"original 3-entry legend (A2-like pole trajectory etc.); re-plot has no legend"
+materials_2606.00479_page2_chart1,legend_na,no legend (two unlabeled bands)
+materials_2606.03016_page9_chart2,legend_na,no legend (single curve with point labels B/C/D only)
+materials_2606.02317_page11_chart1,legend_partial,"4 inline series labels (Hafnia/Alumina/Silicon Nitride/Silica); only 3 recovered, Silicon Nitride missing"
+materials_2606.00403_page8_chart9,legend_na,"no legend in original (only T=3300K annotation); extraction added spurious Si C/Si Si/C C labels"
+materials_2606.01444_page35_chart1,legend_na,no legend (single series, title + text box only)
+materials_2606.04919_page21_chart3,legend_correct,"single inline label 'lh, 1s' recovered correctly"
+materials_2606.04724_page19_chart1,legend_wrong,"4-entry tau legend; recovered '1.0/2.0/3.0' (tau= prefix dropped) and tau=0.5 garbled to 'o', plus spurious extra 'o' entry"
+materials_2606.05050_page13_chart1,legend_correct,"recovered all 4 labels (CARE/UniMech reactions/intermediates)"
+materials_2606.00165_page20_chart3,legend_partial,"6-entry legend; only 2 recovered (A14, A23), and a_- mangled to 'a '"
+materials_2606.03497_page23_chart1,legend_na,no legend (two curves, only T=100K annotation)
+materials_2606.03405_page6_chart3,legend_correct,"recovered 4 labels (SA, QA (base), QA (OR), RPQA)"
+materials_2606.02085_page6_chart1,legend_missing,"original Freq.(cm-1) legend with 6 entries; re-plot has no legend"
+materials_2606.04219_page12_chart1,legend_missing,"original inline labels BL/ML (This work); re-plot has no legend"
+materials_2606.02399_page2_chart2,legend_correct,"recovered thr. em./thr. abs./expt. em. correctly"
+materials_2606.04958_page6_chart2,legend_correct,"recovered n=1..n=4 correctly"
+materials_2606.00785_page15_chart2,legend_missing,"original 4-entry crystal legend; re-plot has no legend"
+materials_2606.03405_page10_chart1,legend_wrong,"legend 'QA -> PIMD' garbled to 'QA PIMD' (arrow dropped) plus spurious 'PIMD' entry"
+materials_2606.03016_page16_chart1,legend_missing,"6 per-curve labels a-f in original; re-plot recovered none"
+materials_2606.00223_page6_chart5,legend_wrong,"3 labels recovered but superscript minus on e- dropped ('0.2 e' instead of '0.2 e-')"
+materials_2606.00403_page8_chart6,legend_na,"no legend in original (only T=3200K annotation); extraction added spurious Si C/Si Si/C C labels"

@@ -1,0 +1,61 @@
+sample_id,legend_verdict,note
+astro_2606.00208_page6_chart2,legend_correct,Single inline series label G235M/F170LP recovered correctly
+astro_2606.00209_page5_chart1,legend_missing,"Inline series labels (Opt. x0.01, Syn., X-ray, IC, Radio) present in original; none recovered"
+astro_2606.00219_page17_chart29,legend_na,Heatmap crop with no legend or per-series labels
+astro_2606.00219_page17_chart31,legend_na,Heatmap crop with no legend or per-series labels
+astro_2606.00219_page17_chart46,legend_na,Heatmap crop with no legend or per-series labels
+astro_2606.00219_page17_chart67,legend_missing,"Inline labels (Lazare+24 emcee, 21cmEMUv3 nautilus, 21cmEMUv3 MultiNest) present; none recovered"
+astro_2606.00221_page17_chart1,legend_correct,"Legend Data/Total GMM/Components x3 all recovered correctly"
+astro_2606.00221_page17_chart4,legend_correct,"Legend BIC/AIC recovered; Optimal is a guide line not a data series"
+astro_2606.00221_page20_chart3,legend_na,Data points over confidence band; no legend
+astro_2606.00258_page12_chart2,legend_na,Histogram with no legend
+astro_2606.00493_page16_chart1,legend_na,Two unlabeled curves; no legend
+astro_2606.00569_page27_chart6,legend_na,"Line annotations (spectral lines) not per-series labels; no legend"
+astro_2606.00569_page27_chart8,legend_na,Line annotation only; no per-series legend
+astro_2606.00569_page27_chart9,legend_na,Line annotations only; no per-series legend
+astro_2606.00631_page4_chart3,legend_correct,"All 7 species labels (Ca/Ca+/CaNC/CaC3N..CaC9N) recovered; subscripts flattened harmlessly"
+astro_2606.01059_page10_chart1,legend_correct,"All 3 Hillas labels recovered correctly"
+astro_2606.01059_page5_chart2,legend_wrong,"4-entry legend rendered as 5 with spurious bare codes o and D; first two entries garbled"
+astro_2606.01496_page10_chart1,legend_na,Single-series scatter; no legend
+astro_2606.01625_page19_chart2,legend_na,Two unlabeled marker series; no legend
+astro_2606.01625_page19_chart3,legend_na,Single series; no legend
+astro_2606.01625_page36_chart1,legend_na,Filled+open markers with no labels; no legend
+astro_2606.01625_page36_chart3,legend_na,No legend in original
+astro_2606.01823_page4_chart3,legend_wrong,"Spurious bare marker code o added; original legend only had Power-law Fit"
+astro_2606.01823_page4_chart8,legend_wrong,"Spurious bare marker code o added; original legend only had Power-law Fit"
+astro_2606.01956_page13_chart2,legend_correct,"Legend Fit/HOROLOGIUM-I plum recovered correctly"
+astro_2606.01956_page13_chart3,legend_correct,"Legend Fit/HOROLOGIUM-II exp recovered correctly"
+astro_2606.01956_page13_chart4,legend_correct,"Legend Fit/HOROLOGIUM-II plum recovered correctly"
+astro_2606.01956_page13_chart6,legend_correct,"Legend Fit/HYDRA-II plum recovered correctly"
+astro_2606.02032_page11_chart1,legend_partial,"3 of ~8 entries recovered; region/error-band/marker labels missing; one spurious bare code o"
+astro_2606.02353_page3_chart6,legend_na,C4 is a panel label; 3 unlabeled series; no legend
+astro_2606.02687_page5_chart3,legend_missing,"Legend EC:Enia+25/Bulge/Disk present; no labels recovered"
+astro_2606.02698_page17_chart2,legend_correct,Inline series label MINERVA-1084946 recovered correctly
+astro_2606.02711_page57_chart5,legend_partial,"3 of 5 t/tdyn labels recovered; Analytical and t/tdyn=33.28 missing"
+astro_2606.03313_page18_chart17,legend_missing,Garbled tiny LaTeX legend box in original; no labels recovered
+astro_2606.03313_page18_chart25,legend_missing,Garbled LaTeX legend box in original; no labels recovered
+astro_2606.03313_page18_chart6,legend_missing,Garbled LaTeX legend box in original; no labels recovered
+astro_2606.03313_page18_chart7,legend_missing,Garbled LaTeX legend box in original; no labels recovered
+astro_2606.03313_page18_chart8,legend_missing,Garbled LaTeX legend box in original; no labels recovered
+astro_2606.03546_page3_chart6,legend_partial,"5 of 6 ML labels recovered; 1.13 ML missing"
+astro_2606.04082_page3_chart1,legend_wrong,"LaTeX legend (s=20 t_nu^-1) mangled to 's = 20 t-nu 1' with collapsed sub/superscript"
+astro_2606.04083_page7_chart1,legend_partial,"3 entries recovered but comparison operators dropped and third label truncated (lost upper bound)"
+astro_2606.04309_page13_chart3,legend_partial,"2 of 4 entries recovered (fmol, H atoms); HI and H2 missing"
+astro_2606.04309_page13_chart5,legend_partial,"2 of 4 entries recovered (fmol, H atoms); HI and H2 missing"
+astro_2606.04711_page30_chart11,legend_na,Hexbin heatmap; no legend
+astro_2606.04711_page30_chart4,legend_missing,"Data legend entry visible in original; no labels recovered"
+astro_2606.04711_page30_chart7,legend_na,Model lines with no legend box in crop
+astro_2606.04711_page30_chart8,legend_na,Model lines with no legend box in crop
+astro_2606.04810_page12_chart11,legend_na,Heatmap; no legend
+astro_2606.04810_page12_chart15,legend_na,Heatmap; no legend
+astro_2606.04810_page12_chart3,legend_na,Heatmap with colorbar; no per-series legend
+astro_2606.04810_page12_chart7,legend_na,Heatmap; no legend
+astro_2606.04827_page5_chart1,legend_partial,"All 5 z= labels recovered correctly but spurious bare code D added; solid/dashed distinction not captured"
+astro_2606.05119_page18_chart4,legend_na,Stacked-area plot; annotation only, no per-series legend
+astro_2606.05146_page20_chart1,legend_missing,"Legend Type Ic-BL/Mean Peak (BTS) present; no labels recovered"
+astro_2606.05151_page9_chart1,legend_correct,"Legend XG (9 weeks)/A# (1 year) recovered correctly"
+astro_2606.05151_page9_chart2,legend_correct,"Legend XG (8 weeks)/A# (1 year) recovered correctly"
+astro_2606.05154_page4_chart3,legend_correct,"Legend Model Flux/Model spectrum/Observed Flux all recovered correctly"
+astro_2606.05299_page11_chart1,legend_partial,"Many inline labels (234Th, n, nu, delta=...) present; only one garbled 'Th' recovered"
+astro_2606.05299_page3_chart2,legend_partial,"1 of 3 inline labels recovered (SHM); LMC (pres.) and LMC (peri.) missing"
+astro_2606.05323_page10_chart1,legend_wrong,"7-entry LaTeX legend mostly garbled to bare codes S/D; z~ collapsed, labels mis-assigned"
