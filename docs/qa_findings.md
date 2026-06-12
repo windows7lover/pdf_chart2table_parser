@@ -4,6 +4,13 @@ A QA loop samples 3 random reconstructions (`scripts/qa_sample.py`) and logs any
 extraction/reconstruction problems here. Newest round on top. Each item: what's
 wrong → likely cause → owner. Fixed items get struck through with the commit.
 
+## Round 6 (2026-06-12) — fresh-set low-explained charts are FALSE ALARMS (no data loss)
+Checked the fresh-set's lowest explained%-charts against their reconstructions; all faithful, low% is decoration/geometry the audit undercounts (total candidate-missed-curves across all 24 = 0):
+- **2503.10490_p8c2 (44%)**: 5 overlapping oscillating traces + legend + 2 dotted reference lines — all reconstructed; low% = overlapping-curve fragments + decoration.
+- **2508.02902_p7c3 (70%)**: two log-scale oscillating decay curves (DLR-averaged / DRAG) with sharp dips to 1e-15 — both reconstructed with correct colors + legend; low% = complex oscillation geometry + gridlines.
+- **2309.15777 / 2308.10009**: neighbour-subplot bleed (fixed in the audit, Round 5).
+Conclusion: the fresh 24 extract well; explained% is depressed by decoration/complex geometry, not real flaws.
+
 ## Round 5 (2026-06-12) — residual-audit false alarm (NOT data loss) ✅ FIXED (audit gating)
 - **2309.15777_p18c4** [audit artifact, NOT extraction]: the residual audit flagged 3 dark-red (0.545,0,0) "candidate missed curves" (87–90 verts, bboxes ~[53–309, 396–537]) and a low 77% explained. Investigated against the RAW PDF: `_p18c4` is the **(a) ρMZM bar subplot** (plot box y=[415–466]) — its real data is a green bar + an orange bar, **no dark-red curve at all**. The 3 dark-red paths (idx 231/372/373) are the **band-structure parabolas of subplot (b) below it**; they OVERLAP this region's loose `region_bbox` but lie mostly BELOW the calibrated plot box, so the extractor correctly clips them away (`lines._box_ok`) and emits the single in-box fragment. `lines._same_curve` did NOT over-merge: it returns False for all three pairs (distinct y-trajectories) — no dedup bug, no data loss. Root cause of the false alarm: the audit's candidate-missed filter used the loose region_bbox `_in_region` OVERLAP test, pulling in neighbouring-subplot ink.
   FIX (audit only, no extraction change): `residual_audit._frac_in_box` + a plot-box gate — a residual path is a "candidate missed curve" only when ≥50% of its vertices fall inside the calibrated plot box (x/y spine ranges), mirroring the extractor's own clip. 2309.15777_p18c4: 3→0 missed. Same phantom on **2308.10009_p16c8** (3 tall vertical lines from an adjacent panel spanning y[170–435] vs box y[344–382]): 3→0. No other chart's missed count changed. Suite 1046→1049 (3 new regression tests in `tests/test_residual_audit.py`).
