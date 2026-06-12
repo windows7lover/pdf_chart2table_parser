@@ -4,6 +4,15 @@ A QA loop samples 3 random reconstructions (`scripts/qa_sample.py`) and logs any
 extraction/reconstruction problems here. Newest round on top. Each item: what's
 wrong → likely cause → owner. Fixed items get struck through with the commit.
 
+## Audit confound — refiner-dropped lines counted as residual (TOP TARGET)
+After `drop_spurious_lines` shipped, the residual audit's explained% *fell* on
+charts where it correctly removed a connector/fit (2410 82%→77%, 2409 88%→79%,
+2510 79%→78%): the dropped line's paths are now "unexplained residual." Same
+confound as the legend-swatch case (fixed earlier by treating legend-region paths
+as explained). Fix: `residual_audit.py` should treat paths matching a
+refiner-dropped line (connector through markers / straight fit) as explained
+decoration, so the metric rewards correct refining instead of punishing it.
+
 ## Round 1 (2026-06-12)
 - **2503.12775_p12c4** — curve extracted well, but the **x-axis is miscalibrated**
   (recon spans 0–14, original is 0–1) and the **y ×10⁻⁴ multiplier is dropped**
