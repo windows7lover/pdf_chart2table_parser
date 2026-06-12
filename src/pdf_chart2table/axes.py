@@ -379,6 +379,19 @@ def _primary_column(groups: list[list[TextSpan]], axis: str) -> list[list[TextSp
     return [g for _, g in best]
 
 
+def _group_value(g: list[TextSpan], paths: list[Path]) -> float | None:
+    """Parsed numeric value of a tick-label group, applying a leading minus glyph.
+
+    The minus precedes the leftmost digit of the number it negates: the mantissa
+    for a plain label, the *exponent* for a 10^n label.
+    """
+    ordered = sorted(g, key=lambda t: t.bbox[0])
+    ref = ordered[1] if (ordered[0].text.strip() == "10" and len(ordered) >= 2) else ordered[0]
+    _, ref_cy = _center(ref.bbox)
+    neg = _has_minus(paths, ref_cy, ref.bbox[0])
+    return _label_value(g, neg)
+
+
 def _ticks_from(
     positions: list[float],
     spans: list[TextSpan],
@@ -393,6 +406,20 @@ def _ticks_from(
     def label_pos(g: list[TextSpan]) -> float:
         return sum(_center(t.bbox)[along] for t in g) / len(g)
 
+    def group_label(g: list[TextSpan]) -> str:
+        return "".join(t.text for t in sorted(g, key=lambda t: t.bbox[0]))
+
+    # Some renderers (e.g. MATLAB) draw tick *labels* but no tick-mark path
+    # segments on an axis. With no mark positions there is nothing to pair the
+    # labels against, leaving the axis uncalibrated -> it would wrongly borrow a
+    # sibling panel's calibration. The label center IS the tick location, so
+    # when no marks were detected fall back to the label-group centers.
+    if not positions and groups:
+        return [
+            Tick(pixel=label_pos(g), value=_group_value(g, paths), label=group_label(g))
+            for g in groups
+        ]
+
     labeled: dict[int, Tick] = {}
     used: set[int] = set()
     for g in groups:
@@ -405,18 +432,9 @@ def _ticks_from(
         if dist > _ALIGN_TOL:
             continue
         used.add(idx)
-        # The minus precedes the leftmost digit of the number it negates: the
-        # mantissa for a plain label, the *exponent* for a 10^n label.
-        ordered = sorted(g, key=lambda t: t.bbox[0])
-        if ordered[0].text.strip() == "10" and len(ordered) >= 2:
-            ref = ordered[1]
-        else:
-            ref = ordered[0]
-        _, ref_cy = _center(ref.bbox)
-        neg = _has_minus(paths, ref_cy, ref.bbox[0])
-        val = _label_value(g, neg)
-        label = "".join(t.text for t in sorted(g, key=lambda t: t.bbox[0]))
-        labeled[idx] = Tick(pixel=positions[idx], value=val, label=label)
+        labeled[idx] = Tick(
+            pixel=positions[idx], value=_group_value(g, paths), label=group_label(g)
+        )
 
     return [labeled.get(i, Tick(pixel=positions[i])) for i in range(len(positions))]
 
@@ -512,27 +530,34 @@ def _y_axis_multiplier(
 
 
 def _superscript_mult(texts: list[TextSpan], region: Region) -> float:
-    """Detect a multi-span 'x10^n' multiplier near the top-left of the y-axis."""
+    """Detect a multi-span 'x10^n' multiplier near the top-left of the y-axis.
+
+    The mantissa span is ``"10"`` or a leading-times form ``"×10"`` / ``"x10"``
+    (MATLAB renders the offset as ``×10`` plus a raised exponent). The exponent
+    span may carry a unicode/ASCII minus (``"−4"`` / ``"-4"``) for small-value
+    offsets like ``×10^-4``, so parse it as a signed integer rather than a bare
+    digit run.
+    """
     x0, y0, x1, _ = region.bbox
     near = [t for t in texts
             if t.dir == (1.0, 0.0)
             and y0 - 22.0 <= _center(t.bbox)[1] <= y0 + 12.0
             and x0 - 15.0 <= _center(t.bbox)[0] <= x0 + 0.5 * (x1 - x0)]
     for t in near:
-        if t.text.strip() != "10":
+        mant = t.text.strip().replace("×", "").replace("x", "").replace("X", "")
+        if mant != "10":
             continue
         b = t.bbox
         for e in near:
-            es = e.text.strip()
-            if not es.isdigit():
+            es = e.text.strip().replace("−", "-")
+            try:
+                exp = int(es)
+            except ValueError:
                 continue
             eb = e.bbox
             # exponent sits just right of "10" and raised (smaller PDF y = higher)
             if eb[0] >= b[2] - 1.0 and _center(eb)[1] < _center(b)[1]:
-                try:
-                    return 10.0 ** int(es)
-                except ValueError:
-                    pass
+                return 10.0 ** exp
     return 1.0
 
 

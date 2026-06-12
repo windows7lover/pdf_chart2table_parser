@@ -244,7 +244,15 @@ def fit_calibration(ticks) -> dict | None:
         elif abs(r2_log - r2_lin) <= _R2_TIE:
             log10s = np.log10(val)
             span = float(np.max(log10s) - np.min(log10s))
-            if _log_minor_consistent(a_log, b_log, minor_px):
+            # Over a sub-decade labeled span (max/min < 10) linear and log are
+            # nearly indistinguishable: evenly-spaced LINEAR minor ticks land
+            # coincidentally near log mantissa fractions and falsely pass the
+            # log-minor test. matplotlib/MATLAB never label a log axis with all
+            # ticks inside one decade, so require >= 1 decade before letting
+            # minor ticks pick log (the decade-tick branch below already does).
+            if span >= _LOG_DECADE_SPAN and _log_minor_consistent(
+                a_log, b_log, minor_px
+            ):
                 # Minor ticks land on log positions -> log axis.
                 best = log_fit
             elif (_LOG_DECADE_SPAN <= span <= _LOG_DECADE_MAX

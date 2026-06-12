@@ -227,6 +227,64 @@ def test_fit_accepts_wide_log_axis():
     assert calib is not None and calib["scale"] == "log"
 
 
+def test_subdecade_two_tick_axis_is_linear_not_log():
+    """A narrow (sub-decade) axis with evenly-spaced minor ticks fits LINEAR.
+
+    Reproduces 2112.11900_p3c10: a y-axis labeled only 62 and 22 (span < 1
+    decade) with three evenly-spaced LINEAR minor ticks. Over a sub-decade span
+    those linear minors coincidentally land near log mantissa fractions and the
+    old tie-break picked log -> the panel then wrongly borrowed a sibling's
+    ±1 linear calibration and the trace was squashed flat. The fit must be
+    linear so no scale-disagreement borrow can fire.
+    """
+    from pdf_chart2table.model import Tick
+
+    # Labeled 62 @176.88 and 22 @219.75; minor ticks evenly spaced between them.
+    ticks = [
+        Tick(pixel=176.88, value=62.0),
+        Tick(pixel=187.59, value=None),
+        Tick(pixel=198.31, value=None),
+        Tick(pixel=209.03, value=None),
+        Tick(pixel=219.75, value=22.0),
+    ]
+    from pdf_chart2table.calibrate import fit_calibration
+
+    calib = fit_calibration(ticks)
+    assert calib is not None and calib["scale"] == "linear", (
+        f"sub-decade axis 22..62 should be linear, got {calib}"
+    )
+    # And it maps the labeled pixels back to 22 / 62 (not to a borrowed ±1 range).
+    assert abs(to_data(calib, 176.88) - 62.0) < 0.1
+    assert abs(to_data(calib, 219.75) - 22.0) < 0.1
+
+
+def test_labels_without_tick_marks_calibrate_from_label_centers():
+    """An axis with tick LABELS but no tick-mark paths calibrates from labels.
+
+    Reproduces 2503.12775_p12c4: MATLAB drew x-tick labels (0,0.1,...,1) but no
+    x tick-mark path segments. With no mark positions to pair against, the axis
+    used to fail to self-calibrate and borrowed a sibling panel's 0..14 range.
+    The label center IS the tick location, so it must calibrate to 0..1.
+    """
+    from pdf_chart2table.calibrate import calibrate_region
+    from pdf_chart2table.model import Region, TextSpan
+
+    region = Region(bbox=(100.0, 50.0, 300.0, 200.0))
+    # x labels 0..1 in steps of 0.1, centered under their (undrawn) ticks; the
+    # pixel x of each label center scales linearly with its value.
+    texts = []
+    for i in range(11):
+        v = i / 10.0
+        cx = 100.0 + 200.0 * v
+        texts.append(TextSpan(text=f"{v:g}", bbox=(cx - 4, 202.0, cx + 4, 210.0)))
+    # No paths -> no tick-mark segments at all.
+    x_axis, _ = calibrate_region(region, [], texts)
+    assert x_axis.calibration is not None, "should calibrate from label centers"
+    assert x_axis.scale == "linear"
+    assert abs(to_data(x_axis.calibration, 100.0) - 0.0) < 0.02
+    assert abs(to_data(x_axis.calibration, 300.0) - 1.0) < 0.02
+
+
 # --------------------------------------------------------------------------
 # Broken-axis detection: a '//' marker in the label band -> uncalibrated.
 # --------------------------------------------------------------------------

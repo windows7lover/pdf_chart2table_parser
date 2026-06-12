@@ -51,3 +51,18 @@ def test_superscript_x10n_multiplier_detected():
         _hspan("5", 359, 335, 363, 341),         # exponent: right of "10", raised
     ]
     assert _y_axis_multiplier(texts, REGION, []) == 100000.0
+
+
+def test_superscript_times10_glued_mantissa_negative_exponent():
+    """MATLAB ×10^-4 offset: mantissa is one glued '×10' span, exponent '−4'.
+
+    Reproduces 2503.12775_p12c4, whose y-axis offset is rendered as a single
+    span '×10' plus a raised '−4' (unicode minus). The old detector required an
+    exact '10' mantissa and a bare-digit exponent, so the multiplier was dropped
+    and y values came out ~1e4x too large.
+    """
+    texts = [
+        _hspan("×10", 346, 338, 358, 345),       # glued mantissa
+        _hspan("−4", 358, 334, 365, 340),         # raised, unicode-minus exponent
+    ]
+    assert _y_axis_multiplier(texts, REGION, []) == 1e-4
