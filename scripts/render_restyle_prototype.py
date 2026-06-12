@@ -262,9 +262,14 @@ def match_series_styles(pdf, page0, region_bbox, series):
         smalls = [max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) for p in small_paths]
         shapes = [s for s in (_marker_shape(p) for p in small_paths) if s]
         mshape = max(set(shapes), key=shapes.count) if shapes else None
+        # Do NOT auto-connect a marker series: discrete scatter points must stay
+        # unconnected unless the ORIGINAL drew a connecting line -- and when it
+        # did, that line is extracted as its own line series and drawn as a line.
+        # `connect: bool(big)` wrongly joined scatter through any same-colour path
+        # (a fit/guide, or a connector the refiner dropped): 2205, 2410, 2102.
         out.append({"width": best.width, "linestyle": ls,
                     "markersize": _median(smalls), "marker_shape": mshape,
-                    "connect": bool(big)})  # a long same-colour path -> line+markers
+                    "connect": False})
 
     # Axis frame/spine stroke width: dark, axis-aligned border lines near the
     # region edge, or the plot-frame rectangle. Sets spine + tick line weight.

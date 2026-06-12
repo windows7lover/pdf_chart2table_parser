@@ -4,6 +4,17 @@ A QA loop samples 3 random reconstructions (`scripts/qa_sample.py`) and logs any
 extraction/reconstruction problems here. Newest round on top. Each item: what's
 wrong → likely cause → owner. Fixed items get struck through with the commit.
 
+## Round 3 (2026-06-12)
+- **2301.10421_p5c2** — 5 transistor I-D curves reconstructed faithfully ✓ (only
+  the flat 0 V black curve dropped; it lies on the x-axis). 100% explained.
+- **2112.11900_p3c10** — noisy FFT trace extracted well (middle panel tracks it)
+  but the **reconstruction squashes it flat**: y-axis renders 22–62 while the
+  curve sits at the bottom → y-calibration/range bug (only ~2 y-ticks; mismatch
+  between tick values and data). Same family as 2503 (x 0–14 vs 0–1, dropped
+  y ×10⁻⁴). → **CALIBRATION cluster = next focused target** (`axes.py`/`calibrate.py`).
+- **2410.00955_p10c1** — connector fix holding (88% explained, up from 77%); the
+  faint render-side connect-through-scatter line remains (render-only).
+
 ## Round 2 (2026-06-12)
 - **2005.12088_p10c2** — sawtooth curve reconstructed faithfully ✓. Only the dashed
   horizontal reference line (~0.115) is missing (its residual). Good.

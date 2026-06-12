@@ -81,6 +81,21 @@ record; lives outside `lines.py` (e.g. `src/pdf_chart2table/refiners/`); ships w
 a regression test that reproduces the specific chart's residual (per the
 bug→test rule). The audit's `explained%` is the loop's success metric.
 
+## Uncertain data class — verify against reconstruction/residual (design direction)
+Instead of a binary keep/drop at extraction time, ambiguous elements should go into
+a third **"uncertain"** tier carrying *why* it's doubtful (e.g. "line near markers:
+fit or connector?", "sparse points: scatter or undersampled line?", "curve drawn as
+fragments: stitch?"). A verification pass then CONFIRMS or DISCARDS each uncertain
+item using the residual + reconstruction as evidence:
+- render with vs without the item and compare to the original crop (pixel residual);
+- a low residual when included AND the item explains otherwise-unexplained ink →
+  confirm; otherwise discard.
+This turns today's hard precision/recall judgments (spurious-line fit vs data,
+connect-or-not, line-vs-marker typing) into evidence-checked decisions instead of
+fixed heuristics. Emit the uncertain tier in the JSON (e.g. `series_uncertain`) so a
+downstream judge/LLM or the residual auditor can adjudicate. Owner: a new
+verification refiner that re-renders candidates and scores them against the source.
+
 ## Connection order of line vertices (not always left-to-right)
 A line series is currently emitted **x-sorted** (`lines.py::_dedupe_points` sorts by
 x; `_merge_long` joins x-monotone; the recon `_replot` also re-sorts by x). That is
