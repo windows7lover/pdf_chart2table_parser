@@ -412,6 +412,128 @@ def _label_match(span_norm, label_norm):
     return span_norm in label_norm and len(span_norm) >= 4
 
 
+def _span_color(c):
+    """PyMuPDF dict-mode span color is a packed sRGB int. Return an (r,g,b)
+    float tuple in 0..1, or None."""
+    if c is None:
+        return None
+    if isinstance(c, (list, tuple)):
+        try:
+            return tuple(min(1.0, max(0.0, float(v))) for v in c[:3])
+        except Exception:
+            return None
+    try:
+        c = int(c)
+    except Exception:
+        return None
+    return ((c >> 16 & 255) / 255.0, (c >> 8 & 255) / 255.0, (c & 255) / 255.0)
+
+
+def _baseline(s):
+    """Approximate text baseline of a span (bottom for horizontal text, using the
+    writing direction so rotated lines compare along their own baseline axis)."""
+    bb = s["bbox"]
+    dx, dy = s.get("dir", (1.0, 0.0))
+    if abs(dy) > 0.5:               # vertical text: baseline runs along x
+        return bb[0] if dy < 0 else bb[2]
+    return bb[3]                    # horizontal: bottom edge
+
+
+def _reading_pos(s):
+    """(along, across) position in the span's own writing direction: 'along' is
+    the reading axis (x for horizontal text, y for vertical), 'across' is the
+    line/baseline axis."""
+    bb = s["bbox"]
+    dx, dy = s.get("dir", (1.0, 0.0))
+    if abs(dy) > 0.5:                       # vertical (rotated) text
+        # reading runs along y; for dir (0,-1) text reads bottom->top
+        along0, along1 = (-bb[3], -bb[1]) if dy < 0 else (bb[1], bb[3])
+        across = (bb[0] + bb[2]) / 2
+        return along0, along1, across
+    return bb[0], bb[2], bb[3]              # horizontal: along x, baseline = bottom
+
+
+def _group_spans(spans, base):
+    """Group adjacent text spans that form ONE logical label.
+
+    1) cluster spans into LINES by writing direction + baseline proximity
+       (tolerant to sub/superscript vertical offset);
+    2) within each line, sort along the reading axis and split where the
+       inter-token gap is large relative to font size.
+    Returns a list of groups (each a list of member spans in reading order).
+    Conservative: only clearly-contiguous, same-baseline tokens merge.
+    """
+    bh = base or 8.0
+    # --- step 1: line clustering (greedy by sorted baseline within same dir) ---
+    lines = []
+    for s in sorted(spans, key=lambda s: (s.get("dir", (1.0, 0.0)), _baseline(s))):
+        d = s.get("dir", (1.0, 0.0))
+        placed = False
+        for ln in lines:
+            if ln["dir"] != d:
+                continue
+            sz = max(s.get("size") or bh, ln["sz"], 1.0)
+            if abs(_baseline(s) - ln["base"]) <= 0.7 * sz:
+                ln["spans"].append(s)
+                # track the line baseline as the MAX-size span's baseline (body text)
+                if (s.get("size") or 0) >= ln["sz"]:
+                    ln["base"], ln["sz"] = _baseline(s), s.get("size") or bh
+                placed = True
+                break
+        if not placed:
+            lines.append({"dir": d, "base": _baseline(s),
+                          "sz": s.get("size") or bh, "spans": [s]})
+
+    # --- step 2: split each line into groups by reading-axis gaps ---
+    groups = []
+    for ln in lines:
+        ordered = sorted(ln["spans"], key=lambda s: _reading_pos(s)[0])
+        cur = []
+        prev_end = None
+        for s in ordered:
+            a0, a1, _ = _reading_pos(s)
+            sz = max(s.get("size") or bh, 1.0)
+            if cur and prev_end is not None and (a0 - prev_end) > 1.2 * sz:
+                groups.append(cur)
+                cur = []
+            cur.append(s)
+            prev_end = a1 if prev_end is None else max(prev_end, a1)
+        if cur:
+            groups.append(cur)
+    return groups
+
+
+def _join_group(group):
+    """Concatenate a group's spans (in reading order) into one string. Insert a
+    space where the original token gap is wide (word break); join directly for
+    tight runs (sub/superscripts, glyph fragments)."""
+    ordered = sorted(group, key=lambda s: _reading_pos(s)[0])
+    parts = []
+    prev_end = None
+    for s in ordered:
+        a0, a1, _ = _reading_pos(s)
+        if prev_end is not None:
+            sz = max(s.get("size") or 8.0, 1.0)
+            if (a0 - prev_end) > 0.18 * sz:
+                parts.append(" ")
+        parts.append(s["text"])
+        prev_end = a1 if prev_end is None else max(prev_end, a1)
+    return "".join(parts)
+
+
+def _group_color(group):
+    """Dominant color of a group, weighted by character count."""
+    counts = {}
+    for s in group:
+        c = s.get("color")
+        if c is None:
+            continue
+        counts[c] = counts.get(c, 0) + max(1, len(s["text"]))
+    if not counts:
+        return None
+    return max(counts, key=counts.get)
+
+
 def _spans_in_region(pdf, page0, region_bbox, margin=44.0):
     """Text spans whose center lies within region+/-margin, plus font weights."""
     x0, y0, x1, y1 = region_bbox
@@ -436,7 +558,8 @@ def _spans_in_region(pdf, page0, region_bbox, margin=44.0):
                     continue
                 spans.append({"text": t, "size": s.get("size"), "bbox": bb,
                               "dir": d, "font": s.get("font", ""),
-                              "flags": s.get("flags", 0)})
+                              "flags": s.get("flags", 0),
+                              "color": _span_color(s.get("color"))})
                 fn = s.get("font")
                 if fn:
                     fonts[fn] = fonts.get(fn, 0) + len(t)
@@ -617,26 +740,69 @@ def recover_text_style(pdf, page0, region_bbox, axis_titles, series_labels,
                    min(s["bbox"][1] for s in leg_spans) - pad,
                    max(s["bbox"][2] for s in leg_spans) + pad,
                    max(s["bbox"][3] for s in leg_spans) + pad)
+    # Candidate annotation spans: not ticks/titles, not a matched legend label.
+    # NOTE: the legend-box POSITION test is applied to whole GROUPS below, not to
+    # individual spans -- testing per-span would clip a multi-token annotation that
+    # happens to start inside the (generously padded) legend swatch region.
+    cand = [s for s in spans
+            if _norm(s["text"]) and _norm(s["text"]) not in consumed]
+    # GROUP adjacent spans that form one logical label (annotation/equation),
+    # so multi-token text is re-drawn as ONE coherent string in its own color
+    # rather than scattered single-token pieces.
     annotations = []
-    for s in spans:
-        nk = _norm(s["text"])
-        if not nk or nk in consumed or len(s["text"]) > 24:
+    for grp in _group_spans(cand, base):
+        text = _join_group(grp)
+        if len(text) > 64:           # implausibly long -> likely not one label
             continue
-        bb = s["bbox"]
-        cx, cy = (bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2
+        gx0 = min(s["bbox"][0] for s in grp)
+        gx1 = max(s["bbox"][2] for s in grp)
+        gy0 = min(s["bbox"][1] for s in grp)
+        gy1 = max(s["bbox"][3] for s in grp)
+        cx, cy = (gx0 + gx1) / 2, (gy0 + gy1) / 2
         if leg_box and leg_box[0] <= cx <= leg_box[2] and leg_box[1] <= cy <= leg_box[3]:
-            continue  # inside the legend region -> it's a legend entry, not an annotation
+            continue  # the group's center is in the legend region -> a legend entry
         fx, fy = to_frac(cx, cy)
         if not (0.02 <= fx <= 0.98 and 0.02 <= fy <= 0.98):
             continue  # inside the plot only (skip margin captions/equations)
+        gsz = sorted(s["size"] for s in grp if s.get("size"))
+        msz = gsz[len(gsz) // 2] if gsz else None
         annotations.append({
-            "text": s["text"], "x": round(fx, 3), "y": round(fy, 3),
-            "size": round(s["size"] * scale, 2) if s.get("size") else None,
-            "bold": bold_reliable and _is_bold(s)})
+            "text": text, "x": round(fx, 3), "y": round(fy, 3),
+            "size": round(msz * scale, 2) if msz else None,
+            "color": _group_color(grp),
+            "bold": bold_reliable and all(_is_bold(s) for s in grp)})
 
     tick_spans = [s for s in spans if _norm(s["text"]) in tickset]
     tick_bold = bool(tick_spans) and \
         sum(_is_bold(s) for s in tick_spans) >= len(tick_spans) / 2
+
+    # FAKE-TITLE GUARD. The record's title may be a fragment of an in-plot caption
+    # the extractor mis-promoted (e.g. "ns; Repetition Frequency = MHz"). A real
+    # chart title is ONE coherent grouped span near the TOP-CENTER and ABOVE the
+    # plot box. Accept the title only if it matches such a group; otherwise the
+    # render drops it. Match = the title's normalized text equals the group's, or
+    # is a clean substring of it (handles a title that is one line of a 2-line
+    # caption) -- but a non-contiguous fragment (re-ordered tokens) will NOT match
+    # any single group and is rejected.
+    title_ok = False
+    tkey = _norm(title_text)
+    if tkey:
+        for grp in _group_spans(spans, base):
+            gtext = _join_group(grp)
+            gkey = _norm(gtext)
+            if not gkey:
+                continue
+            if not (tkey == gkey or tkey in gkey):
+                continue
+            gx0 = min(s["bbox"][0] for s in grp)
+            gx1 = max(s["bbox"][2] for s in grp)
+            gcx = (gx0 + gx1) / 2
+            gtop = min(s["bbox"][1] for s in grp)
+            fx = (gcx - x0) / w
+            # top-center & at/above the plot box (small slack into the top margin)
+            if 0.15 <= fx <= 0.85 and gtop <= y0 + 0.10 * h:
+                title_ok = True
+                break
 
     return {
         "_note": "STYLE ONLY -- font + position recovered from source text spans.",
@@ -660,6 +826,7 @@ def recover_text_style(pdf, page0, region_bbox, axis_titles, series_labels,
         "show_legend": show_legend,
         "legend": legend,
         "annotations": annotations,  # in-graph text, NOT data or legend
+        "title_ok": title_ok,        # title corroborated by a top-center span
     }
 
 
@@ -1026,6 +1193,7 @@ def _replot(ax, record, style, tex=False):
         ax.text(a["x"], a["y"], L(a.get("text") or ""), transform=ax.transAxes,
                 ha="center", va="center",
                 fontsize=_fs(a.get("size")) or _fs(base_fs),
+                color=_color(a.get("color")) or "black",
                 fontweight="bold" if a.get("bold") else "normal")
     # Background grid (from the extractor): drawn behind the data, aligned with
     # the ticks, in the recovered grey colour.
@@ -1312,6 +1480,10 @@ def main():
                 ttl, tick_labels)
             style = build_style(d, series_styles)
             style["text"] = text_style
+            # Fake-title guard: drop a title the text recovery could not corroborate
+            # as a coherent top-center span (mis-promoted in-plot caption fragment).
+            if style.get("title") and text_style and not text_style.get("title_ok"):
+                style["title"] = None
             alw = meta.get("axis_linewidth")
             if alw:
                 style["axis_linewidth"] = round(min(3.0, max(0.2, alw)), 2)

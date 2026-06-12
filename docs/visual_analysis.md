@@ -237,9 +237,27 @@ then placed individually (`Slew` `rate` `in:4344.4`; `P` `1.41±0.14`; `|XX` `D`
     `ns; Repetition Frequency = MHz`). The original has no such title.
   - **(c) legend text as glyphs** — legend entries that are LaTeX (2503 `U=A_100`,
     2510 `dCph-X0`) render as boxes/garbage.
-**Disposition: DEFERRED.** Robust fixing needs OCR + span-grouping of the source
-text (already flagged for 2410 legend glyphs in qa_findings). Not precision-safe
-to patch render-side. Highest-value future work.
+**Disposition: (a) + (b) SHIPPED, (c) DEFERRED (OCR).**
+  - **(a) annotation splitting — FIXED** (render-side, `recover_text_style`).
+    `_group_spans` clusters extractable TextSpans into ONE logical label by
+    writing direction + baseline proximity (tolerant to sub/superscript offset,
+    ≤0.7·size) + small reading-axis gap (≤1.2·size); `_join_group` concatenates
+    in reading order (space only on a wide gap), `_group_color` keeps the group's
+    dominant color. The whole-group center (not per-span) is tested against the
+    legend box so a multi-token annotation starting inside the padded swatch is
+    not clipped. Verified: 2106.12703 slew-rate labels now render as coherent
+    cyan/magenta strings; 2205.10303 `P^{1.41±0.14}` groups into one.
+  - **(b) fake titles — FIXED** (render-side guard in `main()`). The record's
+    title is dropped unless `recover_text_style` corroborates it as a coherent
+    grouped span near the TOP-CENTER (0.15≤fx≤0.85) at/above the plot box. A
+    re-ordered interior fragment matches no single group → rejected (2005.11717
+    `p-dop…`, 2106.12703 `ns; Repetition Frequency = MHz` no longer titles).
+  - **(c) glyph-outline / private-math-font text — DEFERRED, needs OCR.** Where
+    the source encodes characters as vector glyph OUTLINES or private-use math
+    fonts (2511.03205 `∝ 1/(M−1)` in `mwa_cmmi10`/`mwb_cmsy10` → `@ $ … M / 1`;
+    2410.00955 / 2503.12775 LaTeX legends; the `−`/`⟩` in 2205's CambriaMath ket),
+    the bytes are not the readable characters, so grouping cannot recover the
+    string — this requires glyph→char mapping / OCR. Highest-value remaining work.
 
 ### 2. Y-axis range / multiplier / tick mis-calibration — ~7/20  [D]
 The recurring "calibration cluster": 2005.11717 (y 250–2500 vs data ~750),

@@ -16,9 +16,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import math  # noqa: E402
 
 from render_restyle_prototype import (  # noqa: E402
-    _effective_scale, _faithful_tick_label, _is_italic, _label_match,
-    _marker_shape, _norm, _plain_num, _threads_markers, _ticks_in_range,
-    _use_axis_multiplier)
+    _effective_scale, _faithful_tick_label, _group_color, _group_spans,
+    _is_italic, _join_group, _label_match, _marker_shape, _norm, _plain_num,
+    _span_color, _threads_markers, _ticks_in_range, _use_axis_multiplier)
 
 from pdf_chart2table.model import Path  # noqa: E402
 
@@ -198,3 +198,96 @@ def test_axis_multiplier_only_for_extreme_magnitudes():
     assert not _use_axis_multiplier([0.0, 0.5, 1.0])
     assert not _use_axis_multiplier([0.0, 100.0, 500.0])
     assert not _use_axis_multiplier([])
+
+
+# --- span grouping (multi-token annotations merged into one coherent label) ---
+
+def _span(text, x0, y0, size=8.0, color=(0.0, 0.0, 0.0), dir=(1.0, 0.0)):
+    """A synthetic horizontal text span: width ~ 0.55*size per char, height=size."""
+    w = max(1.0, 0.55 * size * len(text))
+    return {"text": text, "size": size, "color": color, "dir": dir,
+            "bbox": (x0, y0, x0 + w, y0 + size)}
+
+
+def test_span_color_decodes_packed_int_and_passthrough_tuple():
+    # magenta packed sRGB int 0xFF00FF -> (1, 0, 1)
+    assert _span_color(0xFF00FF) == (1.0, 0.0, 1.0)
+    assert _span_color(0x000000) == (0.0, 0.0, 0.0)
+    # already a float tuple -> clamped passthrough
+    assert _span_color((0.0, 0.5, 1.0)) == (0.0, 0.5, 1.0)
+    assert _span_color(None) is None
+
+
+def test_adjacent_same_baseline_spans_group_with_preserved_color():
+    # "Slew rate out" laid out left-to-right on one baseline, all magenta.
+    mag = (1.0, 0.0, 1.0)
+    spans = [_span("Slew", 100, 50, color=mag),
+             _span("rate", 124, 50, color=mag),
+             _span("out", 148, 50, color=mag)]
+    groups = _group_spans(spans, base=8.0)
+    assert len(groups) == 1
+    assert _join_group(groups[0]) == "Slew rate out"
+    assert _group_color(groups[0]) == mag
+
+
+def test_far_apart_spans_on_same_baseline_do_not_merge():
+    # Same row but a big horizontal gap (separate labels) -> two groups.
+    spans = [_span("left", 100, 50),
+             _span("right", 400, 50)]   # >> 1.2*size gap
+    groups = _group_spans(spans, base=8.0)
+    assert len(groups) == 2
+
+
+def test_different_baseline_spans_do_not_merge():
+    # Two annotations stacked on different lines (cyan above magenta) stay apart.
+    a = _span("Slew rate in", 100, 50, color=(0.0, 1.0, 1.0))
+    b = _span("Slew rate out", 100, 90, color=(1.0, 0.0, 1.0))  # 40pt lower
+    groups = _group_spans([a, b], base=8.0)
+    assert len(groups) == 2
+    texts = {_join_group(g) for g in groups}
+    assert texts == {"Slew rate in", "Slew rate out"}
+
+
+def test_superscript_absorbed_into_baseline_group():
+    # exponent sits slightly above baseline at a smaller size -> one group.
+    base_span = _span("P", 100, 50, size=8.0)
+    sup = _span("1.41", 106, 47, size=6.0)  # raised, smaller, tight gap
+    groups = _group_spans([base_span, sup], base=8.0)
+    assert len(groups) == 1
+    assert _join_group(groups[0]).startswith("P")
+
+
+def _title_corroborated(title, spans, region_bbox, base=8.0):
+    """Replicate the render's fake-title guard predicate over grouped spans."""
+    x0, y0, x1, y1 = region_bbox
+    w, h = (x1 - x0) or 1.0, (y1 - y0) or 1.0
+    tkey = _norm(title)
+    if not tkey:
+        return False
+    for grp in _group_spans(spans, base):
+        gkey = _norm(_join_group(grp))
+        if not gkey or not (tkey == gkey or tkey in gkey):
+            continue
+        gcx = (min(s["bbox"][0] for s in grp) + max(s["bbox"][2] for s in grp)) / 2
+        gtop = min(s["bbox"][1] for s in grp)
+        if 0.15 <= (gcx - x0) / w <= 0.85 and gtop <= y0 + 0.10 * h:
+            return True
+    return False
+
+
+def test_interior_fragment_not_promoted_to_title():
+    region = (0.0, 100.0, 200.0, 300.0)  # plot box y in [100, 300]
+    # an in-plot caption fragment sitting in the MIDDLE of the plot
+    interior = [_span("Slew", 60, 200), _span("rate", 84, 200),
+                _span("MHz", 108, 200)]
+    # the extractor mis-promoted a re-ordered fragment as the title
+    assert not _title_corroborated("MHz Slew rate", interior, region)
+    # even the contiguous interior string is NOT a title (it is not near the top)
+    assert not _title_corroborated("Slew rate MHz", interior, region)
+
+
+def test_real_top_center_title_is_corroborated():
+    region = (0.0, 100.0, 200.0, 300.0)
+    # one coherent line centered above the plot box -> a legitimate title
+    top = [_span("Sample", 70, 90), _span("A", 100, 90)]
+    assert _title_corroborated("Sample A", top, region)
