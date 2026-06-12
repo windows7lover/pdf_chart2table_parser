@@ -135,6 +135,47 @@ def _median(v):
     return sorted(v)[len(v) // 2] if v else None
 
 
+def _star_spikes(pts):
+    """Count the regular radial SPIKES of a glyph outline (a star's tips).
+
+    Radii are taken from the centroid, sorted by polar angle, then collapsed into
+    a fixed number of angular SECTORS (max radius per sector). The local maxima of
+    that smoothed profile are the spikes. Smoothing is the key: a noisy or
+    doubled-arc circle (e.g. drawn as two overlapping 33-vertex loops) has radii
+    that zig-zag at almost every vertex, which a raw coefficient-of-variation or
+    raw sign-change count cannot distinguish from a star; binning by angle washes
+    that jitter out (-> 0 spikes) while leaving a real star's few regular tips
+    intact (a 5-point star -> 5 spikes). Also returns the radial amplitude
+    (max-min)/mean so callers can require the spikes to be significant."""
+    import math
+    n = len(pts)
+    if n < 6:
+        return 0, 0.0
+    cx = sum(x for x, _ in pts) / n
+    cy = sum(y for _, y in pts) / n
+    polar = sorted((math.atan2(y - cy, x - cx),
+                    ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5) for x, y in pts)
+    nbins = 24
+    binmax = [0.0] * nbins
+    for a, r in polar:
+        b = int((a + math.pi) / (2 * math.pi) * nbins) % nbins
+        if r > binmax[b]:
+            binmax[b] = r
+    rs = [v for v in binmax if v > 0]
+    if len(rs) < 6:
+        return 0, 0.0
+    mean = sum(rs) / len(rs)
+    if mean <= 0:
+        return 0, 0.0
+    amp = (max(rs) - min(rs)) / mean
+    margin = 0.10 * mean
+    m = len(rs)
+    spikes = sum(1 for i in range(m)
+                 if rs[i] > mean + margin
+                 and rs[i] >= rs[(i - 1) % m] and rs[i] >= rs[(i + 1) % m])
+    return spikes, amp
+
+
 def _marker_shape(p):
     """Classify a small marker glyph by its outline geometry (overrides the
     extractor's often-wrong marker field): disk 'o', star '*', square 's'."""
@@ -151,11 +192,37 @@ def _marker_shape(p):
     n = len(pts)
     if p.fill is not None and n >= 10 and cv < 0.20:
         return "o"          # filled, smooth, ~constant radius -> disk
-    if cv > 0.32:
-        return "*"          # alternating spikes -> star
-    if n <= 6:
-        return "s"          # few corners -> square/diamond
+    # A star is REGULAR radial alternation: a small number of evenly spaced tips
+    # (4-7 spikes). Raw cv mistakes a noisy/doubled-arc circle (high cv but no
+    # regular tips) for a star; the angle-smoothed spike count separates them.
+    spikes, amp = _star_spikes(pts)
+    if 4 <= spikes <= 7 and amp > 0.35:
+        return "*"          # regular alternating spikes -> star
+    if cv <= 0.32 and n <= 6:
+        return "s"          # few corners, low variation -> square/diamond
     return "o"
+
+
+def _threads_markers(paths, pts, tol, frac=0.8):
+    """Does any same-colour ``paths`` (the candidate connectors) thread the marker
+    ``pts``? True when >= ``frac`` of the marker points lie within ``tol`` of a
+    single path -- i.e. that path is the line drawn THROUGH the markers. A
+    separate fit/curve that does not pass through the markers threads ~none, so it
+    does not trigger a connection."""
+    if not paths or not pts:
+        return False
+    need = max(2, int(round(frac * len(pts))))
+    for p in paths:
+        pp = p.points
+        if len(pp) < 2:
+            continue
+        near = 0
+        for sx, sy in pts:
+            if min((sx - qx) ** 2 + (sy - qy) ** 2 for qx, qy in pp) <= tol * tol:
+                near += 1
+        if near >= need:
+            return True
+    return False
 
 
 def recover_tick_style(paths, region_bbox):
@@ -262,14 +329,19 @@ def match_series_styles(pdf, page0, region_bbox, series):
         smalls = [max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) for p in small_paths]
         shapes = [s for s in (_marker_shape(p) for p in small_paths) if s]
         mshape = max(set(shapes), key=shapes.count) if shapes else None
-        # Do NOT auto-connect a marker series: discrete scatter points must stay
-        # unconnected unless the ORIGINAL drew a connecting line -- and when it
-        # did, that line is extracted as its own line series and drawn as a line.
-        # `connect: bool(big)` wrongly joined scatter through any same-colour path
-        # (a fit/guide, or a connector the refiner dropped): 2205, 2410, 2102.
+        # CONNECT only on EVIDENCE that the original drew a line THROUGH the
+        # markers. A marker series is joined iff some same-colour "big" path
+        # actually THREADS the points -- i.e. (most of) the series' marker points
+        # lie within a few px of that path. This restores a genuine line+marker
+        # plot whose connector was suppressed at extraction (2005: 15/15 threaded)
+        # while leaving pure scatter unconnected, where the only same-colour long
+        # path is a separate fit/curve that MISSES the markers (2205, 2410: 0
+        # threaded) or a model curve that grazes just a few (2102: 3/9).
+        tol = max(4.0, 1.5 * (_median(smalls) or 0.0))
+        connect = _threads_markers(big, pts, tol)
         out.append({"width": best.width, "linestyle": ls,
                     "markersize": _median(smalls), "marker_shape": mshape,
-                    "connect": False})
+                    "connect": connect})
 
     # Axis frame/spine stroke width: dark, axis-aligned border lines near the
     # region edge, or the plot-frame rectangle. Sets spine + tick line weight.
