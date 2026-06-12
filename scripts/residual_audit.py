@@ -57,15 +57,19 @@ def audit_chart(chart_json):
     pg = pdf_vector.load_pdf(src["pdf"], [page0])[0]
     paths = pg.paths
     # legend region (paths inside it are decoration/swatches, not unexplained data)
+    # and error-bar whisker/cap paths (decoration the extractor correctly removes).
     legend_bbox = None
+    eb_idx = set()
     try:
         from pdf_chart2table.plot_region import detect_regions
         from pdf_chart2table import labels as _labels
+        from pdf_chart2table.error_bars import detect_error_bars
         regs = detect_regions(pg.paths, pg.texts, pg.width, pg.height,
                               image_rects=pg.image_rects)
         if regs:
             reg = min(regs, key=lambda r: abs(r.bbox[0] - x0) + abs(r.bbox[1] - y0))
             legend_bbox = _labels.detect_labels(reg, pg.paths, pg.texts).legend_bbox
+            eb_idx = detect_error_bars(reg, pg.paths)
     except Exception:
         pass
     inreg = [(i, p) for i, p in enumerate(paths)
@@ -78,6 +82,10 @@ def audit_chart(chart_json):
         cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
         col = (_rc(p.stroke) if p.stroke is not None
                else _rc(p.fill) if p.fill is not None else None)
+        # error-bar whisker/cap (decoration the extractor removes, not data)
+        if i in eb_idx:
+            explained += 1
+            continue
         # near-white background / frame fill
         if p.stroke is not None and min(p.stroke) > 0.92:
             explained += 1
