@@ -391,7 +391,16 @@ def _is_data_mark(
 
     # Classify shape so we can apply shape-aware bounds (Fix 2 + Fix 3).
     shape = _shape_of(p)
-    known_closed = shape in _KNOWN_CLOSED_SHAPES
+    # A recognised marker glyph — including the OPEN ``+``/``×`` crosses — earns
+    # the relaxed size/aspect/min-side bounds: a small cross marker (two short
+    # crossing strokes) is a data point, not a tick/segment, so it must not be
+    # rejected by the strict 1-D-segment thresholds and then swept into a fake
+    # line by ``lines._is_fragment``. The open crosses are only relaxed when they
+    # carry the full glyph geometry (>= 4 flattened vertices); a 2-vertex diagonal
+    # ``cross`` is a line/tick segment and keeps the strict 1-D thresholds.
+    known_closed = shape in _KNOWN_CLOSED_SHAPES or (
+        shape in {"plus", "cross"} and len(p.points) >= 4
+    )
 
     # Reject oversized paths: a data mark is small relative to the plot.
     # Recognised closed shapes (circle, square, diamond, triangle, …) get a

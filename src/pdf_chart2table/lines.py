@@ -49,6 +49,7 @@ from .model import Color, Path, Region, TextSpan
 from .primitives import (
     LEGEND_GAP as _LEGEND_GAP,
     box_bounds as _box_bounds,
+    is_marker_glyph as _is_marker_glyph,
     is_near_white as _is_near_white_prim,
     is_saturated as _is_saturated_prim,
     on_border as _on_border_prim,
@@ -439,6 +440,12 @@ def _is_fragment(p: Path, region: Region, texts: list[TextSpan]) -> bool:
     # A non-white fill indicates a shade/band region or a marker glyph, never a
     # data curve fragment -- reject regardless of stroke saturation.
     if p.fill is not None and not _is_near_white(p.fill):
+        return False
+    # A small compact recognised-shape glyph (an OPEN ``□``/``△``/``+``/``×``
+    # marker) is a data point, not a dash fragment. Collecting such glyphs would
+    # build a jagged fake line series, so exclude them here (mirrors the
+    # filled-marker exclusion above for the open-stroked case).
+    if _is_marker_glyph(p):
         return False
     if not _is_saturated(p.stroke) and (_is_near_white(p.stroke) or not _varies_2d(p)):
         return False

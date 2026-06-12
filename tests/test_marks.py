@@ -753,3 +753,78 @@ def test_faint_series_inside_box_not_dropped():
     assert len(green_series[0].marks) == 2, (
         f"expected 2 green marks, got {len(green_series[0].marks)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Regression: stroked cross / plus / open-square / triangle marker glyphs must
+# be recognised as MARKERS (not rejected as ~1-D segments and swept into a fake
+# line series).  Repro: 2202.08374_p4c4 (× series traced as a 40-pt zig-zag).
+# ---------------------------------------------------------------------------
+
+def _cross_glyph(cx, cy, *, stroke, half=0.7):
+    """A small ``×`` marker: two diagonal strokes flattened to a 4-vertex open
+    polyline whose vertices sit at the bbox corners (TL→BR→BL→TR)."""
+    pts = [(cx - half, cy - half), (cx + half, cy + half),
+           (cx - half, cy + half), (cx + half, cy - half)]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=stroke, fill=None, width=1.0, dashes=None,
+                 closed=False, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def _plus_glyph(cx, cy, *, stroke, half=0.7):
+    """A small ``+`` marker: vertical + horizontal stroke flattened to a 4-vertex
+    open polyline whose vertices sit at the bbox edge midpoints."""
+    pts = [(cx, cy - half), (cx, cy + half), (cx - half, cy), (cx + half, cy)]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=stroke, fill=None, width=1.0, dashes=None,
+                 closed=False, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def _open_square(cx, cy, *, stroke, half=0.8):
+    pts = [(cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half),
+           (cx - half, cy + half), (cx - half, cy - half)]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=stroke, fill=None, width=1.0, dashes=None,
+                 closed=False, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def test_small_cross_glyph_classified_as_x():
+    """A small open ``×`` (4 corner-anchored vertices) classifies as 'cross'."""
+    from pdf_chart2table.marks import _shape_of
+    assert _shape_of(_cross_glyph(200, 200, stroke=(0.25, 0.25, 0.25))) == "cross"
+
+
+def test_small_plus_glyph_classified_as_plus():
+    """A small open ``+`` (4 midpoint-anchored vertices) classifies as 'plus'."""
+    from pdf_chart2table.marks import _shape_of
+    assert _shape_of(_plus_glyph(200, 200, stroke=(0.25, 0.25, 0.25))) == "plus"
+
+
+def test_small_cross_markers_recognised_not_rejected():
+    """A series of small ``×`` cross glyphs (min bbox side ~1.4 px, below the old
+    strict 1.5 min-side) must be recognised as ONE marker series, not rejected.
+
+    Repro: the 2202.08374_p4c4 r_he × series — each glyph was rejected as a
+    ~1-D segment and the strokes were then merged into a 40-pt zig-zag line."""
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(6)), text_indices=[])
+    gray = (0.25, 0.25, 0.25)
+    paths = [_cross_glyph(130 + 25 * i, 200 - 5 * i, stroke=gray, half=0.7)
+             for i in range(6)]
+    series = classify_marks(region, paths, [])
+    assert len(series) == 1, f"expected 1 cross series, got {len(series)}"
+    assert series[0].shape == "cross"
+    assert len(series[0].marks) == 6
+
+
+def test_small_open_square_markers_recognised():
+    """Small open (unfilled) square glyphs form one 's' marker series."""
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(6)), text_indices=[])
+    blue = (0.0, 0.45, 0.74)
+    paths = [_open_square(130 + 25 * i, 200 - 5 * i, stroke=blue, half=0.8)
+             for i in range(6)]
+    series = classify_marks(region, paths, [])
+    assert len(series) == 1, f"expected 1 square series, got {len(series)}"
+    assert series[0].shape == "square"
+    assert len(series[0].marks) == 6

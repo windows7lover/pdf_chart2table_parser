@@ -579,3 +579,69 @@ def test_raw_points_preserve_draw_order_when_x_sort_would_scramble():
     assert s.raw_points, "single-path curve must carry raw draw order"
     assert s.raw_points[0][0] == 270 and s.raw_points[-1][0] == 120
     assert [p[0] for p in s.raw_points] != [p[0] for p in s.points]
+
+
+# ---------------------------------------------------------------------------
+# Regression: small open marker glyphs (×, +, open □, △) must NOT be collected
+# into a fake line series; a real data line is still extracted.
+# Repro: 2202.08374_p4c4 (× glyphs -> 40-pt zig-zag) and 2302.01559_p38c3
+# (open squares -> 35-pt staircase).
+# ---------------------------------------------------------------------------
+
+def _cross_glyph(cx, cy, *, stroke, half=0.7):
+    """A small ``×`` marker: two diagonal strokes -> 4 corner-anchored vertices."""
+    pts = [(cx - half, cy - half), (cx + half, cy + half),
+           (cx - half, cy + half), (cx + half, cy - half)]
+    return _poly(pts, stroke)
+
+
+def _open_square_glyph(cx, cy, *, stroke, half=0.8):
+    pts = [(cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half),
+           (cx - half, cy + half), (cx - half, cy - half)]
+    return _poly(pts, stroke)
+
+
+def test_cross_glyphs_not_collected_into_line():
+    """A row of small ``×`` cross glyphs in one colour must NOT become a line
+    series (they are markers, owned by marks.py)."""
+    gray = (0.25, 0.25, 0.25)
+    glyphs = [_cross_glyph(120 + 12 * i, 200 - 3 * i, stroke=gray) for i in range(10)]
+    series, _ = _classify(glyphs)
+    assert series == [], f"cross glyphs must not form a line, got {len(series)}"
+
+
+def test_open_square_glyphs_not_collected_into_line():
+    """A row of small open square glyphs (fill=None, black) must NOT become a
+    line series (repro of the 35-pt black staircase in 2302.01559_p38c3)."""
+    black = (0.0, 0.0, 0.0)
+    # Alternate y (peaks/troughs) so a fake merge would look like a zig-zag.
+    glyphs = [_open_square_glyph(120 + 15 * i, 200 if i % 2 else 150, stroke=black)
+              for i in range(8)]
+    series, _ = _classify(glyphs)
+    assert series == [], f"open squares must not form a line, got {len(series)}"
+
+
+def test_real_data_line_still_extracted_alongside_glyphs():
+    """A genuine solid data polyline IS still extracted even when small marker
+    glyphs of another colour are present (the glyph exclusion is shape-targeted,
+    not a blanket short-path drop)."""
+    blue = (0.0, 0.0, 1.0)
+    line = _poly([(120, 250), (160, 230), (200, 200), (240, 175), (280, 160)], blue)
+    gray = (0.25, 0.25, 0.25)
+    glyphs = [_cross_glyph(120 + 12 * i, 210 - 2 * i, stroke=gray) for i in range(8)]
+    series, _ = _classify([line] + glyphs)
+    assert len(series) == 1, f"expected only the real line, got {len(series)}"
+    assert series[0].color == blue
+
+
+def test_short_dash_fragment_still_a_line():
+    """A genuine dash-fragment curve (short elongated saturated segments tiling
+    the x-axis) is still merged into a line — the glyph exclusion must not catch
+    elongated (monotone) dash fragments."""
+    red = (0.9, 0.1, 0.1)
+    # Short, elongated, x-monotone dash segments tiling left->right.
+    frags = [_poly([(120 + 20 * i, 250 - 4 * i), (134 + 20 * i, 247 - 4 * i)], red)
+             for i in range(8)]
+    series, _ = _classify(frags)
+    assert len(series) == 1, f"dash fragments should merge into 1 line, got {len(series)}"
+    assert series[0].color == red

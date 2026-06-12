@@ -137,6 +137,13 @@ KNOWN_CLOSED_SHAPES = frozenset(
     {"circle", "star", "square", "diamond", "triangle", "marker"}
 )
 
+# Recognised marker glyph shapes including the OPEN stroked crosses (``+``/``x``).
+# A small cross/plus is a genuine data marker (drawn as two short crossing
+# strokes), not a line fragment, so it earns the same relaxed size/aspect bounds
+# as the closed shapes in ``marks._is_data_mark`` and is excluded from the line
+# classifiers' fragment/curve collection (see ``is_marker_glyph``).
+KNOWN_MARKER_SHAPES = KNOWN_CLOSED_SHAPES | {"plus", "cross"}
+
 # Marker class -> the matplotlib-style marker code reported on a Series.
 MARKER_CODE = {
     "circle": "o",
@@ -195,7 +202,112 @@ def shape_of(p: Path) -> str:
         # the position of the top vertex relative to the centroid x.
         return "diamond" if is_diamond_geometry(p) else "square"
     if n == 4:
-        return "triangle" if filled else "plus"
+        if filled:
+            return "triangle"
+        # A 4-vertex OPEN path is one of: a triangle outline (3 distinct corners,
+        # the 4th repeats the first to close), or a cross/plus glyph drawn as two
+        # crossing strokes flattened into one polyline. Distinguish by geometry.
+        unique = list(dict.fromkeys(p.points))
+        if len(unique) == 3:
+            return "triangle"
+        return _cross_or_plus(p)
     if n == 3:
         return "triangle"
     return "cross" if not filled else "marker"
+
+
+# A vertex counts as a "corner" of the bbox when it lies within this fraction of
+# the bbox size from a corner; as an "edge midpoint" when within this fraction of
+# an edge centre. Used to tell an ``x`` (corner-anchored) from a ``+`` (midpoint-
+# anchored) 4-vertex open glyph.
+_CROSS_CORNER_FRAC = 0.3
+
+
+def _cross_or_plus(p: Path) -> str:
+    """Classify a 4-vertex open cross glyph as ``cross`` (×) or ``plus`` (+).
+
+    A matplotlib ``x`` marker is two diagonal strokes, so its flattened vertices
+    sit at the bbox CORNERS; a ``+`` marker is a vertical + horizontal stroke, so
+    its vertices sit at the bbox EDGE MIDPOINTS. We score the 4 vertices: if more
+    are corner-anchored it is a cross, if more are midpoint-anchored it is a plus.
+    Falls back to ``plus`` when ambiguous (the historical default)."""
+    x0, y0, x1, y1 = p.bbox
+    bw, bh = x1 - x0, y1 - y0
+    if bw <= 0 or bh <= 0:
+        return "plus"
+    cx, cy = 0.5 * (x0 + x1), 0.5 * (y0 + y1)
+    ctol_x, ctol_y = _CROSS_CORNER_FRAC * bw, _CROSS_CORNER_FRAC * bh
+    corner = midpoint = 0
+    for px, py in dict.fromkeys(p.points):
+        near_xedge = abs(px - x0) <= ctol_x or abs(px - x1) <= ctol_x
+        near_yedge = abs(py - y0) <= ctol_y or abs(py - y1) <= ctol_y
+        near_xmid = abs(px - cx) <= ctol_x
+        near_ymid = abs(py - cy) <= ctol_y
+        if near_xedge and near_yedge:
+            corner += 1
+        elif (near_xmid and near_yedge) or (near_ymid and near_xedge):
+            midpoint += 1
+    return "cross" if corner > midpoint else "plus"
+
+
+# A marker glyph is compact (both bbox sides comparable). An elongated path
+# (aspect above this) is a dash / segment, not a glyph, even if its vertex count
+# matches a marker shape.
+_MAX_GLYPH_ASPECT = 2.5
+
+
+def is_marker_glyph(p: Path) -> bool:
+    """True when ``p`` is a small, compact data-marker glyph (not a line fragment).
+
+    A scatter / line-with-markers point is drawn as a small recognised-shape glyph
+    (open square ``□``, triangle ``△``, diamond, filled circle, or a ``+``/``×``
+    cross of two short crossing strokes). The line classifiers (``lines.py``)
+    independently sweep up short same-colour strokes as dash/curve fragments; a
+    small open marker glyph would otherwise be mis-collected into a jagged fake
+    line. This region-free predicate lets ``lines.py`` exclude such glyphs.
+
+    Conservative gates (precision over recall): the path must
+      * carry a recognised marker shape (KNOWN_MARKER_SHAPES), AND
+      * have at least 4 flattened vertices (a 2-point segment is a genuine line /
+        dash fragment, NEVER a glyph), AND
+      * be COMPACT — both bbox sides comparable (aspect below ``_MAX_GLYPH_ASPECT``)
+        so an elongated dash (which can be a 4-vertex zig segment) is not caught, AND
+      * fold back on itself — a marker glyph (a closed loop, or a ``+``/``×`` whose
+        strokes cross) reverses direction in x, whereas a short line / dash
+        fragment marches monotonically across its bbox. A monotone open polyline
+        is therefore NOT a glyph (this distinguishes a 4-point cross marker from a
+        4-point line segment, which would otherwise share the ``plus``/``cross``
+        shape label).
+    """
+    if len(p.points) < 4:
+        return False
+    if shape_of(p) not in KNOWN_MARKER_SHAPES:
+        return False
+    x0, y0, x1, y1 = p.bbox
+    bw, bh = x1 - x0, y1 - y0
+    long, short = max(bw, bh), min(bw, bh)
+    if short <= 0 or long / short > _MAX_GLYPH_ASPECT:
+        return False
+    # An open polyline that is monotone in x is a line/dash segment, not a glyph.
+    if not p.closed and _x_monotone(p.points):
+        return False
+    return True
+
+
+def _x_monotone(pts: list[tuple[float, float]]) -> bool:
+    """True when ``pts`` never reverse x-direction (a straight/curved line run).
+
+    A marker glyph (a closed loop, or a ``+``/``×`` of crossing strokes) reverses
+    in x as it traces; a line / dash fragment advances monotonically. Sub-pixel
+    jitter is ignored via a small epsilon."""
+    eps = 0.05
+    sign = 0
+    for a, b in zip(pts, pts[1:]):
+        dx = b[0] - a[0]
+        if abs(dx) < eps:
+            continue
+        s = 1 if dx > 0 else -1
+        if sign and s != sign:
+            return False
+        sign = s
+    return True
