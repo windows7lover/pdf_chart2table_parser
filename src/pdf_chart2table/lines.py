@@ -159,6 +159,12 @@ class SeriesLine:
     width: float | None
     dashes: str | None
     points: list[tuple[float, float]] = field(default_factory=list)
+    # Vertices in TRUE draw order (the source polyline's order) for single-path
+    # curves; empty when the curve was merged from several paths (order then
+    # genuinely ambiguous). ``points`` stays x-sorted for all internal analysis;
+    # callers that need the real connection order (sideways / folded curves)
+    # should prefer ``raw_points`` when non-empty.
+    raw_points: list[tuple[float, float]] = field(default_factory=list)
 
 
 def _is_saturated(c: Color | None) -> bool:
@@ -690,8 +696,23 @@ def classify_lines(
             return None
         return clipped
 
-    # Build candidate curves per (colour, dash-form) (a curve plus exemplar path).
-    candidates: dict[tuple, list[tuple[list[tuple[float, float]], Path]]] = defaultdict(list)
+    def _raw_order(parts):
+        """The single source path's vertices in TRUE draw order (box-clipped,
+        consecutive-dedup), or None if the curve spans several paths (order then
+        ambiguous -> caller keeps the x-sorted vertices)."""
+        if len(parts) != 1:
+            return None
+        clipped = _clip_to_box(parts[0].points, plot_box)
+        out: list[tuple[float, float]] = []
+        for q in clipped:
+            if not out or out[-1] != q:
+                out.append(q)
+        return out if len(out) >= _MIN_VERTS else None
+
+    # Build candidate curves per (colour, dash-form): x-sorted verts, exemplar
+    # path, and the true draw-order vertices (or None for multi-path merges).
+    candidates: dict[tuple, list[tuple[list[tuple[float, float]], Path,
+                                       list[tuple[float, float]] | None]]] = defaultdict(list)
     reasons: list[str] = []
     for (color, form, _wb), parts in long_groups.items():
         verts = _merge_long(parts)
@@ -714,14 +735,14 @@ def classify_lines(
                     continue
                 if _is_connector(v, color, form):
                     continue
-                candidates[color].append((v, sg[0]))
+                candidates[color].append((v, sg[0], _raw_order(sg)))
             continue
         verts = _box_ok(verts)
         if verts is None:
             continue
         if _is_connector(verts, color, form):
             continue
-        candidates[color].append((verts, parts[0]))
+        candidates[color].append((verts, parts[0], _raw_order(parts)))
     for (color, form, _wb), parts in frag_groups.items():
         verts = _merge_fragments(parts)
         if verts is None:
@@ -731,18 +752,20 @@ def classify_lines(
             continue
         if _is_connector(verts, color, form):
             continue
-        candidates[color].append((verts, parts[0]))
+        candidates[color].append((verts, parts[0], _raw_order(parts)))
 
     # Per colour: keep candidate forms with distinct y-trajectories; dedup forms
     # that trace the same path (one curve drawn twice -> keep the widest).
     series: list[SeriesLine] = []
     for color, cands in candidates.items():
-        kept: list[tuple[list[tuple[float, float]], Path]] = []
-        for verts, ex in sorted(cands, key=lambda c: -_xspan(c[0])):
+        kept: list[tuple[list[tuple[float, float]], Path,
+                         list[tuple[float, float]] | None]] = []
+        for verts, ex, raw in sorted(cands, key=lambda c: -_xspan(c[0])):
             if any(_same_curve(verts, k[0]) for k in kept):
                 continue
-            kept.append((verts, ex))
-        for verts, ex in kept:
+            kept.append((verts, ex, raw))
+        for verts, ex, raw in kept:
             series.append(SeriesLine(color=ex.stroke, width=ex.width,
-                                     dashes=ex.dashes, points=verts))
+                                     dashes=ex.dashes, points=verts,
+                                     raw_points=raw or []))
     return series, reasons

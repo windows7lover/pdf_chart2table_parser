@@ -482,3 +482,23 @@ def test_interleaved_diff_width_curves_separated_by_style_key():
     series, _ = _classify([thin1, thick1, thin2, thick2])
     assert len(series) == 2, [s.width for s in series]
     assert {round(s.width, 1) for s in series} == {1.0, 2.6}
+
+
+def test_raw_points_preserve_draw_order_when_x_sort_would_scramble():
+    """A single-path curve drawn right-to-left (or folded) must keep its TRUE
+    draw order in ``raw_points`` even though ``points`` stays x-sorted for the
+    internal geometry checks. Reproduces the sideways/folded-curve scramble
+    (2212.10848 pDOS-vs-Freq, 2212.05730 S-curve) where x-sorting the vertices
+    destroys the real connection order.
+    """
+    # same geometry as test_clean_saturated_curve_extracted but drawn R->L:
+    red = _poly([(270, 160), (220, 170), (170, 200), (120, 250)], (1.0, 0.0, 0.0))
+    series, reasons = _classify([red])
+    assert len(series) == 1 and not reasons
+    s = series[0]
+    # points: x-sorted (unchanged behaviour the internal analysis relies on)
+    assert s.points[0][0] == 120 and s.points[-1][0] == 270
+    # raw_points: the source polyline's true order, NOT x-sorted
+    assert s.raw_points, "single-path curve must carry raw draw order"
+    assert s.raw_points[0][0] == 270 and s.raw_points[-1][0] == 120
+    assert [p[0] for p in s.raw_points] != [p[0] for p in s.points]

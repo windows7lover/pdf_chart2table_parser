@@ -127,8 +127,12 @@ def _build_series(sm: SeriesMarks, x_axis: Axis, y_axis: Axis) -> Series:
 
 
 def _build_line_series(sl: SeriesLine, x_axis: Axis, y_axis: Axis) -> Series:
-    xs_px = [v[0] for v in sl.points]
-    ys_px = [v[1] for v in sl.points]
+    # Emit in TRUE draw order when known (sideways / folded curves are not
+    # single-valued in x, so the x-sorted ``points`` would scramble them);
+    # fall back to the x-sorted vertices for multi-path merges.
+    verts = sl.raw_points or sl.points
+    xs_px = [v[0] for v in verts]
+    ys_px = [v[1] for v in verts]
     return Series(
         label=None,
         marker=None,

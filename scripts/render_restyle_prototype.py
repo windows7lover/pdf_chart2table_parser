@@ -763,15 +763,15 @@ def _replot(ax, record, style, tex=False):
                 sz = max(2.0, min(300.0, md * md))  # scatter s = (diameter)^2
             else:
                 sz = {"*": 14, "^": 12, "x": 10}.get(mk, 9)
-            # line+marker series: draw the connecting line first, then the markers
+            # line+marker series: draw the connecting line first, then the markers.
+            # Points are emitted in TRUE draw order, so plot as-is (do NOT re-sort
+            # by x -- that scrambles sideways/folded curves).
             if st.get("connect"):
-                order = sorted(range(len(xs)), key=lambda i: xs[i])
-                ax.plot([xs[i] for i in order], [ys[i] for i in order], color=col,
+                ax.plot(xs, ys, color=col,
                         linewidth=st.get("linewidth") or 0.8, linestyle=ls, zorder=1)
             ax.scatter(xs, ys, s=sz, color=col, label=lab, marker=mk, zorder=2)
         else:
-            order = sorted(range(len(xs)), key=lambda i: xs[i])
-            ax.plot([xs[i] for i in order], [ys[i] for i in order], color=col,
+            ax.plot(xs, ys, color=col,
                     label=lab, linewidth=st.get("linewidth") or 1.2, linestyle=ls)
 
     xa, ya = style["x_axis"], style["y_axis"]
@@ -1105,6 +1105,8 @@ def main():
                     help="random-sample the pool (reproducibly) instead of stride")
     ap.add_argument("--exclude", default="",
                     help="comma-separated chart_ids to skip (their papers too)")
+    ap.add_argument("--only", default="",
+                    help="comma-separated chart_ids to render exactly (re-render)")
     args = ap.parse_args()
     extract_out = os.path.join(args.root, "extract_out")
     outdir = args.outdir or os.path.join(args.root, "restyle_prototype")
@@ -1114,12 +1116,19 @@ def main():
     removed = {"2012.11311_p3c1", "2105.00820_p18c3", "2106.05226_p18c1",
                "2107.08202_p8c1", "2111.03727_p23c3", "2112.07702_p25c3",
                "2201.09344_p9c1"}
-    exclude = removed | {c for c in args.exclude.split(",") if c}
-    # oversample candidates so render failures (missing json / errors) still leave
-    # n successful bundles; render until n succeed.
-    picked = _select(args.root, args.n * 3, exclude=exclude, seed=args.seed)
-    print(f"selected {len(picked)} candidates (excluded {len(exclude)}) -> {outdir}",
-          flush=True)
+    only = {c for c in args.only.split(",") if c}
+    if only:
+        with open(os.path.join(args.root, "figures_index.csv")) as f:
+            picked = [r for r in csv.DictReader(f) if r["chart_id"] in only]
+        args.n = len(picked)
+        print(f"re-rendering {len(picked)} requested charts -> {outdir}", flush=True)
+    else:
+        exclude = removed | {c for c in args.exclude.split(",") if c}
+        # oversample candidates so render failures (missing json / errors) still
+        # leave n successful bundles; render until n succeed.
+        picked = _select(args.root, args.n * 3, exclude=exclude, seed=args.seed)
+        print(f"selected {len(picked)} candidates (excluded {len(exclude)}) -> {outdir}",
+              flush=True)
     ok = 0
     for r in picked:
         if ok >= args.n:

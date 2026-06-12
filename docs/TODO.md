@@ -54,11 +54,47 @@ constraint):
   calibrates against the recovered axes. Targets: 2007, 2110, 2011 candidates.
 - **`refine_decoration`** — confirm residual that is legend swatches / arrows /
   frame is correctly *excluded* (not promoted). 2011's residual is mostly this.
+- **`refine_spurious_line`** (NEW) — use the residual / cross-check to drop LINE
+  series (`marker is None`) that should not be there:
+  * a **fit / guide line** drawn through scatter data (2205.10303 dashed power-law
+    fit captured as a 48-pt series; 2510.04789 orange straight fit, 662 pts + a
+    38-pt dashed line) — typically dashed, smooth/monotonic, and passing near the
+    marker series; NOT data.
+  * a **spurious connector** through points that are really independent scatter
+    (2410.00955 is pure scatter — ED ○ / METTS ◇ — yet a 42-pt `marker=None`
+    series is emitted and the recon draws a zig-zag line through it).
+  Heuristic (precision-first, dedup-safe): drop a line series when its vertices
+  lie (mostly) on an existing MARKER series' points (it just connects them) OR it
+  is dashed + smooth + lies near markers (a fit). Guard against killing genuine
+  line+marker data series (where the original really drew the connecting line).
+  Owner: a refiner pass + possibly `marks.py`/`lines.py` line-vs-scatter typing.
 
 Each refiner: takes `(record, residual_paths, region, axes)`, returns an updated
 record; lives outside `lines.py` (e.g. `src/pdf_chart2table/refiners/`); ships with
 a regression test that reproduces the specific chart's residual (per the
 bug→test rule). The audit's `explained%` is the loop's success metric.
+
+## Connection order of line vertices (not always left-to-right)
+A line series is currently emitted **x-sorted** (`lines.py::_dedupe_points` sorts by
+x; `_merge_long` joins x-monotone; the recon `_replot` also re-sorts by x). That is
+wrong whenever the curve is not single-valued in x:
+- **sideways plots** — independent variable on the Y axis, so the curve is `x=f(y)`
+  and must be ordered by y (2212.10848_p16c2: pDOS-vs-Freq, x≈0 with y spanning →
+  x-sort scrambles it; recon is noise).
+- **folded / parametric curves** — multivalued in x (2212.05730_p6c2: an S-shaped
+  curve that folds back; x-sort destroys the fold).
+**Why x-sort is load-bearing:** `_is_noise_cloud`, `_curve_at_x` (interp), and
+`_merge_long` all assume x-monotone vertices to detect scatter clouds / dedupe
+overlapping redraws. So we can't simply stop sorting — a folded curve in polyline
+order would be falsely rejected as a noise cloud.
+**Plan (additive, low risk):** keep `SeriesLine.points` x-sorted for ALL internal
+analysis, but ALSO retain the source path's original vertex order (`raw_points`,
+the PyMuPDF draw order = true connection order) for SINGLE-path lines; emit data
+points in `raw_points` order when present, else fall back to x-sorted (merged
+multi-path). Then drop the x-sort in `_replot`. Re-extract + re-render the two 2212
+charts to verify; full suite must stay green (eval matches points order-independent,
+but any exact-order unit test may need updating). A later refinement could *detect*
+the independent axis (sideways → order by y) for the merged-fallback case.
 
 ## Deferred features (seams exist)
 - **M8 `--llm` assist tier**: escalate low-confidence charts to a Claude agent
