@@ -50,7 +50,20 @@ def audit_chart(chart_json):
         series.append((_rc(s["color"]) if s.get("color") else None, pts))
 
     page0 = src["page"]
-    paths = pdf_vector.load_pdf(src["pdf"], [page0])[0].paths
+    pg = pdf_vector.load_pdf(src["pdf"], [page0])[0]
+    paths = pg.paths
+    # legend region (paths inside it are decoration/swatches, not unexplained data)
+    legend_bbox = None
+    try:
+        from pdf_chart2table.plot_region import detect_regions
+        from pdf_chart2table import labels as _labels
+        regs = detect_regions(pg.paths, pg.texts, pg.width, pg.height,
+                              image_rects=pg.image_rects)
+        if regs:
+            reg = min(regs, key=lambda r: abs(r.bbox[0] - x0) + abs(r.bbox[1] - y0))
+            legend_bbox = _labels.detect_labels(reg, pg.paths, pg.texts).legend_bbox
+    except Exception:
+        pass
     inreg = [(i, p) for i, p in enumerate(paths)
              if _in_region(p.bbox, x0, y0, x1, y1)]
 
@@ -74,6 +87,11 @@ def audit_chart(chart_json):
         # grey background grid line (long thin interior)
         if (col and max(col) - min(col) <= 0.15 and 0.4 <= max(col) <= 0.96
                 and ((bw > 0.6 * w and bh < 2) or (bh > 0.6 * h and bw < 2))):
+            explained += 1
+            continue
+        # legend region: swatches/connectors/box inside the legend are decoration,
+        # not unexplained data (they were correctly identified and removed).
+        if legend_bbox is not None and _in_region(b, *legend_bbox):
             explained += 1
             continue
         # matched to an extracted series: same colour AND most of the PATH's own
