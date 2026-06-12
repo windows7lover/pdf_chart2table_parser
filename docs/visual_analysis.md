@@ -188,13 +188,15 @@ Chart_ids analysed (from `/tmp/regen_cids.txt`): 2005.11717_p28c4, 2005.12088_p1
 - COLOR **[C]**: the R_100 dashed orange baseline is reconstructed but very faint.
 
 ### 2504.16333_p32c4 (3 force curves -4/0/+4, line styles)
-- DATA **[D]**: the three F_z curves (red solid, green dashed, blue dotted) — the
-  blue dotted dominant peak (rising to ~4.4) is REPLACED in the recon by a straight
-  diagonal line; only the red and green small humps near the bottom survive.
-  The blue curve's extraction/scaling is wrong (rendered as a line spanning the
-  whole y-range). High severity.
-- AXIS **[D]**: y-range wrong — original 2.0–5.0; recon shows 12.0–15.0 (offset/
-  multiplier mis-calibration). x 7–8 ok.
+- DATA **[D] → FIXED** (`85e9986`): the blue dotted dominant peak rendered as a
+  straight diagonal. Two `lines.py` bugs: (1) full-span dashed blue GRIDLINES
+  merged into a fake 10-endpoint "series"; (2) the real dotted peak was DROPPED by
+  the near-vertical connector guard (tall narrow peak mistaken for a connector).
+  Fixed: guard only fires for y-monotone paths; full-span axis-aligned segments
+  rejected as gridlines regardless of colour. Blue now 8 pts peaking ~14.45.
+- AXIS: **NOT a bug** — the axis genuinely IS 12.0–15.0 in the source PDF (verified
+  by rendering the page). The "2.0–5.0" reading was a CROP artifact: the side-by-side
+  left panel clipped the leading "1" of each label (15.0→"5.0"). Calibration correct.
 - TEXT **[C]**: legend `F_z, Gap x(µm) -4/0/4` fragmented into scattered spans;
   `+8%`/`-4%` measurement annotations and the vertical double-arrow lost.
 
