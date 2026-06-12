@@ -44,6 +44,19 @@ _SPLIT_MIN_AREA_FRAC = 0.008
 # An inner panel must be at most this fraction of the enclosing frame's area to
 # count as a sub-panel (a frame split into >=2 panels has each well under half).
 _SPLIT_MAX_INNER_FRAC = 0.7
+# --- nested-inset trimming -------------------------------------------------
+# A nested INSET axes box (its own frame + ticks, e.g. a zoom panel in a corner
+# of the main plot) is a candidate that lies strictly inside a kept region and
+# is at most this fraction of that region's area. Its interior paths belong to a
+# different coordinate system and must be excluded from the parent's data.
+_INSET_MAX_AREA_FRAC = 0.6
+# A genuine inset is a CORNER box: it spans neither the full width nor the full
+# height of its parent. A stacked sub-panel that the region detector merged into
+# one box spans the full parent width (and a side-by-side sub-panel the full
+# height); such bands calibrate and sit inside the merged box but must NOT be
+# trimmed as insets. Verified: real insets reach <=0.51 of parent width/height,
+# a merged stacked sub-panel reaches ~0.99 of the width.
+_INSET_MAX_SPAN_FRAC = 0.8
 # A line is a "spine" candidate if it spans at least this fraction of the
 # page along one axis while being essentially straight on the other.
 _MIN_SPINE_FRAC = 0.3
@@ -985,6 +998,65 @@ def _covered_by_image(bbox: BBox, image_rects, frac: float = 0.55) -> bool:
     return False
 
 
+def _inset_boxes(
+    candidate_boxes: list[BBox],
+    kept: list[BBox],
+    paths: list[Path],
+    texts: list[TextSpan],
+) -> list[BBox]:
+    """Candidate frames that are nested INSET axes inside a kept chart region.
+
+    A paper sometimes draws a small zoom/detail axes box in a corner of the main
+    plot (its own frame, its own ticks, a different y-scale). The merged-spine
+    detector finds this inner frame as a candidate, but ``_dedup_candidates``
+    then suppresses it as "same panel" as the enclosing region (containment
+    ~1.0).  The inset's curves therefore get folded into the parent region's
+    path set, overlaying a second coordinate system's data on the main chart.
+
+    A candidate is treated as an inset when ALL of:
+
+    * it lies strictly inside a kept region (centroid + extent contained) that
+      is a *different, larger* box (not the same panel);
+    * its area is at most ``_INSET_MAX_AREA_FRAC`` of that parent;
+    * it is a CORNER box — it spans neither the full width nor the full height
+      of the parent (each side stays under ``_INSET_MAX_SPAN_FRAC``);
+    * it calibrates on BOTH axes for its own bbox.
+
+    The both-axes calibration requirement is the decisive guard against interior
+    decoration: an inset axes box has its own numeric tick labels along its
+    bottom and left edges and so calibrates, whereas a legend box, annotation/
+    text box, or shaded band inside a plot has no tick structure and does not
+    calibrate. The corner-box (span-fraction) guard is the decisive guard
+    against a stacked / side-by-side SUB-PANEL that the region detector merged
+    into one box: such a sub-panel calibrates too but spans the full width (or
+    height) of the merged box, so it is kept (it is a real adjacent panel, not
+    a nested inset whose data lives in a different coordinate system).
+    """
+    out: list[BBox] = []
+    for cb in candidate_boxes:
+        cw, ch = cb[2] - cb[0], cb[3] - cb[1]
+        for parent in kept:
+            if not _contains_box(parent, cb):
+                continue
+            # Strictly smaller than the parent (not the parent itself): the
+            # area-fraction cap both excludes the self-match and requires the
+            # inset to be a genuine small sub-box, not a near-coincident frame.
+            if _area(cb) > _INSET_MAX_AREA_FRAC * _area(parent):
+                continue
+            pw, ph = parent[2] - parent[0], parent[3] - parent[1]
+            # Corner-box guard: a full-width (or full-height) inner box is a
+            # merged sub-panel, not a nested inset; do not trim it.
+            if pw <= 0 or ph <= 0:
+                continue
+            if cw > _INSET_MAX_SPAN_FRAC * pw or ch > _INSET_MAX_SPAN_FRAC * ph:
+                continue
+            if _n_calibrated_axes(cb, paths, texts) < 2:
+                continue
+            out.append(cb)
+            break
+    return out
+
+
 def detect_regions(
     paths: list[Path],
     texts: list[TextSpan],
@@ -1028,6 +1100,11 @@ def detect_regions(
     if not candidates:
         return []
 
+    # Preserve the full gated candidate pool before dedup/splitting transforms
+    # it: a nested inset frame is one of these candidates but gets suppressed by
+    # _dedup_candidates (it is contained ~1.0 in the parent, so "same panel").
+    candidate_boxes = [b for b, _ in candidates]
+
     # Split any frame that encloses >=2 calibratable inner panel patches into
     # those panels (a whole-figure frame would otherwise concatenate panels).
     inner_patches = _inner_patch_boxes(paths, page_area)
@@ -1067,6 +1144,18 @@ def detect_regions(
     boxes.sort(key=lambda b: (round(b[1]), b[0]))
     rows, cols = _assign_grid(boxes)
 
+    # Nested-inset trim: a smaller calibratable axes box drawn inside a kept
+    # region (a corner zoom panel) belongs to a different coordinate system. Its
+    # interior paths are excluded from the parent region so they don't clutter
+    # the main chart with a second plot's curves. Only paths inside an inset
+    # that is NOT itself a kept region are dropped (the inset is not emitted as
+    # its own region: precision over recall — its shares-axis links and labels
+    # would be ambiguous, and the failure mode is over-capture, not data loss).
+    insets = _inset_boxes(candidate_boxes, boxes, paths, texts)
+
+    def _in_any_inset(item_bbox: BBox) -> bool:
+        return any(_contained(ins, item_bbox) for ins in insets)
+
     regions: list[Region] = []
     for bbox, r, c in zip(boxes, rows, cols):
         # Chart-type gate (part 2): 2D non-linear chart types (contour/density
@@ -1079,9 +1168,9 @@ def detect_regions(
         regions.append(Region(
             bbox=bbox,
             path_indices=[i for i, p in enumerate(paths)
-                          if _contained(bbox, p.bbox)],
+                          if _contained(bbox, p.bbox) and not _in_any_inset(p.bbox)],
             text_indices=[i for i, t in enumerate(texts)
-                          if _contained(bbox, t.bbox)],
+                          if _contained(bbox, t.bbox) and not _in_any_inset(t.bbox)],
             row=r,
             col=c,
             skip_reason=skip,

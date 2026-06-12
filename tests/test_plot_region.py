@@ -632,3 +632,114 @@ def test_low_coverage_v_edge_falls_back_to_full_span():
     f = frames[0]
     assert abs(f[0] - 100) <= 5    # x0 from the recovered left edge
     assert abs(f[1] - 80) <= 5     # y0
+
+
+# --- nested-inset regression: a corner zoom panel must not pollute the main --
+
+def _txt(s: str, cx: float, cy: float):
+    """A numeric tick-label text span centered at (cx, cy)."""
+    from pdf_chart2table.model import TextSpan
+    return TextSpan(text=s, bbox=(cx - 3, cy - 3, cx + 3, cy + 3), size=6.0)
+
+
+def _sat_line(x0: float, x1: float, y: float, color=(1.0, 0.0, 0.0)):
+    """A saturated-colour stroked polyline (a data series line)."""
+    from pdf_chart2table.model import Path as VPath
+    pts = [(x0 + (x1 - x0) * i / 20.0, y) for i in range(21)]
+    return VPath(points=pts, stroke=color, fill=None, width=1.0,
+                 dashes=None, closed=False, bbox=(x0, y, x1, y))
+
+
+def _axes_box(x0: float, y0: float, x1: float, y1: float, *, ticks: bool):
+    """Build (paths, texts) for a rectangular axes frame with merged-spine edges.
+
+    When ``ticks`` is True the box also gets short outward tick marks plus
+    numeric tick labels along the bottom and left edges, so it calibrates on
+    both axes (a genuine plot/inset axes box). When False it is a bare framed
+    rectangle with non-numeric text inside (a legend / annotation box) and does
+    NOT calibrate.
+    """
+    paths = [_hseg(y0, x0, x1), _hseg(y1, x0, x1),
+             _vseg(x0, y0, y1), _vseg(x1, y0, y1)]
+    texts = []
+    if ticks:
+        for frac, val in [(0.1, "0"), (0.5, "5"), (0.9, "10")]:
+            tx = x0 + (x1 - x0) * frac
+            paths.append(_vseg(tx, y1, y1 + 4))          # outward x tick
+            texts.append(_txt(val, tx, y1 + 9))           # x tick label
+        for frac, val in [(0.1, "0"), (0.5, "1"), (0.9, "2")]:
+            ty = y1 - (y1 - y0) * frac
+            paths.append(_hseg(ty, x0 - 4, x0))           # outward y tick
+            texts.append(_txt(val, x0 - 9, ty))           # y tick label
+    return paths, texts
+
+
+def test_nested_inset_paths_excluded_from_main_region():
+    """A calibratable inset axes box inside the main plot is trimmed out.
+
+    Models a main plot (its own frame + ticks + data lines) with a smaller
+    axes box drawn in a corner — its own frame, its own tick labels, a second
+    coordinate system. The inset's interior paths (its frame, ticks, and data
+    lines) must NOT be folded into the main region's path set.
+    """
+    main_p, main_t = _axes_box(100, 100, 400, 400, ticks=True)
+    main_p += [_sat_line(110, 250, 150 + 20 * i) for i in range(4)]
+    inset_p, inset_t = _axes_box(280, 280, 380, 380, ticks=True)
+    inset_p += [_sat_line(290, 360, 300 + 15 * i, color=(0, 0, 1))
+                for i in range(4)]
+
+    paths = main_p + inset_p
+    texts = main_t + inset_t
+    regions = detect_regions(paths, texts, 500.0, 500.0)
+
+    # One region (the main plot); the inset is not emitted as its own region.
+    assert len(regions) == 1
+    region = regions[0]
+    # The main region must NOT contain any path whose centroid lies inside the
+    # inset box (its 4 frame edges, 6 ticks, and 4 data lines are all excluded).
+    inset_box = (280.0, 280.0, 380.0, 380.0)
+    for i in region.path_indices:
+        b = paths[i].bbox
+        cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
+        in_inset = (inset_box[0] <= cx <= inset_box[2]
+                    and inset_box[1] <= cy <= inset_box[3])
+        assert not in_inset, f"inset path {i} leaked into main region"
+    # The main plot's own data lines (outside the inset) are retained.
+    assert len(region.path_indices) > 0
+
+
+def test_legend_box_inside_plot_is_not_treated_as_inset():
+    """GUARD: a framed legend/annotation box inside the plot is NOT an inset.
+
+    A legend box is a rectangle with no tick marks and only non-numeric text,
+    so it does not calibrate on either axis. The inset rule requires BOTH axes
+    to calibrate, so the legend box must not be mistaken for a nested inset and
+    its enclosed paths must remain part of the main region.
+    """
+    from pdf_chart2table.plot_region import _inset_boxes
+
+    main_p, main_t = _axes_box(100, 100, 400, 400, ticks=True)
+    main_p += [_sat_line(110, 250, 150 + 20 * i) for i in range(4)]
+    # Legend box: a bare framed rectangle with non-numeric labels, no ticks.
+    legend_p, _ = _axes_box(280, 280, 380, 380, ticks=False)
+    legend_t = [_txt("SiN", 310, 300), _txt("SiP", 310, 330)]  # non-numeric
+
+    paths = main_p + legend_p
+    texts = main_t + legend_t
+
+    # The legend box must not be detected as an inset of the main region.
+    candidate_boxes = [(100.0, 100.0, 400.0, 400.0), (280.0, 280.0, 380.0, 380.0)]
+    kept = [(100.0, 100.0, 400.0, 400.0)]
+    assert _inset_boxes(candidate_boxes, kept, paths, texts) == []
+
+    # And end-to-end: the legend box's frame paths stay in the main region.
+    regions = detect_regions(paths, texts, 500.0, 500.0)
+    assert len(regions) == 1
+    region = regions[0]
+    legend_box = (280.0, 280.0, 380.0, 380.0)
+    n_legend_paths = sum(
+        1 for i in region.path_indices
+        if legend_box[0] <= 0.5 * (paths[i].bbox[0] + paths[i].bbox[2]) <= legend_box[2]
+        and legend_box[1] <= 0.5 * (paths[i].bbox[1] + paths[i].bbox[3]) <= legend_box[3]
+    )
+    assert n_legend_paths > 0, "legend-box paths were wrongly stripped as an inset"
