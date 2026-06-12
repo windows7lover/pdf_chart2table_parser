@@ -37,12 +37,32 @@ def _in_region(b, x0, y0, x1, y1):
     return not (b[2] < x0 or b[0] > x1 or b[3] < y0 or b[1] > y1)
 
 
+def _frac_in_box(pts, box):
+    """Fraction of a path's vertices lying inside ``box`` (the calibrated plot
+    box: x/y spine-to-spine extent). Used to reject candidate "missed curves"
+    that merely OVERLAP the loose region_bbox but actually belong to a
+    neighbouring subplot (their ink sits mostly below/above this plot box) --
+    the extractor clips them away for the same reason (lines._box_ok)."""
+    if not pts or box is None:
+        return 1.0
+    bx0, by0, bx1, by1 = box
+    n_in = sum(1 for x, y in pts if bx0 <= x <= bx1 and by0 <= y <= by1)
+    return n_in / len(pts)
+
+
 def audit_chart(chart_json):
     d = json.load(open(chart_json))
     src = d["source"]
     x0, y0, x1, y1 = src["region_bbox"]
     w, h = (x1 - x0) or 1.0, (y1 - y0) or 1.0
     diag = max(w, h)
+    # Calibrated plot box (spine-to-spine extent) -- the actual data area, which
+    # is tighter than region_bbox. A residual path that overlaps region_bbox but
+    # sits mostly outside this box belongs to a neighbouring subplot, not here.
+    xpr = (d.get("x_axis") or {}).get("pixel_range")
+    ypr = (d.get("y_axis") or {}).get("pixel_range")
+    plot_box = ((xpr[0], ypr[0], xpr[1], ypr[1])
+                if xpr and ypr else None)
     # extracted series as (rounded colour, sampled pixel points)
     series = []
     marker_pts = []
@@ -132,7 +152,10 @@ def audit_chart(chart_json):
         residual.append({"idx": i, "color": col, "npts": len(p.points),
                          "span": round(max(bw, bh), 1), "bbox": [round(v, 1) for v in b]})
     # a residual path is a "candidate missed curve" if it is long + multi-vertex
-    missed = [r for r in residual if r["span"] > 0.3 * diag and r["npts"] >= 6]
+    # AND lies mostly within the calibrated plot box (so a curve bleeding in from
+    # an adjacent subplot is not falsely counted as a dropped data curve here).
+    missed = [r for r in residual if r["span"] > 0.3 * diag and r["npts"] >= 6
+              and _frac_in_box(paths[r["idx"]].points, plot_box) >= 0.5]
     return d, len(inreg), explained, residual, missed
 
 
