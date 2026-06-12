@@ -33,6 +33,7 @@ import csv
 import io
 import json
 import os
+import random
 import re
 import shutil
 import tempfile
@@ -1063,17 +1064,29 @@ def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None):
                 os.remove(tmp)
 
 
-def _select(root: str, n: int):
+def _select(root: str, n: int, exclude=frozenset(), seed=None):
+    """Pick ``n`` charts, one per arxiv id. ``exclude`` drops chart_ids AND their
+    arxiv_ids (so a fresh draw shares no paper with an earlier one). With ``seed``
+    set, the draw is a reproducible random sample over the whole pool (used to get
+    a genuinely different set, not the next stride positions)."""
+    excl_arxiv = {cid.rsplit("_p", 1)[0] for cid in exclude}
     rows = []
     with open(os.path.join(root, "figures_index.csv")) as f:
         for r in csv.DictReader(f):
             nser, npts = int(r["n_series"]), int(r["n_points"])
             if 1 <= nser <= 8 and npts >= 20:
                 rows.append(r)
-    rows.sort(key=lambda r: r["chart_id"])
+    rows = [r for r in rows
+            if r["chart_id"] not in exclude and r["arxiv_id"] not in excl_arxiv]
+    if seed is not None:
+        random.Random(seed).shuffle(rows)
+        ordered = rows
+    else:
+        rows.sort(key=lambda r: r["chart_id"])
+        step = max(1, len(rows) // (n * 3))
+        ordered = rows[::step]
     seen, picked = set(), []
-    step = max(1, len(rows) // (n * 3))
-    for r in rows[::step]:
+    for r in ordered:
         if r["arxiv_id"] in seen:
             continue
         seen.add(r["arxiv_id"])
@@ -1088,6 +1101,10 @@ def main():
     ap.add_argument("--root", required=True)
     ap.add_argument("--n", type=int, default=20)
     ap.add_argument("--outdir", default=None)
+    ap.add_argument("--seed", type=int, default=None,
+                    help="random-sample the pool (reproducibly) instead of stride")
+    ap.add_argument("--exclude", default="",
+                    help="comma-separated chart_ids to skip (their papers too)")
     args = ap.parse_args()
     extract_out = os.path.join(args.root, "extract_out")
     outdir = args.outdir or os.path.join(args.root, "restyle_prototype")
@@ -1097,12 +1114,16 @@ def main():
     removed = {"2012.11311_p3c1", "2105.00820_p18c3", "2106.05226_p18c1",
                "2107.08202_p8c1", "2111.03727_p23c3", "2112.07702_p25c3",
                "2201.09344_p9c1"}
-    picked = [r for r in _select(args.root, args.n)
-              if r["chart_id"] not in removed]
-    print(f"selected {len(picked)} charts (excluded {len(removed)}) -> {outdir}",
+    exclude = removed | {c for c in args.exclude.split(",") if c}
+    # oversample candidates so render failures (missing json / errors) still leave
+    # n successful bundles; render until n succeed.
+    picked = _select(args.root, args.n * 3, exclude=exclude, seed=args.seed)
+    print(f"selected {len(picked)} candidates (excluded {len(exclude)}) -> {outdir}",
           flush=True)
     ok = 0
     for r in picked:
+        if ok >= args.n:
+            break
         cid, aid = r["chart_id"], r["arxiv_id"]
         jp = os.path.join(extract_out, aid,
                           f"page{r['page']}_chart{r['chart']}.json")

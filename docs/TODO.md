@@ -33,6 +33,33 @@ Quality is graded by an LLM-as-judge **agent** over rendered reconstructions
    charts are skipped by design; only pursue if recall matters more than the
    clean corpus.
 
+## Residual method — step 2 via specialized refiners (not by re-running lines.py)
+`scripts/residual_audit.py` is step 1: it subtracts everything we understood and
+reports the unexplained residual (a long unexplained polyline = candidate dropped
+curve; a cluster = missed series). Step 2 is "re-analyse the residual and update
+the JSON extraction" — but it should **NOT** be a blanket re-run / gate-loosening
+of `lines.py`/`marks.py`. That was tried and reverted: it was a no-op on the
+flagged charts (2007, 2011 unchanged) while raising duplication/noise risk on the
+clean ones.
+
+Instead, route residual recovery into **dedicated post-extraction refiner passes**,
+one per failure cause, each operating only on the residual paths and gated to NOT
+duplicate already-extracted geometry (honours the "complete *without duplicating*"
+constraint):
+- **`refine_region_overcapture`** — 2007: region grabbed an adjacent inset panel,
+  so part of the residual is a *different* chart. Split/trim the region, then the
+  residual recalibrates correctly. (Owner of the real fix: `plot_region.py`.)
+- **`refine_dropped_curve`** — promote a residual polyline to a series *only if*
+  (a) its point set doesn't overlap an existing series (dedup guard) AND (b) it
+  calibrates against the recovered axes. Targets: 2007, 2110, 2011 candidates.
+- **`refine_decoration`** — confirm residual that is legend swatches / arrows /
+  frame is correctly *excluded* (not promoted). 2011's residual is mostly this.
+
+Each refiner: takes `(record, residual_paths, region, axes)`, returns an updated
+record; lives outside `lines.py` (e.g. `src/pdf_chart2table/refiners/`); ships with
+a regression test that reproduces the specific chart's residual (per the
+bug→test rule). The audit's `explained%` is the loop's success metric.
+
 ## Deferred features (seams exist)
 - **M8 `--llm` assist tier**: escalate low-confidence charts to a Claude agent
   for interpretation (coords still from `calibrate`). `llm_assist.py` is a stub.
