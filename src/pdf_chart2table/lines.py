@@ -75,8 +75,11 @@ _MIN_2D_RATIO = 0.08
 # / gridlines, so we admit it as DATA only when it is clearly a traced curve:
 # many vertices and a wide span. A small few-vertex gray box / legend frame falls
 # below these and is rejected (precision over recall on the ambiguous low-sat case).
-_MIN_LOWSAT_VERTS = 8
-_MIN_LOWSAT_SPAN_FRAC = 0.4
+# Loosened (recall): the 2-D variation + interior + span guards already reject
+# gridlines/boxes, so a slightly shorter / fewer-vertex black curve is still
+# recoverable as data (e.g. fits, baselines that genuinely bend).
+_MIN_LOWSAT_VERTS = 6
+_MIN_LOWSAT_SPAN_FRAC = 0.3
 # A near-white stroke (min channel above this) is the plot background / frame,
 # never a data curve.
 _WHITE_MIN = 0.9
@@ -501,6 +504,21 @@ def _dash_form(dashes: str | None) -> str:
     return "solid" if dashes is None else "dashed"
 
 
+# Stroke widths within ~0.5 pt are "the same" weight; coarser bucketing avoids
+# splitting one curve whose segments vary slightly in reported width.
+_WIDTH_BUCKET = 0.5
+
+
+def _width_bucket(width: float | None) -> int:
+    """Quantize stroke width so curves can be keyed by weight (color+dash+width).
+
+    Two same-colour curves that overlap in x but differ in THICKNESS (e.g. a thin
+    fit over a thick data curve) then fall into distinct groups and are both kept
+    instead of colliding into 'cannot separate'. Same-trajectory duplicates are
+    still collapsed downstream, so this can only disentangle, never duplicate."""
+    return round((width or 0.0) / _WIDTH_BUCKET)
+
+
 def _interp_y(pts: list[tuple[float, float]], x: float) -> float | None:
     """Linearly interpolate the curve's y at x (pts are x-sorted), or None if x
     is outside its x range."""
@@ -629,9 +647,9 @@ def classify_lines(
         p = paths[i]
         color = _round_color(p.stroke)
         if _is_long_curve(p, region, region_texts):
-            long_groups[(color, _dash_form(p.dashes))].append(p)
+            long_groups[(color, _dash_form(p.dashes), _width_bucket(p.width))].append(p)
         elif _is_fragment(p, region, region_texts):
-            frag_groups[(color, _dash_form(p.dashes))].append(p)
+            frag_groups[(color, _dash_form(p.dashes), _width_bucket(p.width))].append(p)
 
     # Suppress fill-region boundary outlines: a stroked path whose colour
     # matches the fill colour of a wide background band is the band's
@@ -675,7 +693,7 @@ def classify_lines(
     # Build candidate curves per (colour, dash-form) (a curve plus exemplar path).
     candidates: dict[tuple, list[tuple[list[tuple[float, float]], Path]]] = defaultdict(list)
     reasons: list[str] = []
-    for (color, form), parts in long_groups.items():
+    for (color, form, _wb), parts in long_groups.items():
         verts = _merge_long(parts)
         if verts is None:
             # Some paths overlap in x: try to split into x-compatible groups,
@@ -704,7 +722,7 @@ def classify_lines(
         if _is_connector(verts, color, form):
             continue
         candidates[color].append((verts, parts[0]))
-    for (color, form), parts in frag_groups.items():
+    for (color, form, _wb), parts in frag_groups.items():
         verts = _merge_fragments(parts)
         if verts is None:
             continue  # too few / multivalued fragments: not a usable curve

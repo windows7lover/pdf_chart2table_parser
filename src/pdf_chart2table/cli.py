@@ -23,7 +23,9 @@ import os
 import sys
 
 from . import io_store, pdf_vector
+from .arrows import detect_arrows
 from .calibrate import calibrate_panels
+from .grid import detect_grid
 from .plot_region import detect_regions
 
 # Optional modules built in parallel; degrade gracefully if absent.
@@ -47,6 +49,29 @@ def _parse_pages(spec: str | None, n_pages: int) -> list[int]:
     else:
         start = end = int(spec)
     return [i for i in range(start - 1, end) if 0 <= i < n_pages]
+
+
+def _title_text(title):
+    """Extract plain text from a title (TextSpan / dict / str / None)."""
+    if title is None:
+        return None
+    if isinstance(title, str):
+        return title
+    if isinstance(title, dict):
+        return title.get("text")
+    return getattr(title, "text", None)
+
+
+def _drop_title_if_axis_dup(title, x_axis, y_axis):
+    """Return None if the chart title merely duplicates an axis title (a stacked
+    sibling panel's axis label mis-detected as this panel's title)."""
+    def norm(s):
+        return "".join(c for c in (s or "").lower() if c.isalnum())
+    tt = norm(_title_text(title))
+    if tt and tt in {norm(getattr(x_axis, "title", None)),
+                     norm(getattr(y_axis, "title", None))}:
+        return None
+    return title
 
 
 def _region_series(page, region, x_axis, y_axis, source, legend_bbox=None):
@@ -399,6 +424,17 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
                     "no axis calibration", source, outdir, page_no, k))
                 continue
 
+            # Identify annotation arrows and drop their paths before extraction so
+            # they are not traced as fake curves/markers (they are recorded
+            # separately, not as data).
+            arrow_idx, arrow_recs = detect_arrows(region, page.paths)
+            if arrow_idx:
+                region.path_indices = [i for i in region.path_indices
+                                       if i not in arrow_idx]
+            # Background grid (light-grey lines aligned with the ticks): recorded
+            # as style, not traced as data.
+            grid = detect_grid(region, page.paths)
+
             rl = region_labels[k - 1]
             legend_bbox = rl[5] if len(rl) > 5 else None
             series = _region_series(page, region, x_axis, y_axis, source,
@@ -410,6 +446,10 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
                     "no series extracted", source, outdir, page_no, k))
                 continue
             title, caption, _x_title, _y_title, _ = rl[:5]
+            # In stacked multi-panel figures the title detector can grab the
+            # neighbouring panel's axis LABEL (which sits just above this panel).
+            # Drop a "title" that merely duplicates this panel's own axis title.
+            title = _drop_title_if_axis_dup(title, x_axis, y_axis)
             legend = legends[k - 1]
             _apply_legend_labels(series, legend, region, page.paths)
             # Axis titles come from axes.py (robust: rejects sub-captions/figure
@@ -425,6 +465,8 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
                 series=series,
                 title=title,
                 caption=caption,
+                arrows=arrow_recs,
+                grid=grid,
                 confidence=1.0 if (x_axis.calibration and y_axis.calibration) else 0.5,
             )
             rows.append(io_store.write_chart(record, outdir, page_no, k))

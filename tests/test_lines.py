@@ -466,3 +466,19 @@ def test_connector_suppressed_when_one_of_three_markers_missed():
     colors = {s.color for s in series}
     assert orange not in colors, "Connector with 2/3 marker proximity must be suppressed"
     assert blue in colors, "Genuine blue line must be kept"
+
+
+def test_interleaved_diff_width_curves_separated_by_style_key():
+    """Two same-colour curves of DIFFERENT WIDTH, each drawn as x-disjoint
+    segments that interleave along x. Keyed only by (colour, dash) their segments
+    merge into one zig-zag (rejected as a cloud) -> both lost; keyed by
+    (colour, dash, WIDTH) each weight groups into its own clean curve -> both kept.
+    """
+    blue = (0.0, 0.0, 1.0)
+    thin1 = _poly([(105, 250), (115, 246), (135, 240), (145, 234)], blue, width=1.0)
+    thin2 = _poly([(205, 218), (215, 214), (235, 208), (245, 202)], blue, width=1.0)
+    thick1 = _poly([(155, 140), (165, 144), (185, 152), (195, 156)], blue, width=2.6)
+    thick2 = _poly([(255, 168), (265, 172), (285, 180), (295, 184)], blue, width=2.6)
+    series, _ = _classify([thin1, thick1, thin2, thick2])
+    assert len(series) == 2, [s.width for s in series]
+    assert {round(s.width, 1) for s in series} == {1.0, 2.6}

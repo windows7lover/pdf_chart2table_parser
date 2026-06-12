@@ -111,6 +111,10 @@ class Axis:
     data_range: tuple[float, float] | None = None
     ticks: list[Tick] = field(default_factory=list)
     calibration: dict | None = None
+    # Which way the tick marks point relative to the spine: "in" | "out" | None.
+    tick_direction: str | None = None
+    # Median tick-mark length in PDF points (perpendicular extent), or None.
+    tick_length: float | None = None
 
 
 @dataclass

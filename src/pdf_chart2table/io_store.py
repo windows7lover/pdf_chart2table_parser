@@ -70,6 +70,8 @@ def _axis_record(axis) -> dict | None:
         "pixel_range": pr,
         "data_range": dr,
         "calibration": _to_plain(axis.calibration),
+        "tick_direction": getattr(axis, "tick_direction", None),
+        "tick_length": getattr(axis, "tick_length", None),
     }
 
 
@@ -125,6 +127,8 @@ def chart_to_record(
     series=None,
     title=None,
     caption=None,
+    arrows=None,
+    grid=None,
     confidence: float = 0.0,
     vector_file: str | None = None,
 ) -> dict:
@@ -147,6 +151,8 @@ def chart_to_record(
         "xticks": _ticks_record(x_axis),
         "yticks": _ticks_record(y_axis),
         "series": _series_record(series),
+        "arrows": list(arrows or []),  # annotation arrows (NOT data), removed
+        "grid": grid,  # background grid style (NOT data), or None
         "confidence": confidence,
         "vector_file": vector_file,
     }

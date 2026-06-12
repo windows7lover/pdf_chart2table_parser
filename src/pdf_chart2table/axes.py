@@ -189,39 +189,77 @@ def _label_value(spans: list[TextSpan], negative: bool) -> float | None:
 # Tick-mark detection
 # --------------------------------------------------------------------------
 
-def _x_tick_positions(paths: list[Path], region: Region) -> list[float]:
-    """X pixel positions of bottom-axis tick marks (short vertical segments)."""
-    x0, _, x1, y1 = region.bbox
+def _x_tick_positions(paths: list[Path], region: Region):
+    """X pixel positions of bottom-axis tick marks + their direction ("in"/"out").
+
+    Detects ticks that point EITHER inward (up into the plot) or outward (down
+    below the spine) -- charts with only inward ticks previously yielded no ticks
+    and so could not be calibrated."""
+    x0, y0, x1, y1 = region.bbox
     xs: list[float] = []
+    lengths: list[float] = []
+    inward = outward = 0   # voted across BOTH the bottom and top spines
     for p in paths:
         b = p.bbox
         w, h = b[2] - b[0], b[3] - b[1]
         if w > _TICK_THIN_MAX or not (0 < h <= _TICK_LEN_MAX):
             continue
-        # The tick touches the bottom spine and extends below it.
-        if abs(b[1] - y1) > _SPINE_TOL or b[3] < y1 - _SPINE_TOL:
-            continue
         cx = 0.5 * (b[0] + b[2])
-        if x0 - _SPINE_TOL <= cx <= x1 + _SPINE_TOL:
+        if not (x0 - _SPINE_TOL <= cx <= x1 + _SPINE_TOL):
+            continue
+        near_bottom = abs(b[1] - y1) <= _SPINE_TOL or abs(b[3] - y1) <= _SPINE_TOL
+        near_top = abs(b[1] - y0) <= _SPINE_TOL or abs(b[3] - y0) <= _SPINE_TOL
+        if near_bottom:
+            # bottom ticks carry the labels -> use them for calibration positions
             xs.append(cx)
-    return _cluster(xs)
+            lengths.append(h)
+            if b[1] < y1 - 1.0:    # extends up into the plot
+                inward += 1
+            if b[3] > y1 + 1.0:    # extends down below the spine
+                outward += 1
+        elif near_top:
+            lengths.append(h)
+            if b[3] > y0 + 1.0:    # extends down into the plot
+                inward += 1
+            if b[1] < y0 - 1.0:    # extends up above the spine
+                outward += 1
+    direction = ("in" if inward >= outward else "out") if (inward or outward) else None
+    length = sorted(lengths)[len(lengths) // 2] if lengths else None
+    return _cluster(xs), direction, length
 
 
-def _y_tick_positions(paths: list[Path], region: Region) -> list[float]:
-    """Y pixel positions of left-axis tick marks (short horizontal segments)."""
-    x0, y0, _, y1 = region.bbox
+def _y_tick_positions(paths: list[Path], region: Region):
+    """Y pixel positions of left-axis tick marks + their direction ("in"/"out")."""
+    x0, y0, x1, y1 = region.bbox
     ys: list[float] = []
+    lengths: list[float] = []
+    inward = outward = 0   # voted across BOTH the left and right spines
     for p in paths:
         b = p.bbox
         w, h = b[2] - b[0], b[3] - b[1]
         if h > _TICK_THIN_MAX or not (0 < w <= _TICK_LEN_MAX):
             continue
-        if abs(b[2] - x0) > _SPINE_TOL or b[0] > x0 + _SPINE_TOL:
-            continue
         cy = 0.5 * (b[1] + b[3])
-        if y0 - _SPINE_TOL <= cy <= y1 + _SPINE_TOL:
+        if not (y0 - _SPINE_TOL <= cy <= y1 + _SPINE_TOL):
+            continue
+        near_left = abs(b[2] - x0) <= _SPINE_TOL or abs(b[0] - x0) <= _SPINE_TOL
+        near_right = abs(b[2] - x1) <= _SPINE_TOL or abs(b[0] - x1) <= _SPINE_TOL
+        if near_left:
             ys.append(cy)
-    return _cluster(ys)
+            lengths.append(w)
+            if b[2] > x0 + 1.0:    # extends right into the plot
+                inward += 1
+            if b[0] < x0 - 1.0:    # extends left outside the spine
+                outward += 1
+        elif near_right:
+            lengths.append(w)
+            if b[0] < x1 - 1.0:    # extends left into the plot
+                inward += 1
+            if b[2] > x1 + 1.0:    # extends right outside the spine
+                outward += 1
+    direction = ("in" if inward >= outward else "out") if (inward or outward) else None
+    length = sorted(lengths)[len(lengths) // 2] if lengths else None
+    return _cluster(ys), direction, length
 
 
 # --------------------------------------------------------------------------
@@ -383,14 +421,16 @@ def _ticks_from(
     return [labeled.get(i, Tick(pixel=positions[i])) for i in range(len(positions))]
 
 
-def _x_ticks(paths: list[Path], texts: list[TextSpan], region: Region) -> list[Tick]:
-    return _ticks_from(_x_tick_positions(paths, region),
-                       _x_label_spans(texts, region), paths, "x")
+def _x_ticks(paths: list[Path], texts: list[TextSpan], region: Region):
+    positions, direction, length = _x_tick_positions(paths, region)
+    return (_ticks_from(positions, _x_label_spans(texts, region), paths, "x"),
+            direction, length)
 
 
-def _y_ticks(paths: list[Path], texts: list[TextSpan], region: Region) -> list[Tick]:
-    return _ticks_from(_y_tick_positions(paths, region),
-                       _y_label_spans(texts, region), paths, "y")
+def _y_ticks(paths: list[Path], texts: list[TextSpan], region: Region):
+    positions, direction, length = _y_tick_positions(paths, region)
+    return (_ticks_from(positions, _y_label_spans(texts, region), paths, "y"),
+            direction, length)
 
 
 # --------------------------------------------------------------------------
@@ -466,6 +506,33 @@ def _y_axis_multiplier(
             val = _parse_plain(s)
             if val is not None and val != 0:
                 return val
+    # Origin-style "x10^n" offset near the axis TOP, drawn as separate spans
+    # ("x"/"10"/"n") rather than matplotlib's single "1eN".
+    return _superscript_mult(texts, region)
+
+
+def _superscript_mult(texts: list[TextSpan], region: Region) -> float:
+    """Detect a multi-span 'x10^n' multiplier near the top-left of the y-axis."""
+    x0, y0, x1, _ = region.bbox
+    near = [t for t in texts
+            if t.dir == (1.0, 0.0)
+            and y0 - 22.0 <= _center(t.bbox)[1] <= y0 + 12.0
+            and x0 - 15.0 <= _center(t.bbox)[0] <= x0 + 0.5 * (x1 - x0)]
+    for t in near:
+        if t.text.strip() != "10":
+            continue
+        b = t.bbox
+        for e in near:
+            es = e.text.strip()
+            if not es.isdigit():
+                continue
+            eb = e.bbox
+            # exponent sits just right of "10" and raised (smaller PDF y = higher)
+            if eb[0] >= b[2] - 1.0 and _center(eb)[1] < _center(b)[1]:
+                try:
+                    return 10.0 ** int(es)
+                except ValueError:
+                    pass
     return 1.0
 
 
@@ -561,21 +628,41 @@ def _x_title(texts: list[TextSpan], region: Region, label_spans: list[TextSpan])
 
 
 def _y_title(texts: list[TextSpan], region: Region) -> str | None:
-    """Rotated text (dir ~ (0,-1)) at the far left of the region."""
+    """Rotated y-axis title (dir ~ (0,+-1)) just left of the region.
+
+    Panel-aware: candidates must overlap the region's VERTICAL extent (so a
+    stacked sibling panel's title above/below is not absorbed) and lie within a
+    bounded distance left of the spine (so a far-left neighbour panel's title is
+    not absorbed). The title is usually drawn as several spans (e.g. "Integrated"
+    "PL" "intensity" "(Counts)"); we take the column nearest the axis and join its
+    spans in reading order."""
     x0, y0, _, y1 = region.bbox
-    cy_region = 0.5 * (y0 + y1)
-    best: TextSpan | None = None
+    h = y1 - y0
+    max_left = max(0.5 * (region.bbox[2] - x0), 55.0)  # how far left to look
+    cands = []
     for t in texts:
-        if abs(t.dir[1]) < 0.7:  # not vertically rotated
+        if abs(t.dir[1]) < 0.7:  # vertical text only
             continue
         cx, cy = _center(t.bbox)
-        if cx >= x0 or abs(cy - cy_region) > (y1 - y0):
+        if not (x0 - max_left <= cx < x0):
+            continue
+        if cy < y0 - 0.1 * h or cy > y1 + 0.1 * h:  # must overlap region height
             continue
         if _is_subcaption(t.text) or _is_numeric_span(t.text.replace(" ", "")):
             continue
-        if best is None or cx < _center(best.bbox)[0]:
-            best = t
-    return best.text if best else None
+        cands.append((cx, cy, t.dir[1], t.text))
+    if not cands:
+        return None
+    # innermost column (closest to the axis) = the y-title of THIS panel
+    inner_cx = max(c[0] for c in cands)
+    col = [c for c in cands if abs(c[0] - inner_cx) <= 6.0]
+    # dir (0,-1) reads bottom->top (sort cy desc); dir (0,+1) reads top->bottom.
+    col.sort(key=lambda c: c[1], reverse=(col[0][2] < 0))
+    # join spans, then collapse any whitespace runs (spans may carry trailing
+    # spaces -> "Integrated  PL  intensity" would otherwise have double spaces)
+    title = " ".join(" ".join(c[3].split()) for c in col)
+    title = " ".join(title.split())
+    return title or None
 
 
 # --------------------------------------------------------------------------
@@ -603,7 +690,7 @@ def detect_axes(
     x_labels = _x_label_spans(texts, region)
     x_mult = _x_axis_multiplier(texts, region, x_labels)
 
-    x_ticks = _x_ticks(paths, texts, region)
+    x_ticks, x_dir, x_len = _x_ticks(paths, texts, region)
     if x_mult != 1.0:
         x_ticks = [
             Tick(pixel=t.pixel, value=t.value * x_mult, label=t.label)
@@ -614,7 +701,7 @@ def detect_axes(
     y_labels = _y_label_spans(texts, region)
     y_mult = _y_axis_multiplier(texts, region, y_labels)
 
-    y_ticks = _y_ticks(paths, texts, region)
+    y_ticks, y_dir, y_len = _y_ticks(paths, texts, region)
     if y_mult != 1.0:
         y_ticks = [
             Tick(pixel=t.pixel, value=t.value * y_mult, label=t.label)
@@ -626,10 +713,14 @@ def detect_axes(
         title=_x_title(texts, region, x_labels),
         pixel_range=(x0, x1),
         ticks=x_ticks,
+        tick_direction=x_dir,
+        tick_length=x_len,
     )
     y_axis = Axis(
         title=_y_title(texts, region),
         pixel_range=(y0, y1),
         ticks=y_ticks,
+        tick_direction=y_dir,
+        tick_length=y_len,
     )
     return x_axis, y_axis
