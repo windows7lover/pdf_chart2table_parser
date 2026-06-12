@@ -110,3 +110,35 @@ decoration, so the metric rewards correct refining instead of punishing it.
 2. **line-vs-marker mis-typing (extract):** smooth curves emitted as marker
    series (2208).
 3. **calibration:** axis multiplier / tick-value read (2503).
+
+## Error bars (2026-06-12) — 2510.04789_p3c4 / p3c2
+
+- **FIXED (extract): error-bar whiskers traced as a fake series.** On
+  `2510.04789_p3c4` the vertical error-bar whiskers + horizontal caps (navy,
+  same colour as the square markers) were collected by `lines.py` into a 38-pt
+  marker-less polyline that zig-zagged through the data squares. New module
+  `error_bars.py` (`detect_error_bars`, wired into `cli.parse_pdf` right after
+  `detect_arrows`) flags short near-vertical strokes whose x coincides with a
+  marker centroid (the whiskers) plus their short near-horizontal caps, drawn in
+  the marker colour, and only when ≥2 such whiskers exist and markers are
+  present. The caller drops those path indices before extraction. Precision-safe:
+  identical series/point output on 4 unrelated PDFs (2001.00255/01038/01709/01928).
+  Side benefit: sibling panel `p3c2` (dark-red squares) flipped skip→extracted —
+  its whisker artifact had previously suppressed the whole series ("no series
+  extracted"); now 8 clean squares are recovered.
+- **Orange "fit" line — correctly dropped, NOT a flaw.** Path 29 is a perfectly
+  STRAIGHT segment (max perpendicular deviation 0.00 px over a 154-px chord; the
+  662 vertices are exactly collinear). It only *looks* curved at high zoom
+  because of the thick stroke against the gridlines. `refiners.drop_spurious_lines`
+  removes it as a straight reference/fit line (R²=1.0) — the intended behaviour.
+  Left as-is (forcing it back would weaken the straight-line rule corpus-wide).
+- **DEFERRED (legend swatch FP): 6-of-8 squares on p3c4.** Only 6 of the 8 navy
+  squares survive `classify_marks`. The two lower-left squares (cx≈461/463) are
+  rejected by `marks._is_legend_swatch`: the embedded annotation box (φ/δ/|X|²,
+  contains letters, sits in the lower-left within `_LEGEND_BORDER_FRAC` of the
+  plot edges) is mistaken for legend text, and a marker just to its left is read
+  as a swatch. This is a legend-heuristic false positive, NOT an error-bar issue.
+  Fixing it touches the corpus-wide legend/swatch logic (high regression risk for
+  the 1033-test baseline), so it is deferred rather than patched with a risky
+  guard. (p3c2 has the same annotation box but its squares sit clear of the text,
+  so all 8 survive there.)

@@ -25,6 +25,7 @@ import sys
 from . import io_store, pdf_vector
 from .arrows import detect_arrows
 from .calibrate import calibrate_panels
+from .error_bars import detect_error_bars
 from .grid import detect_grid
 from .plot_region import detect_regions
 
@@ -431,6 +432,13 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
             if arrow_idx:
                 region.path_indices = [i for i in region.path_indices
                                        if i not in arrow_idx]
+            # Error-bar whiskers + caps are decoration anchored to the markers,
+            # not a data series; drop their paths so they are not traced as a
+            # jagged marker-less polyline through the data points.
+            errbar_idx = detect_error_bars(region, page.paths)
+            if errbar_idx:
+                region.path_indices = [i for i in region.path_indices
+                                       if i not in errbar_idx]
             # Background grid (light-grey lines aligned with the ticks): recorded
             # as style, not traced as data.
             grid = detect_grid(region, page.paths)
