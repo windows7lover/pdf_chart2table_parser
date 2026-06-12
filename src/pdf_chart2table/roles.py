@@ -143,14 +143,21 @@ def classify_roles(
     # markers (a connector), not by colour alone.  Accumulate ALL centroids per
     # colour so the multitrack-ratio guard sees 2x centroids when one colour
     # carries two marker trajectories.
-    marker_colors = {_round_color(sm.fill or sm.stroke) for sm in strong_marks}
+    # Register a strong marker series under BOTH its primary colour
+    # (``fill or stroke``) AND its edge/stroke colour: a connecting line through a
+    # line+marker series is commonly drawn in the marker's EDGE colour while the
+    # marker fill is a lighter shade (e.g. a filled diamond with a dark-blue edge
+    # joined by a dark-blue connector). Keying centroids on both colours lets the
+    # curve pass recognise such a connector and suppress it.
+    marker_colors: set[tuple] = set()
     marker_centroids: dict[tuple, list[tuple[float, float]]] = {}
     for sm in strong_marks:
-        color = _round_color(sm.fill or sm.stroke)
-        if color is None:
-            continue
         pts = [(m.cx, m.cy) for m in sm.marks]
-        marker_centroids.setdefault(color, []).extend(pts)
+        for color in {_round_color(sm.fill or sm.stroke), _round_color(sm.stroke)}:
+            if color is None:
+                continue
+            marker_colors.add(color)
+            marker_centroids.setdefault(color, []).extend(pts)
 
     # --- 2. Curves (consume the marker decision) --------------------------
     line_series, line_skips = classify_lines(

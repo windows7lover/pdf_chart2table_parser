@@ -275,6 +275,74 @@ def test_legend_leftmost_span_anchors_when_same_row():
     assert len(labels.legend) == 1, f"expected 1 entry, got {labels.legend}"
 
 
+def test_glyph_path_legend_box_detected():
+    """Regression for 2410.00955_p10c1: a legend whose label text is rendered as
+    GLYPH PATHS (no TextSpan) leaves the swatch-based detector with nothing to
+    anchor on. The fallback must locate the legend bounding box from the swatch
+    column (≥2 distinctly-coloured markers stacked at one x) extended over the
+    label-character glyphs, so the mark extractor can drop them as non-data."""
+    from pdf_chart2table.model import Path, Region
+
+    GREEN = (0.46, 0.78, 0.58)
+    BLUE = (0.1, 0.46, 0.62)
+
+    def _marker(cx, cy, color):
+        half = 1.8
+        pts = [(cx - half, cy - half), (cx + half, cy - half),
+               (cx + half, cy + half), (cx - half, cy + half),
+               (cx - half, cy - half)]
+        return Path(points=pts, stroke=color, fill=color, width=1.0,
+                    dashes=None, closed=True,
+                    bbox=(cx - half, cy - half, cx + half, cy + half))
+
+    def _char_glyph(cx, cy):
+        """A small black label-character outline to the right of the swatches."""
+        half = 2.5
+        pts = [(cx - half, cy - half), (cx + half, cy + half)]
+        return Path(points=pts, stroke=(0.0, 0.0, 0.0), fill=(0.0, 0.0, 0.0),
+                    width=1.0, dashes=None, closed=False,
+                    bbox=(cx - half, cy - half, cx + half, cy + half))
+
+    region = Region(bbox=(347.0, 367.0, 432.0, 453.0))
+    # Two distinctly-coloured swatches stacked at the same x-column (x≈358).
+    sw_green = _marker(358.8, 427.0, GREEN)
+    sw_blue = _marker(358.8, 440.0, BLUE)
+    # Label-character glyphs ("ED" / "METTS") to the right of the swatches.
+    glyphs = [_char_glyph(368.0 + 6 * i, 427.0) for i in range(2)]
+    glyphs += [_char_glyph(368.0 + 6 * i, 440.0) for i in range(5)]
+
+    labels = detect_labels(region, [sw_green, sw_blue, *glyphs], [])
+    assert labels.legend_bbox is not None, "expected a glyph-path legend box"
+    lx0, ly0, lx1, ly1 = labels.legend_bbox
+    # Box starts at the swatch column and extends right over the label glyphs.
+    assert lx0 <= 358.8 and lx1 >= 390.0, labels.legend_bbox
+    # No label strings recoverable from glyph paths.
+    assert labels.legend == []
+
+
+def test_glyph_path_legend_box_single_color_not_detected():
+    """Guard: a single-colour column of markers (a DATA column, not a legend key)
+    must NOT be mistaken for a glyph-path legend — the detector requires ≥2
+    distinctly-coloured swatches stacked together."""
+    from pdf_chart2table.model import Path, Region
+
+    GREEN = (0.46, 0.78, 0.58)
+
+    def _marker(cx, cy):
+        half = 1.8
+        pts = [(cx - half, cy - half), (cx + half, cy - half),
+               (cx + half, cy + half), (cx - half, cy + half),
+               (cx - half, cy - half)]
+        return Path(points=pts, stroke=GREEN, fill=GREEN, width=1.0,
+                    dashes=None, closed=True,
+                    bbox=(cx - half, cy - half, cx + half, cy + half))
+
+    region = Region(bbox=(347.0, 367.0, 432.0, 453.0))
+    col = [_marker(358.8, 400.0 + 12 * i) for i in range(3)]
+    labels = detect_labels(region, col, [])
+    assert labels.legend_bbox is None, labels.legend_bbox
+
+
 # --------------------------------------------------------------------------
 # legend_bbox computation.
 # --------------------------------------------------------------------------

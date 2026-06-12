@@ -629,6 +629,109 @@ def _color_dist(a: Color, b: Color) -> float:
     return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2) ** 0.5
 
 
+# --- glyph-path legend (no TextSpan labels) -------------------------------
+# Some LaTeX/pgfplots charts render the legend label text as GLYPH PATHS (vector
+# outlines), not as selectable TextSpans, so the swatch-based detector finds no
+# label to anchor on. The swatches (small coloured markers) and the label text
+# (small black glyph paths) then leak into the data extraction as spurious
+# series. We cannot recover the label STRINGS without OCR, but we can locate the
+# legend geometrically: a vertical stack of ≥2 distinctly-coloured marker
+# swatches sharing one x-column, with the label glyph paths immediately to their
+# right. Returning that bounding box lets the mark extractor exclude both the
+# swatches and the glyph-path label characters.
+#
+# Swatch x-centres of one legend column agree within this many points.
+_GLYPH_COL_XTOL = 4.0
+# A swatch column is a legend only when it stacks at least this many distinctly-
+# coloured markers (a single-colour stack is more likely a data column).
+_GLYPH_MIN_DISTINCT = 2
+# Two swatch colours are "distinct" when their RGB differ by more than this.
+_GLYPH_COLOR_TOL = 0.05
+# Label glyph paths sit to the right of the swatch column within this many
+# points (the row's label text); used to extend the legend box rightward.
+_GLYPH_LABEL_GAP = 60.0
+# A label glyph path is small (a single character outline); reject anything
+# larger in either dimension (it would be a data curve, not a glyph).
+_GLYPH_CHAR_MAX = 14.0
+
+
+def _detect_glyph_legend_box(
+    region: Region, paths: list[Path]
+) -> BBox | None:
+    """Locate a swatch-only (glyph-path-text) legend and return its bounding box.
+
+    Fires only as a fallback when no text-anchored legend was found. Looks for a
+    column of marker swatches (``_swatch_style`` == "marker") sharing an x-centre
+    (within ``_GLYPH_COL_XTOL``) that stacks at least ``_GLYPH_MIN_DISTINCT``
+    DISTINCTLY-coloured swatches vertically — the signature of a legend key
+    column (data columns repeat the same colour set at each x). The box is the
+    swatch column extended rightward to cover the small glyph paths (the label
+    characters rendered as vector outlines) that sit on the swatch rows.
+
+    Returns the legend ``BBox`` or None. No label strings are produced (they are
+    glyph outlines, unreadable without OCR); the box is used by the mark
+    extractor to drop the swatches and the label-character glyphs from data.
+    """
+    # Coloured marker swatches inside the region (exclude black/white).
+    cand: list[tuple[float, float, BBox, Color]] = []  # (cx, cy, bbox, colour)
+    for p in paths:
+        if _swatch_style(p) != "marker":
+            continue
+        if not _inside(p.bbox, region, _LEGEND_MARGIN):
+            continue
+        col = p.fill if p.fill is not None else p.stroke
+        if col is None or col == (0.0, 0.0, 0.0) or col == (1.0, 1.0, 1.0):
+            continue
+        cx = 0.5 * (p.bbox[0] + p.bbox[2])
+        cy = 0.5 * (p.bbox[1] + p.bbox[3])
+        cand.append((cx, cy, p.bbox, col))
+
+    if len(cand) < _GLYPH_MIN_DISTINCT:
+        return None
+
+    # Group swatches into x-columns (centres within _GLYPH_COL_XTOL).
+    cand.sort(key=lambda c: c[0])
+    columns: list[list[tuple[float, float, BBox, Color]]] = []
+    for c in cand:
+        if columns and abs(c[0] - columns[-1][-1][0]) <= _GLYPH_COL_XTOL:
+            columns[-1].append(c)
+        else:
+            columns.append([c])
+
+    # A legend column stacks ≥ _GLYPH_MIN_DISTINCT distinctly-coloured swatches.
+    def _distinct_count(col: list) -> int:
+        reps: list[Color] = []
+        for _, _, _, c in col:
+            if all(_color_dist(c, r) > _GLYPH_COLOR_TOL for r in reps):
+                reps.append(c)
+        return len(reps)
+
+    legend_cols = [c for c in columns if _distinct_count(c) >= _GLYPH_MIN_DISTINCT]
+    if not legend_cols:
+        return None
+    # Prefer the column with the most distinct colours (the real legend key).
+    col = max(legend_cols, key=_distinct_count)
+
+    sx0 = min(b[0] for _, _, b, _ in col)
+    sy0 = min(b[1] for _, _, b, _ in col)
+    sx1 = max(b[2] for _, _, b, _ in col)
+    sy1 = max(b[3] for _, _, b, _ in col)
+
+    # Extend rightward over the small glyph paths (label characters) that sit on
+    # the swatch rows just to the right of the column.
+    box_x1 = sx1
+    for p in paths:
+        bw = p.bbox[2] - p.bbox[0]
+        bh = p.bbox[3] - p.bbox[1]
+        if bw <= 0 or bh <= 0 or bw > _GLYPH_CHAR_MAX or bh > _GLYPH_CHAR_MAX:
+            continue
+        pcx = 0.5 * (p.bbox[0] + p.bbox[2])
+        pcy = 0.5 * (p.bbox[1] + p.bbox[3])
+        if sx1 <= pcx <= sx1 + _GLYPH_LABEL_GAP and sy0 - 2.0 <= pcy <= sy1 + 2.0:
+            box_x1 = max(box_x1, p.bbox[2])
+    return (sx0, sy0, box_x1, sy1)
+
+
 def _detect_inline_labels(
     region: Region, paths: list[Path], texts: list[TextSpan]
 ) -> list[tuple[str, Color | None, str]]:
@@ -761,6 +864,12 @@ def detect_labels(
     # colored-text strategy (series names written directly on the curves).
     if not legend_entries:
         legend_entries = _detect_inline_labels(region, paths, texts)
+    # Fallback: a glyph-path legend (label text rendered as vector outlines, no
+    # TextSpan) leaves no entry to anchor on. Locate its bounding box from the
+    # swatch column so the mark extractor drops the swatches + label glyphs.
+    # Label strings stay empty (glyph outlines are unreadable without OCR).
+    if legend_bbox is None:
+        legend_bbox = _detect_glyph_legend_box(region, paths)
     return Labels(
         title=_detect_title(region, texts),
         x_title=_detect_x_title(region, texts),

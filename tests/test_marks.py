@@ -373,6 +373,47 @@ def test_real_open_circle_glyph_still_a_mark():
     assert len(series[0].marks) == 5
 
 
+def test_stroke_optional_same_fill_merged():
+    """Regression for 2410.00955_p10c1 over-segmentation: one physical marker
+    series whose glyphs are mostly drawn filled+stroked but one point is drawn
+    with the stroke dropped (fill only) must collapse to ONE series, not split
+    into a (fill, stroke) group and a (fill, None) group at different positions."""
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(4)), text_indices=[])
+    GREEN = (0.46, 0.78, 0.58)
+    FILL = (0.87, 0.95, 0.89)
+    paths = [
+        _square(130, 250, fill=FILL, stroke=GREEN),   # filled + stroked
+        _square(170, 220, fill=FILL, stroke=GREEN),    # filled + stroked
+        _square(210, 200, fill=FILL, stroke=GREEN),    # filled + stroked
+        _square(250, 190, fill=FILL, stroke=None),     # stroke dropped on this one
+    ]
+    series = classify_marks(region, paths, [])
+    assert len(series) == 1, f"expected 1 merged series, got {len(series)}"
+    assert len(series[0].marks) == 4
+
+
+def test_stroke_optional_distinct_strokes_not_merged():
+    """Guard: two series with the SAME fill but DISTINCT non-None edge strokes
+    are genuinely different series and must NOT be merged by the stroke-optional
+    pass (it only folds a stroke-None group into a matching stroked group)."""
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(6)), text_indices=[])
+    FILL = (0.8, 0.8, 0.9)
+    RED = (1.0, 0.0, 0.0)
+    BLUE = (0.0, 0.0, 1.0)
+    paths = [
+        _square(130, 250, fill=FILL, stroke=RED),
+        _square(170, 220, fill=FILL, stroke=RED),
+        _square(210, 200, fill=FILL, stroke=RED),
+        _square(135, 180, fill=FILL, stroke=BLUE),
+        _square(175, 175, fill=FILL, stroke=BLUE),
+        _square(215, 170, fill=FILL, stroke=BLUE),
+    ]
+    series = classify_marks(region, paths, [])
+    assert len(series) == 2, f"expected 2 distinct series, got {len(series)}"
+
+
 # Scatter and line-with-markers fixtures whose data points are markers.
 MARKER_FIXTURES = [
     "linear_scatter_1series",

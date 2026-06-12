@@ -434,6 +434,41 @@ def _merge_duplicate_series(groups: list[SeriesMarks]) -> list[SeriesMarks]:
     return kept
 
 
+def _merge_stroke_optional(groups: list[SeriesMarks]) -> list[SeriesMarks]:
+    """Merge groups that share shape + fill but differ only by a missing stroke.
+
+    One physical marker glyph (a filled circle / diamond) is sometimes rendered
+    with its edge stroke and sometimes without — e.g. a renderer drops the edge
+    on a single data point, so the same series splits into a
+    ``(shape, fill, stroke)`` group and a ``(shape, fill, None)`` group at
+    DIFFERENT positions (so ``_merge_duplicate_series`` cannot join them). These
+    are the same series: collapse the stroke-None group into the group with a
+    matching non-None stroke.
+
+    Conservative: only fires when the fill is non-None and exactly one side has
+    ``stroke is None``. Two groups with distinct non-None strokes (genuinely
+    different edge colours) are never merged, and a stroke-None group with no
+    matching filled+stroked partner stays separate.
+    """
+    # Index multi-style groups (non-None stroke) by (shape, rounded fill).
+    stroked: dict[tuple, SeriesMarks] = {}
+    for sm in groups:
+        if sm.fill is not None and sm.stroke is not None:
+            stroked.setdefault((sm.shape, _round_color(sm.fill)), sm)
+
+    if not stroked:
+        return groups
+
+    result: list[SeriesMarks] = []
+    for sm in groups:
+        if (sm.fill is not None and sm.stroke is None
+                and (sm.shape, _round_color(sm.fill)) in stroked):
+            stroked[(sm.shape, _round_color(sm.fill))].marks.extend(sm.marks)
+            continue
+        result.append(sm)
+    return result
+
+
 def _merge_hue_gradient_singles(groups: list[SeriesMarks]) -> list[SeriesMarks]:
     """Merge single-mark groups that share the same shape and similar hue.
 
@@ -580,6 +615,7 @@ def classify_marks(
         ]
 
     result = _merge_duplicate_series(all_groups)
+    result = _merge_stroke_optional(result)
     return _merge_hue_gradient_singles(result)
 
 
