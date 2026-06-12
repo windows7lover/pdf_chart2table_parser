@@ -427,6 +427,37 @@ def test_dashed_diagonal_curve_kept():
     assert len(series) == 1, "Diagonal dashed curve must be kept"
 
 
+def test_dashed_steep_peak_kept_not_connector():
+    """Regression (2504.16333_p32c4 blue series): a sharp, tall, narrow DASHED
+    data curve (a peak rising then falling) is near-vertical in bbox
+    (bh/bw > _NEAR_VERT_RATIO) but reverses direction in y, so it is NOT a
+    connector and must be kept. Previously the near-vertical guard mis-rejected
+    it, leaving the dominant peak unextracted."""
+    plot_box = (110.0, 110.0, 290.0, 290.0)
+    # Peak: x 150..186 (bw=36), y from 280 up to 130 and back down (bh=150);
+    # bh/bw ≈ 4.2 >> 2.0, but the y-step reverses at the apex (non-monotone).
+    peak_pts = [(150, 280), (156, 240), (162, 180), (168, 130),
+                (174, 175), (180, 235), (186, 280)]
+    peak = _poly(peak_pts, (0.0, 0.0, 0.8), dashes="[1 1] 0")
+    region = Region(bbox=REGION.bbox, path_indices=[0], text_indices=[])
+    series, _ = classify_lines(region, [peak], [], plot_box=plot_box)
+    assert len(series) == 1, "Tall narrow dashed peak must be kept, not dropped"
+
+
+def test_saturated_full_span_dashed_gridline_rejected():
+    """Regression (2504.16333_p32c4 blue grid): full-width axis-aligned DASHED
+    segments in a saturated colour are GRIDLINES, not dash fragments. Many of
+    them must NOT merge into a fake horizontal/diagonal 'series'. Previously the
+    fragment path accepted them because they are saturated, fabricating a blue
+    series from the grid-line endpoints."""
+    # Five blue dashed horizontal rules spanning ~the full region width (200px).
+    grid = [_poly([(105, 140 + k * 30), (295, 140 + k * 30)],
+                  (0.0, 0.0, 0.8), dashes="[1 1] 0", width=0.25)
+            for k in range(5)]
+    series, _ = _classify(grid)
+    assert series == [], "Full-span saturated dashed gridlines must be rejected"
+
+
 def test_line_plus_marker_fixture_no_duplicate_series():
     # convergence_semilogy_3 is a line+marker chart with 3 series; the lines
     # share the markers' colours, so dedupe must keep exactly 3 series.

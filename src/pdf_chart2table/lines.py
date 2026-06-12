@@ -96,6 +96,11 @@ _MIN_LOWSAT_SPAN_FRAC = 0.3
 # A near-white stroke (min channel above this) is the plot background / frame,
 # never a data curve.
 _WHITE_MIN = 0.9
+# An axis-aligned (1-D) segment spanning at least this fraction of the region on
+# its long axis is a full-width/height GRIDLINE or spine, not a dash/dot fragment
+# of a data curve -- even when SATURATED (e.g. a coloured dashed grid). A genuine
+# dash fragment is short; a grid rule runs the whole plot. Rejected as a fragment.
+_GRID_SPAN_FRAC = 0.6
 # Centroid within this of the region border => on a spine/frame edge.
 _BORDER_TOL = 2.0
 # Plot-box clip tolerance: a vertex may sit this fraction of the axis span
@@ -126,6 +131,10 @@ _SPINE_FLAT_EDGE_FRAC  = 0.03   # all pts within 3 % of one edge => "hugging an 
 # near-vertical connector (e.g. an errorbar or state-transition connector drawn
 # as a dashed diagonal between stacked data points) and is rejected.  Real
 # dashed data series are roughly horizontal or diagonal, not near-vertical.
+# The guard applies ONLY to y-MONOTONIC paths: a straight connector marches
+# steadily in one y-direction, whereas a genuine tall, narrow data curve (a
+# sharp peak / valley) reverses direction in y, so it is kept even when its
+# overall y-extent exceeds its x-extent (see ``_y_monotone``).
 _NEAR_VERT_RATIO = 2.0
 # Minimum y-span in pixels for the scatter-cloud check to be meaningful.  A
 # curve with total y-extent below this is essentially flat; any adjacent-jump
@@ -196,6 +205,27 @@ def _varies_2d(p: Path) -> bool:
     bw, bh = b[2] - b[0], b[3] - b[1]
     long, short = max(bw, bh), min(bw, bh)
     return long > 0 and short / long >= _MIN_2D_RATIO
+
+
+def _y_monotone(pts: list[tuple[float, float]]) -> bool:
+    """True if the path marches steadily in one y-direction (a straight
+    connector), False if it reverses (a peak / valley data curve).
+
+    Vertices are taken in DRAW order (not x-sorted). A monotone run never
+    changes the sign of its y-step; a tall narrow data curve (a sharp peak)
+    goes up then down, so it is non-monotone and must not be mistaken for a
+    near-vertical connector. Sub-pixel jitter is ignored via a small epsilon."""
+    eps = 1.0
+    sign = 0
+    for a, b in zip(pts, pts[1:]):
+        dy = b[1] - a[1]
+        if abs(dy) < eps:
+            continue
+        s = 1 if dy > 0 else -1
+        if sign and s != sign:
+            return False
+        sign = s
+    return True
 
 
 def _is_data_lowsat(p: Path, region: Region) -> bool:
@@ -371,10 +401,14 @@ def _is_long_curve(p: Path, region: Region, texts: list[TextSpan]) -> bool:
     rh = region.bbox[3] - region.bbox[1]
     if max(bw, bh) < _MIN_SPAN_FRAC * min(rw, rh):
         return False
-    # A dashed path that is near-vertical (y-extent >> x-extent) is a connector
-    # drawn between stacked states (errorbar, state-transition line), not a data
-    # series.  Real dashed data series are roughly horizontal or diagonal.
-    if p.dashes is not None and bw > 0 and bh > bw * _NEAR_VERT_RATIO:
+    # A dashed path that is near-vertical (y-extent >> x-extent) AND marches
+    # steadily in one y-direction is a connector drawn between stacked states
+    # (errorbar, state-transition line), not a data series.  Real dashed data
+    # series are roughly horizontal or diagonal -- OR a sharp tall peak/valley,
+    # which is near-vertical in bbox but reverses direction in y (non-monotone),
+    # so it is kept.
+    if (p.dashes is not None and bw > 0 and bh > bw * _NEAR_VERT_RATIO
+            and _y_monotone(p.points)):
         return False
     return not _off_chart(p, region, texts)
 
@@ -394,6 +428,11 @@ def _is_fragment(p: Path, region: Region, texts: list[TextSpan]) -> bool:
     the stroke is the marker edge colour.  Merging many such glyphs would
     produce a spurious "line series", so we reject them here.  Real dashed /
     dash-dot curve fragments are stroked-only (fill=None).
+
+    A full-span axis-aligned segment (a dashed gridline / spine running the whole
+    plot width or height) is rejected even when SATURATED: it is decoration, not
+    a dash fragment of a data curve.  A genuine fragment is short, so it never
+    spans most of the region on one axis while being ~1-D.
     """
     if p.closed or p.stroke is None or len(p.points) > _MAX_FRAG_VERTS:
         return False
@@ -403,6 +442,14 @@ def _is_fragment(p: Path, region: Region, texts: list[TextSpan]) -> bool:
         return False
     if not _is_saturated(p.stroke) and (_is_near_white(p.stroke) or not _varies_2d(p)):
         return False
+    # Full-span axis-aligned (1-D) segment => gridline / spine, not a fragment.
+    if not _varies_2d(p):
+        b = p.bbox
+        bw, bh = b[2] - b[0], b[3] - b[1]
+        rw = region.bbox[2] - region.bbox[0]
+        rh = region.bbox[3] - region.bbox[1]
+        if (rw > 0 and bw >= _GRID_SPAN_FRAC * rw) or (rh > 0 and bh >= _GRID_SPAN_FRAC * rh):
+            return False
     return not _off_chart(p, region, texts)
 
 
