@@ -17,7 +17,8 @@ import math  # noqa: E402
 
 from render_restyle_prototype import (  # noqa: E402
     _effective_scale, _faithful_tick_label, _is_italic, _label_match,
-    _marker_shape, _norm, _plain_num, _threads_markers, _ticks_in_range)
+    _marker_shape, _norm, _plain_num, _threads_markers, _ticks_in_range,
+    _use_axis_multiplier)
 
 from pdf_chart2table.model import Path  # noqa: E402
 
@@ -186,3 +187,14 @@ def test_plain_num_drops_trailing_zero_and_avoids_scientific():
     assert _plain_num(1.0) == "1"
     assert _plain_num(500.0) == "500"
     assert _plain_num(0.5) == "0.5"
+
+
+def test_axis_multiplier_only_for_extreme_magnitudes():
+    # ×10^-4 axis (2503): tiny values -> factored multiplier header
+    assert _use_axis_multiplier([0.0, 5e-5, 1e-4, 1.5e-4])
+    # large axis -> factored too
+    assert _use_axis_multiplier([0.0, 2e4, 5e4])
+    # normal magnitudes -> plain (1.0->1, 500 stay literal, no factoring)
+    assert not _use_axis_multiplier([0.0, 0.5, 1.0])
+    assert not _use_axis_multiplier([0.0, 100.0, 500.0])
+    assert not _use_axis_multiplier([])

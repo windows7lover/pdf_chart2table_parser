@@ -839,6 +839,14 @@ def _plain_num(x):
     return "%g" % x
 
 
+def _use_axis_multiplier(values):
+    """True when tick magnitudes are extreme enough that the original factored a
+    common ×10ⁿ multiplier into an axis header (e.g. ``×10⁻⁴`` with mantissa
+    labels ``.2 .4 …``) rather than printing full values like ``0.0002``."""
+    mx = max((abs(v) for v in values if v is not None), default=0.0)
+    return mx > 0 and (mx >= 1e4 or mx < 1e-2)
+
+
 def _apply_ticks(ax, axis, ticks, scale, data_range=None):
     """Place the parser's DETECTED ticks: labeled ones as MAJOR (matplotlib
     formats the labels -- extracted label strings are often mangled), and the
@@ -938,6 +946,16 @@ def _replot(ax, record, style, tex=False):
         # faithfully renders the value (keeps "1" not "1.0", "500" not "5x10^2"),
         # else plain integers/decimals (no scientific/offset text).
         if scale == "log":
+            return
+        vals = [t.get("value") for t in (ticks or []) if t.get("value") is not None]
+        # Extreme magnitudes: reproduce the original's factored "×10ⁿ" axis header
+        # (mantissa ticks + a multiplier label) instead of full/scientific values.
+        if _use_axis_multiplier(vals):
+            from matplotlib.ticker import ScalarFormatter
+            fmt = ScalarFormatter(useMathText=True)
+            fmt.set_scientific(True)
+            fmt.set_powerlimits((-2, 4))
+            axis_obj.set_major_formatter(fmt)
             return
         lut = {}
         for t in (ticks or []):
