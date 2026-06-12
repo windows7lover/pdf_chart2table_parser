@@ -109,7 +109,7 @@ _LOCUS_SMALL_MAX = 2  # apply strict check to groups with ≤ this many marks
 # wrong (it is misidentifying part of the plot as a legend).  In that case
 # the legend-box mark filter is suppressed so real data marks inside the
 # erroneously large bbox are not discarded.
-_MAX_LEGEND_PLOT_FRAC = 0.25
+_MAX_LEGEND_PLOT_FRAC = 0.40  # vs the region (matches labels._legend_box cap)
 
 # Sparse-on-dense guard: skip an extraction if the number of extracted marker
 # points is very small relative to the region's total path count AND the region
@@ -486,19 +486,18 @@ def classify_marks(
     large_fills = _collect_large_fills(paths, region)
 
     # Legend-box oversized guard: if the detected legend_bbox covers too large a
-    # fraction of the plot area it is likely a mis-detection; suppress legend-box
-    # mark filtering in that case so real data marks are not discarded.
+    # fraction of the REGION it is likely a mis-detection; suppress legend-box
+    # mark filtering so real data marks are not discarded. Measured against the
+    # region (same reference labels._legend_box uses) -- measuring against the
+    # smaller plot box previously re-rejected legitimately-large corner legends
+    # that labels had already accepted, leaking their swatches in as data.
     effective_legend_bbox = legend_bbox
-    if legend_bbox is not None and plot_box is not None:
-        bx0, by0, bx1, by1 = plot_box
-        plot_w = abs(bx1 - bx0)
-        plot_h = abs(by1 - by0)
-        plot_area = plot_w * plot_h
+    if legend_bbox is not None:
+        rx0, ry0, rx1, ry1 = region.bbox
+        region_area = abs(rx1 - rx0) * abs(ry1 - ry0)
         lx0, ly0, lx1, ly1 = legend_bbox
-        leg_w = abs(lx1 - lx0)
-        leg_h = abs(ly1 - ly0)
-        leg_area = leg_w * leg_h
-        if plot_area > 0 and leg_area / plot_area > _MAX_LEGEND_PLOT_FRAC:
+        leg_area = abs(lx1 - lx0) * abs(ly1 - ly0)
+        if region_area > 0 and leg_area / region_area > _MAX_LEGEND_PLOT_FRAC:
             effective_legend_bbox = None
 
     groups: dict[tuple, SeriesMarks] = {}

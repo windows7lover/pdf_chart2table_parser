@@ -565,6 +565,7 @@ def _detect_legend(
     # One merged (swatch + label spans) bbox per emitted entry, fed to the
     # clustering-based legend_bbox estimator below.
     entry_boxes: list[BBox] = []
+    pick_cols: list[tuple[float, float]] = []  # swatch x-columns of emitted rows
     # Process labels top-to-bottom, left-to-right (legend reading order).
     # Bin cy to a coarse grid so spans on the same visual row (e.g. "ε" and
     # "-PCA" with cy 0.4 pts apart) sort by x rather than by fractional cy,
@@ -604,7 +605,22 @@ def _detect_legend(
         used |= consumed
         # Merge this entry's swatch + consumed text spans into one row box.
         boxes = [p.bbox for p in row] + [texts[idx].bbox for idx in consumed]
-        entry_boxes.append(_union(boxes))
+        eb = _union(boxes)
+        entry_boxes.append(eb)
+        pick_cols.append((eb[0], eb[2]))  # full entry x-range (swatch + label)
+
+    # Entries whose LABEL is mangled (e.g. LaTeX math: tildes/subscripts rendered
+    # as glyph paths) emit no row, so their swatches would leak into the data as
+    # fake marker/curve series. Recover them: any swatch aligned in the emitted
+    # entries' x-column is part of the legend. _legend_box clusters by tight
+    # vertical stacking, so only swatches contiguous with the legend are kept.
+    if entry_boxes and pick_cols:
+        cx0 = min(c[0] for c in pick_cols)
+        cx1 = max(c[1] for c in pick_cols)
+        for p in swatches:
+            scx = 0.5 * (p.bbox[0] + p.bbox[2])
+            if cx0 - 4.0 <= scx <= cx1 + 4.0:
+                entry_boxes.append(p.bbox)
 
     return out, _legend_box(entry_boxes, region, paths)
 
