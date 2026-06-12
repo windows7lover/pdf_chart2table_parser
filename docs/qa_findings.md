@@ -142,3 +142,29 @@ decoration, so the metric rewards correct refining instead of punishing it.
   the 1033-test baseline), so it is deferred rather than patched with a risky
   guard. (p3c2 has the same annotation box but its squares sit clear of the text,
   so all 8 survive there.)
+  REVISIT (2026-06-12): attempted to tighten `_is_legend_swatch` (require a tight
+  swatch→label gap + label-row-leading geometry) to recover the 2 squares.
+  REVERTED — NOT precision-safe. The annotation's leading math glyph (δ → "d",
+  single char, gap ~8pt, begins its text row) is geometrically INDISTINGUISHABLE
+  from a genuine single-letter legend label (e.g. 2001.01769_p17 "D"/"I" legends,
+  gap ≤6pt, also row-leading): any gap/abutment threshold that drops the 2510 "d"
+  also leaks real legend swatches (confirmed: 2001.01769 1→2 series, 7 fixture
+  test_marks failures with `npts` +1 = leaked swatch). Separating them needs
+  SWATCH-COLUMN-STACK awareness (a legend swatch belongs to a stacked key column;
+  a data square belongs to a series spread across the plot) — a larger refactor
+  than per-mark text matching. Left at 6/8.
+
+## 2409.17350_p9c1 glyph-legend false positive (extract) — FIXED
+`labels._detect_glyph_legend_box` fired on the VERTICAL DATA COLUMN of the
+dispersion lattice (distinctly-coloured markers stacked at one x, ZERO label
+text, ZERO label-character glyphs to the right) and returned a legend_bbox
+sitting ON the data → 7 points eaten. Root cause: the detector accepted any
+swatch column with ≥2 distinct colours as a legend without requiring LABEL
+EVIDENCE. FIX: `_detect_glyph_legend_box` now requires either ≥1 alphabetic
+TextSpan label or ≥1 label-character GLYPH path just to the right of the swatch
+column (a real legend always labels its swatches; a bare colour column is data).
+The 2410.00955 glyph-path legend (labels rendered as vector outlines → label
+glyphs to the right) is still detected; the 2409 data column is now rejected at
+the labels level (the `marks._looks_like_colormap_scatter` workaround stays as
+redundant defense-in-depth). Corpus-wide spot-check (102 charts) unchanged;
+suite green (1037→1039 with 2 new regression tests in test_labels.py).

@@ -653,10 +653,20 @@ _GLYPH_LABEL_GAP = 60.0
 # A label glyph path is small (a single character outline); reject anything
 # larger in either dimension (it would be a data curve, not a glyph).
 _GLYPH_CHAR_MAX = 14.0
+# A real legend always carries label TEXT next to its swatches.  We require at
+# least one alphabetic text span sitting to the right of the swatch column and
+# vertically aligned with one of its rows before accepting the column as a
+# legend.  A swatch column with NO such label text is a DATA column (a colormap
+# scatter draws distinctly-coloured markers stacked at one x-position), not a
+# legend — accepting it would drop real data points.  Text must start within
+# this many points to the right of the column and within this vertical slack of
+# a swatch row centre.
+_GLYPH_TEXT_GAP = 60.0
+_GLYPH_TEXT_ROW_TOL = 6.0
 
 
 def _detect_glyph_legend_box(
-    region: Region, paths: list[Path]
+    region: Region, paths: list[Path], texts: list[TextSpan] | None = None
 ) -> BBox | None:
     """Locate a swatch-only (glyph-path-text) legend and return its bounding box.
 
@@ -668,9 +678,17 @@ def _detect_glyph_legend_box(
     swatch column extended rightward to cover the small glyph paths (the label
     characters rendered as vector outlines) that sit on the swatch rows.
 
-    Returns the legend ``BBox`` or None. No label strings are produced (they are
-    glyph outlines, unreadable without OCR); the box is used by the mark
-    extractor to drop the swatches and the label-character glyphs from data.
+    A genuine legend always carries label TEXT beside its swatches.  We require
+    at least one alphabetic text span (``texts``) sitting just to the right of
+    the swatch column and aligned with one of its rows.  A swatch column with NO
+    label text is a DATA column — a colormap scatter stacks distinctly-coloured
+    markers at one x-position — not a legend; accepting it would drop real data
+    points (this is the 2409.17350 false positive).  When ``texts`` is None the
+    check is skipped (legacy callers).
+
+    Returns the legend ``BBox`` or None. Label strings are not produced (the
+    text may be unreadable glyph outlines); the box is used by the mark extractor
+    to drop the swatches and any label-character glyphs from data.
     """
     # Coloured marker swatches inside the region (exclude black/white).
     cand: list[tuple[float, float, BBox, Color]] = []  # (cx, cy, bbox, colour)
@@ -720,6 +738,7 @@ def _detect_glyph_legend_box(
     # Extend rightward over the small glyph paths (label characters) that sit on
     # the swatch rows just to the right of the column.
     box_x1 = sx1
+    n_label_glyphs = 0
     for p in paths:
         bw = p.bbox[2] - p.bbox[0]
         bh = p.bbox[3] - p.bbox[1]
@@ -727,8 +746,39 @@ def _detect_glyph_legend_box(
             continue
         pcx = 0.5 * (p.bbox[0] + p.bbox[2])
         pcy = 0.5 * (p.bbox[1] + p.bbox[3])
-        if sx1 <= pcx <= sx1 + _GLYPH_LABEL_GAP and sy0 - 2.0 <= pcy <= sy1 + 2.0:
+        if sx1 < pcx <= sx1 + _GLYPH_LABEL_GAP and sy0 - 2.0 <= pcy <= sy1 + 2.0:
             box_x1 = max(box_x1, p.bbox[2])
+            n_label_glyphs += 1
+
+    # Require LABEL EVIDENCE beside the swatch column.  A genuine legend writes a
+    # label next to each swatch row — as readable TEXT or, when the label is
+    # rendered as vector outlines, as small label-character GLYPH paths just to
+    # the right of the column.  A bare swatch column with NEITHER is a DATA
+    # column (a colormap scatter stacks distinctly-coloured markers at one
+    # x-position), not a legend; treating it as one drops real data points (the
+    # 2409.17350 false positive).  ``texts`` is optional for legacy callers; when
+    # absent we fall back to the glyph-path evidence alone.
+    row_centres = [0.5 * (b[1] + b[3]) for _, _, b, _ in col]
+    has_text_label = False
+    if texts is not None:
+        for t in texts:
+            stripped = t.text.strip()
+            if not stripped or not any(c.isalpha() for c in stripped):
+                continue  # numeric tick labels / punctuation are not legend text
+            if not _horizontal(t):
+                continue
+            tx0, ty0, _, ty1 = t.bbox
+            tyc = 0.5 * (ty0 + ty1)
+            # Text must start just to the right of the swatch column and line up
+            # vertically with one of its rows.
+            if not (sx1 - 2.0 <= tx0 <= sx1 + _GLYPH_TEXT_GAP):
+                continue
+            if any(abs(tyc - rc) <= _GLYPH_TEXT_ROW_TOL for rc in row_centres):
+                has_text_label = True
+                break
+    if not has_text_label and n_label_glyphs == 0:
+        return None
+
     return (sx0, sy0, box_x1, sy1)
 
 
@@ -869,7 +919,7 @@ def detect_labels(
     # swatch column so the mark extractor drops the swatches + label glyphs.
     # Label strings stay empty (glyph outlines are unreadable without OCR).
     if legend_bbox is None:
-        legend_bbox = _detect_glyph_legend_box(region, paths)
+        legend_bbox = _detect_glyph_legend_box(region, paths, texts)
     return Labels(
         title=_detect_title(region, texts),
         x_title=_detect_x_title(region, texts),

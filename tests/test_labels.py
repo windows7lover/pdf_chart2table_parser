@@ -343,6 +343,64 @@ def test_glyph_path_legend_box_single_color_not_detected():
     assert labels.legend_bbox is None, labels.legend_bbox
 
 
+def test_glyph_legend_swatch_column_without_label_is_data():
+    """Regression for 2409.17350_p9c1: a vertical column of DISTINCTLY-coloured
+    data markers stacked at one x (a colormap scatter) with NO label text and NO
+    label-character glyphs to its right must NOT be mistaken for a glyph-path
+    legend. The old detector returned a legend_bbox sitting ON the data, dropping
+    the points inside it. A real legend always carries a label next to its
+    swatches; a bare swatch column is data."""
+    from pdf_chart2table.model import Path, Region
+
+    def _marker(cx, cy, color):
+        half = 1.8
+        pts = [(cx - half, cy - half), (cx + half, cy - half),
+               (cx + half, cy + half), (cx - half, cy + half),
+               (cx - half, cy - half)]
+        return Path(points=pts, stroke=color, fill=color, width=1.0,
+                    dashes=None, closed=True,
+                    bbox=(cx - half, cy - half, cx + half, cy + half))
+
+    region = Region(bbox=(347.0, 367.0, 432.0, 453.0))
+    # Distinctly-coloured markers stacked at one x — a colormap data column.
+    colors = [(0.9, 0.1, 0.1), (0.1, 0.7, 0.2), (0.2, 0.3, 0.9), (0.8, 0.5, 0.0)]
+    col = [_marker(358.8, 390.0 + 12 * i, c) for i, c in enumerate(colors)]
+    # No text spans at all and no label-character glyphs to the right.
+    labels = detect_labels(region, col, [])
+    assert labels.legend_bbox is None, labels.legend_bbox
+
+
+def test_glyph_legend_with_text_label_still_detected():
+    """Guard for the fix above: a GENUINE legend — a column of distinctly-
+    coloured swatches each with adjacent LABEL TEXT to its right — must STILL be
+    detected (its swatches are non-data and the mark extractor drops them)."""
+    from pdf_chart2table.model import Path, Region, TextSpan
+
+    def _marker(cx, cy, color):
+        half = 1.8
+        pts = [(cx - half, cy - half), (cx + half, cy - half),
+               (cx + half, cy + half), (cx - half, cy + half),
+               (cx - half, cy - half)]
+        return Path(points=pts, stroke=color, fill=color, width=1.0,
+                    dashes=None, closed=True,
+                    bbox=(cx - half, cy - half, cx + half, cy + half))
+
+    region = Region(bbox=(347.0, 367.0, 432.0, 453.0))
+    colors = [(0.9, 0.1, 0.1), (0.1, 0.7, 0.2)]
+    swatches = [_marker(358.8, 400.0 + 12 * i, c) for i, c in enumerate(colors)]
+    # Real legend label text just to the right of each swatch row.
+    texts = [
+        TextSpan(text="alpha", bbox=(368.0, 397.0, 398.0, 403.0), size=6.0,
+                 dir=(1.0, 0.0)),
+        TextSpan(text="beta", bbox=(368.0, 409.0, 396.0, 415.0), size=6.0,
+                 dir=(1.0, 0.0)),
+    ]
+    labels = detect_labels(region, swatches, texts)
+    assert labels.legend_bbox is not None, "genuine glyph legend must be detected"
+    lx0, ly0, lx1, ly1 = labels.legend_bbox
+    assert lx0 <= 358.8, labels.legend_bbox
+
+
 # --------------------------------------------------------------------------
 # legend_bbox computation.
 # --------------------------------------------------------------------------
