@@ -275,6 +275,27 @@ bars (2510.04789). The reconstruction has no primitive for these.
 **Disposition: DEFERRED** — out of scope for a style re-plot; documented for
 completeness.
 
+### 6b. Tick-label number formatting — ~several/20  [C]  — FIX SHIPPED
+Reconstruction tick labels were formatted from the tick *value* by matplotlib, so
+they didn't match the original's rendering: integer ticks showed `1.0` instead of
+`1`, and large/log values could show `5×10²` instead of `500`. **Fix shipped:**
+`_plain_linear` now installs a label-aware `FuncFormatter` that uses the ORIGINAL
+tick-label string when it faithfully renders the value (`_faithful_tick_label`),
+falling back to plain integer/decimal (`_plain_num`, never scientific/offset) for
+mangled or missing labels. Verified on 2208 (y `0`/`1`, x `0/100/200/300` integers)
+and 2412 (preserves the original's `0.2 … 1.0`). Tests added. Log-axis decade
+labels are left to matplotlib (separate, lower-priority).
+
+### 6c. Font FAMILY — coarse (serif vs sans only)  [C]  — known limitation
+`_classify_family` recovers only `serif` vs `sans-serif` and the render applies
+matplotlib's defaults (**DejaVu Serif / DejaVu Sans**). The specific typeface of
+the original (Times / Computer Modern / Helvetica / Arial / Nimbus) is NOT matched,
+so every reconstruction has a typeface mismatch within the correct category (e.g.
+a Computer-Modern LaTeX chart renders in DejaVu Serif). Bold/italic/size ARE
+recovered. **Disposition: DEFERRED** — exact-typeface matching needs the embedded
+font files (or a font-name→matplotlib-family map) and registered fonts; the coarse
+serif/sans split is a deliberate, reasonable approximation.
+
 ### 7. Legend size / placement off — ~2/20  [C]
 2212.10848 (legend too large, overlaps plot — size-fitting under-shrank);
 2510.04789 (annotation conflated into a legend). Minor. **Disposition: DEFERRED.**

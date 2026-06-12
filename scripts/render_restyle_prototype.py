@@ -808,6 +808,37 @@ def _ticks_in_range(values, data_range):
     return kept if len(kept) >= 2 else values
 
 
+def _faithful_tick_label(value, label):
+    """The ORIGINAL tick-label string when it faithfully renders ``value`` -- so a
+    tick at 1.0 labelled "1" stays "1" (not matplotlib's "1.0"), and the original
+    "500" vs "5×10²" choice is preserved. Returns None when the label is missing,
+    mangled (LaTeX garbage), or doesn't match the value (so we fall back to plain
+    numeric formatting)."""
+    if label is None:
+        return None
+    s = str(label).strip()
+    if not s:
+        return None
+    t = (s.replace("−", "-").replace("—", "-")
+          .replace("×", "x").replace("·", "").replace(" ", ""))
+    m = re.fullmatch(r"([-+]?(?:\d+\.?\d*|\.\d+))(?:[xX]10\^?\{?\(?([-+]?\d+)\}?\)?)?", t)
+    if not m:
+        return None
+    try:
+        num = float(m.group(1)) * (10.0 ** int(m.group(2))) if m.group(2) else float(m.group(1))
+    except ValueError:
+        return None
+    return s if abs(num - value) <= 1e-6 * max(abs(value), abs(num)) + 1e-9 else None
+
+
+def _plain_num(x):
+    """Plain numeric tick text: integers without a trailing ``.0``; never
+    scientific/offset notation."""
+    if abs(x - round(x)) < 1e-9 and abs(x) < 1e15:
+        return str(int(round(x)))
+    return "%g" % x
+
+
 def _apply_ticks(ax, axis, ticks, scale, data_range=None):
     """Place the parser's DETECTED ticks: labeled ones as MAJOR (matplotlib
     formats the labels -- extracted label strings are often mangled), and the
@@ -902,17 +933,27 @@ def _replot(ax, record, style, tex=False):
     def _i(flag):
         return "italic" if flag else "normal"
 
-    def _plain_linear(axis_obj, scale):
-        # force plain integers/decimals on linear axes (no 7x10^2 / offset text)
-        if scale != "log":
-            from matplotlib.ticker import ScalarFormatter
-            fmt = ScalarFormatter(useOffset=False)
-            fmt.set_scientific(False)
-            axis_obj.set_major_formatter(fmt)
+    def _plain_linear(axis_obj, scale, ticks):
+        # On linear axes, label major ticks with the ORIGINAL label string when it
+        # faithfully renders the value (keeps "1" not "1.0", "500" not "5x10^2"),
+        # else plain integers/decimals (no scientific/offset text).
+        if scale == "log":
+            return
+        lut = {}
+        for t in (ticks or []):
+            v = t.get("value")
+            if v is None:
+                continue
+            txt = _faithful_tick_label(v, t.get("label"))
+            if txt is not None:
+                lut[round(v, 9)] = txt
+        from matplotlib.ticker import FuncFormatter
+        axis_obj.set_major_formatter(
+            FuncFormatter(lambda x, pos=None: lut.get(round(x, 9)) or _plain_num(x)))
 
     if xa:
         _apply_ticks(ax, "x", xa.get("ticks"), x_scale, xa.get("data_range"))
-        _plain_linear(ax.xaxis, x_scale)
+        _plain_linear(ax.xaxis, x_scale, xa.get("ticks"))
         ax.set_xlabel(L(xa.get("title") or ""),
                       fontsize=_fs(txt.get("x_title_font_size")) or _fs(base_fs),
                       fontweight=_w(txt.get("x_title_bold")),
@@ -922,7 +963,7 @@ def _replot(ax, record, style, tex=False):
             ax.xaxis.set_label_coords(p[0], p[1])
     if ya:
         _apply_ticks(ax, "y", ya.get("ticks"), y_scale, ya.get("data_range"))
-        _plain_linear(ax.yaxis, y_scale)
+        _plain_linear(ax.yaxis, y_scale, ya.get("ticks"))
         ax.set_ylabel(L(ya.get("title") or ""),
                       fontsize=_fs(txt.get("y_title_font_size")) or _fs(base_fs),
                       fontweight=_w(txt.get("y_title_bold")),

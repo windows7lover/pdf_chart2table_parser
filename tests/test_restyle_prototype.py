@@ -16,8 +16,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import math  # noqa: E402
 
 from render_restyle_prototype import (  # noqa: E402
-    _effective_scale, _is_italic, _label_match, _marker_shape, _norm,
-    _threads_markers, _ticks_in_range)
+    _effective_scale, _faithful_tick_label, _is_italic, _label_match,
+    _marker_shape, _norm, _plain_num, _threads_markers, _ticks_in_range)
 
 from pdf_chart2table.model import Path  # noqa: E402
 
@@ -164,3 +164,25 @@ def test_range_filter_keeps_all_when_too_few_survive():
     # axis bare on an unusual but possibly-correct calibration).
     kept = _ticks_in_range([100.0, 200.0], data_range=[0.0, 1.0])
     assert kept == [100.0, 200.0]
+
+
+def test_tick_label_uses_faithful_original_string():
+    # integer tick labelled "1" must stay "1", not become matplotlib's "1.0"
+    assert _faithful_tick_label(1.0, "1") == "1"
+    assert _faithful_tick_label(1.0, "1.0") == "1.0"
+    # the original 500 vs 5x10^2 choice is preserved when it matches the value
+    assert _faithful_tick_label(500.0, "500") == "500"
+    assert _faithful_tick_label(500.0, "5x10^2") == "5x10^2"
+    assert _faithful_tick_label(500.0, "5×10²".replace("²", "2")) is not None  # tolerant parse
+
+
+def test_tick_label_rejects_mismatched_or_mangled():
+    assert _faithful_tick_label(500.0, "5") is None      # label != value
+    assert _faithful_tick_label(1.0, None) is None        # no label
+    assert _faithful_tick_label(1.0, "C_Min") is None     # mangled (non-numeric)
+
+
+def test_plain_num_drops_trailing_zero_and_avoids_scientific():
+    assert _plain_num(1.0) == "1"
+    assert _plain_num(500.0) == "500"
+    assert _plain_num(0.5) == "0.5"
