@@ -35,6 +35,15 @@ wrong → likely cause → owner. Fixed items get struck through with the commit
   `classify_lines` — chain same-colour open fragments that don't x-tile by
   endpoint proximity (or PyMuPDF draw order) into one polyline, THEN the marks
   guard can safely reject them. Needs care (mis-stitching risk) + tests.
+  ATTEMPT 1 (reverted): added `_stitch_fragments` (endpoint chaining) as a
+  fallback in the long-groups branch + a marks `_OPEN_MARK_MAX_VERTS=16` guard.
+  Result: 8 test_marks fixtures regressed (open many-vertex glyphs ARE valid
+  markers in some fixtures) AND 2208 still lost its 7 curves — so the fragments
+  never reach that branch. NEXT: instrument where each 2208 colour's ~21 paths
+  actually route (long_groups vs frag_groups vs claimed by marks/roles) and why
+  `_merge_fragments`/`_is_noise_cloud` reject them, BEFORE touching code. The
+  marks guard must be shape-aware (only reject OPEN + many-vertex + NON-glyph),
+  not a blanket vertex cap.
 
 ## ~~Audit confound — refiner-dropped lines counted as residual~~ FIXED
 Resolved: `residual_audit.py` now calls `refiners.is_decoration_line` and scores a
