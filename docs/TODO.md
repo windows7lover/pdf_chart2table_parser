@@ -54,20 +54,27 @@ constraint):
   calibrates against the recovered axes. Targets: 2007, 2110, 2011 candidates.
 - **`refine_decoration`** — confirm residual that is legend swatches / arrows /
   frame is correctly *excluded* (not promoted). 2011's residual is mostly this.
-- **`refine_spurious_line`** (NEW) — use the residual / cross-check to drop LINE
-  series (`marker is None`) that should not be there:
-  * a **fit / guide line** drawn through scatter data (2205.10303 dashed power-law
-    fit captured as a 48-pt series; 2510.04789 orange straight fit, 662 pts + a
-    38-pt dashed line) — typically dashed, smooth/monotonic, and passing near the
-    marker series; NOT data.
-  * a **spurious connector** through points that are really independent scatter
-    (2410.00955 is pure scatter — ED ○ / METTS ◇ — yet a 42-pt `marker=None`
-    series is emitted and the recon draws a zig-zag line through it).
-  Heuristic (precision-first, dedup-safe): drop a line series when its vertices
-  lie (mostly) on an existing MARKER series' points (it just connects them) OR it
-  is dashed + smooth + lies near markers (a fit). Guard against killing genuine
-  line+marker data series (where the original really drew the connecting line).
-  Owner: a refiner pass + possibly `marks.py`/`lines.py` line-vs-scatter typing.
+- **`refine_spurious_line`** — DONE (`src/pdf_chart2table/refiners.py`,
+  `drop_spurious_lines`, wired into `extract.extract_region`; tests in
+  `tests/test_refiners.py`). Drops two precision-safe cases when a marker series
+  is present (so pure line charts are untouched):
+  * **redundant connector** — ≥90% of the line's vertices sit on markers AND
+    markers are not ~2× the vertex count (the 1:1 connector case; the multitrack
+    2× case is a distinct series and is kept, mirroring `lines._is_connector`).
+    Fixes 2410.00955 (the 42-pt zig-zag connector through pure scatter).
+  * **straight reference/fit line** — linear R²≥0.999 spanning ≥30% of the plot
+    diagonal. Fixes 2510.04789's orange straight fit (R²=1.0).
+  STILL OPEN (need a signal geometry alone can't give, so NOT shipped — would
+  break genuine line+marker data, see `test_dashed_same_color_two_series_kept`):
+  * **dashed fit through scatter** (2205.10303 power-law, R²=0.98) — the extractor
+    records `dashes=None` because the dash is drawn as separate short segments and
+    merged; needs **dash recovery** (flag a line assembled from many gapped
+    collinear fragments as dashed → a dashed line among markers is a fit).
+  * **error-bar polylines** (2510.04789 navy 38-pt, R²=0.13) — whiskers traced as
+    a connector; needs error-bar detection (cf. `arrows.py`).
+  * render-side: `match_series_styles` sets `connect=True` on some scatter series,
+    drawing a faint connecting line through markers (2410 residual) — only connect
+    when the original truly drew a line.
 
 Each refiner: takes `(record, residual_paths, region, axes)`, returns an updated
 record; lives outside `lines.py` (e.g. `src/pdf_chart2table/refiners/`); ships with

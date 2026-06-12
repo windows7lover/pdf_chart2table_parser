@@ -40,6 +40,7 @@ from .calibrate import calibrate_panels, to_data_array
 from .lines import SeriesLine
 from .marks import SeriesMarks, is_sparse_on_dense
 from .plot_region import detect_regions
+from .refiners import drop_spurious_lines
 from .model import (
     Axis,
     ChartResult,
@@ -291,6 +292,11 @@ def extract_region(
     series_marks = _filter_mark_series(all_marks, has_line_anchor=has_anchor)
     series = [_build_series(sm, x_axis, y_axis) for sm in series_marks]
     series += merged_line_series
+
+    # Refiner: drop LINE series that are decoration, not data -- a connector
+    # through scatter markers, or a straight reference/fit line. Only fires when
+    # a marker series is present, so pure line charts are untouched.
+    series, _spurious = drop_spurious_lines(series)
 
     if not series:
         reason = "no clean series found"
