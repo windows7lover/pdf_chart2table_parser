@@ -4,9 +4,9 @@ A QA loop samples 3 random reconstructions (`scripts/qa_sample.py`) and logs any
 extraction/reconstruction problems here. Newest round on top. Each item: what's
 wrong → likely cause → owner. Fixed items get struck through with the commit.
 
-## Round 4 (2026-06-12) — 1 new finding
-- **2503.12775_p12c4** [C, render]: calibration is correct (x 0–1, y 0–1.8×10⁻⁴, decay matches) but the y-axis NUMBER DISPLAY differs from the original. Reconstruction shows full/scientific tick values (`2e-05, 4e-05, … 0.00018`); the original factors out the scale and shows a `×10⁻⁴` axis multiplier header with small mantissa labels (`.2 .4 .6 .8`). Data unaffected — purely the multiplier-axis label STYLE.
-  FIX (tractable render-side follow-up): when an axis has a recovered `×10ⁿ` multiplier, render ticks in factored form (matplotlib's offset/`get_offset` multiplier text + mantissa labels) instead of `_plain_num`'s full value. Related to the user's number-formatting concern.
+## Round 4 (2026-06-12) — 1 new finding ✅ FIXED (2503 x10^n axis multiplier)
+- ~~**2503.12775_p12c4**~~ FIXED [C, render]: calibration is correct (x 0–1, y 0–1.8×10⁻⁴, decay matches) but the y-axis NUMBER DISPLAY differs from the original. Reconstruction shows full/scientific tick values (`2e-05, 4e-05, … 0.00018`); the original factors out the scale and shows a `×10⁻⁴` axis multiplier header with small mantissa labels (`.2 .4 .6 .8`). Data unaffected — purely the multiplier-axis label STYLE.
+  FIXED: `_plain_linear` now uses `_use_axis_multiplier` → ScalarFormatter (factored `×10ⁿ` header + mantissa ticks) for extreme-magnitude axes; verified 2503 shows `×10⁻⁴` header. STYLE-ONLY (no coordinate change).
 - Other draws this round (2412, 2510) already verified/documented; no regression from the number-formatting fix.
 
 ## Round 3 (2026-06-12)
