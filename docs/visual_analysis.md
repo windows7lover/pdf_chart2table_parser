@@ -28,9 +28,9 @@ Chart_ids analysed (from `/tmp/regen_cids.txt`): 2005.11717_p28c4, 2005.12088_p1
 - DATA: series shape recovered well; both R_c,large (red) and R_c,small (blue)
   tracks match the original. **[C]** minor — only the rightmost few points appear
   slightly truncated (x stops ~0.25 vs 0.3 in original).
-- AXIS **[D]**: y-axis range wrong. Original tops at ~750 (labels 0/500/1000/1500/2000/2500
-  but data lives 200–750); reconstruction shows 250–2500 so the data sits in the
-  lower third. y data_range / tick interplay (calibration cluster).
+- AXIS: **NOT a bug** (re-checked). Y-ticks 0/500/.../2500 read correctly,
+  data_range [2500,-3], data y-extent 222–760. The axis genuinely spans 0–2500 and
+  the data genuinely sits in the lower third — the reconstruction is faithful.
 - TEXT **[C]**: the "title" is the garbled string `p-dop 5x10 V MS [V] cm` — this
   is a mis-extracted in-plot annotation (`p-dop 5×10¹⁹ cm⁻²`) promoted to title;
   the original has NO title. Mangled superscript/subscript glyphs.
@@ -58,10 +58,9 @@ Chart_ids analysed (from `/tmp/regen_cids.txt`): 2005.11717_p28c4, 2005.12088_p1
 ### 2106.12703_p19c2 (3 step-pulse traces, multi-color)
 - DATA **[C]**: the three square-pulse traces (circuit input, GaN output,
   preamplifier output) are reconstructed with correct levels and timing.
-- AXIS **[D]**: y-axis is INVERTED — original 20 (top) → −15 (bottom) with the
-  blue trace dipping to −10; reconstruction y runs −15→20 but the layout is
-  flipped relative to original (the negative excursions and the orientation of
-  the orange 0-level differ). Calibration/orientation.
+- AXIS: **NOT a bug** (re-checked). Y-ticks 20..−15 read correctly,
+  data_range [20,−15], data −10..18; render set_ylim(−15,20) = standard (20 top),
+  matching the original. The "inverted" flag was a side-by-side misread.
 - TEXT **[D]**: "title" = garbled `ns; Repetition Frequency = MHz` (fragment of
   the real caption `Pulse = 60 ns; Repetition Frequency = 5 MHz`); not a title in
   original. The cyan/magenta annotations `Slew rate out:3557.9 V/µs` and
