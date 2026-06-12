@@ -26,6 +26,7 @@ import fitz
 from PIL import Image
 
 from pdf_chart2table import pdf_vector
+from pdf_chart2table.refiners import is_decoration_line
 
 
 def _rc(c, q=0.08):
@@ -44,10 +45,13 @@ def audit_chart(chart_json):
     diag = max(w, h)
     # extracted series as (rounded colour, sampled pixel points)
     series = []
+    marker_pts = []
     for s in d.get("series", []):
         pts = [(p["x_px"], p["y_px"]) for p in s.get("points", [])
                if p.get("x_px") is not None]
         series.append((_rc(s["color"]) if s.get("color") else None, pts))
+        if s.get("marker"):
+            marker_pts.extend(pts)
 
     page0 = src["page"]
     pg = pdf_vector.load_pdf(src["pdf"], [page0])[0]
@@ -109,6 +113,12 @@ def audit_chart(chart_json):
                 matched = True
                 break
         if matched:
+            explained += 1
+            continue
+        # refiner-dropped decoration: a connector through markers or a straight
+        # reference/fit line was correctly removed from the series by
+        # drop_spurious_lines -> count as explained, not unexplained residual.
+        if marker_pts and is_decoration_line(p.points, marker_pts, diag):
             explained += 1
             continue
         residual.append({"idx": i, "color": col, "npts": len(p.points),

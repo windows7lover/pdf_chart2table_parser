@@ -8,7 +8,7 @@ a pure line chart are NOT touched.
 from __future__ import annotations
 
 from pdf_chart2table.model import Series
-from pdf_chart2table.refiners import drop_spurious_lines
+from pdf_chart2table.refiners import drop_spurious_lines, is_decoration_line
 
 
 def _series(marker, pix):
@@ -51,6 +51,18 @@ def test_multitrack_connector_kept():
                           (10, 60), (20, 62), (30, 58), (40, 64)])    # a 2nd track
     kept, _ = drop_spurious_lines([marks, line])
     assert line in kept, "multitrack line (markers ~2x vertices) must be kept"
+
+
+def test_is_decoration_line_for_audit():
+    # used by residual_audit to score refiner-dropped lines as explained.
+    markers = [(10, 10), (20, 25), (30, 15), (40, 35)]
+    connector = [(10, 10), (20, 25), (30, 15), (40, 35)]
+    straight = [(5 + i, 5 + 2 * i) for i in range(60)]
+    data_curve = [(10 + i, 10 + ((i - 30) ** 2) * 0.02) for i in range(60)]
+    assert is_decoration_line(connector, markers, diag=60)      # connector
+    assert is_decoration_line(straight, markers, diag=60)        # straight fit
+    assert not is_decoration_line(data_curve, markers, diag=60)  # real curve
+    assert not is_decoration_line(straight, [], diag=60)         # no markers -> keep
 
 
 def test_pure_line_chart_untouched():

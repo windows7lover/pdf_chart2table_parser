@@ -55,6 +55,21 @@ def _connector_frac(line_pts, marker_pts, tol) -> float:
     return hit / len(line_pts)
 
 
+def is_decoration_line(pts, marker_pts, diag: float) -> bool:
+    """True if a point-list is the kind of LINE the spurious-line refiner drops --
+    a connector through markers, or a straight reference/fit line. Used by the
+    residual audit so a correctly-dropped line is scored as explained decoration
+    (not unexplained residual), mirroring ``drop_spurious_lines``."""
+    if len(pts) < 3 or not marker_pts:
+        return False
+    if _connector_frac(pts, marker_pts, _COINCIDE_PX) >= _CONNECTOR_FRAC:
+        return True
+    xs = [x for x, _ in pts]
+    ys = [y for _, y in pts]
+    span = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2) ** 0.5
+    return _linear_r2(pts) >= _STRAIGHT_R2 and span >= _STRAIGHT_MIN_SPAN * diag
+
+
 def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
     """Drop LINE series (``marker is None``) that are decoration, not data:
 
