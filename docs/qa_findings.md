@@ -15,6 +15,20 @@ wrong → likely cause → owner. Fixed items get struck through with the commit
 - **2410.00955_p10c1** — connector fix holding (88% explained, up from 77%); the
   faint render-side connect-through-scatter line remains (render-only).
 
+## 2410.00955_p10c1 legend problem (user-flagged) — diagnosed
+The reconstruction shows NO legend. Root cause: all series are `label=None`, so
+`_replot` draws no legend. Two compounding extraction issues:
+1. **Over-segmentation**: the 2 real series (ED = green ○, METTS = blue ◇) are
+   split into 6 marker series with mixed/incorrect shapes (`*`,`D`,`o`,`*`,`D`),
+   so there is no clean 2-series set to label.
+2. **No legend→series label matching**: the legend text "ED"/"METTS" is detected
+   but never attached to the marker series (labels stay None).
+Connect-fix already removed the spurious connecting line here (88% explained).
+FIX (dedicated): stabilise marker shape/colour grouping (one series per
+shape+colour, fewer spurious splits) in `marks.py`, then match legend entries to
+series by colour/shape in `labels.py` so labels propagate → legend renders.
+Both are deep; not safe quick fixes. Needs a fixture + careful work.
+
 ## Round 2 (2026-06-12)
 - **2005.12088_p10c2** — sawtooth curve reconstructed faithfully ✓. Only the dashed
   horizontal reference line (~0.115) is missing (its residual). Good.
@@ -35,15 +49,24 @@ wrong → likely cause → owner. Fixed items get struck through with the commit
   `classify_lines` — chain same-colour open fragments that don't x-tile by
   endpoint proximity (or PyMuPDF draw order) into one polyline, THEN the marks
   guard can safely reject them. Needs care (mis-stitching risk) + tests.
-  ATTEMPT 1 (reverted): added `_stitch_fragments` (endpoint chaining) as a
-  fallback in the long-groups branch + a marks `_OPEN_MARK_MAX_VERTS=16` guard.
-  Result: 8 test_marks fixtures regressed (open many-vertex glyphs ARE valid
-  markers in some fixtures) AND 2208 still lost its 7 curves — so the fragments
-  never reach that branch. NEXT: instrument where each 2208 colour's ~21 paths
-  actually route (long_groups vs frag_groups vs claimed by marks/roles) and why
-  `_merge_fragments`/`_is_noise_cloud` reject them, BEFORE touching code. The
-  marks guard must be shape-aware (only reject OPEN + many-vertex + NON-glyph),
-  not a blanket vertex cap.
+  PRECISE ROOT CAUSE (diagnosed): per colour there is ONE long path = the real
+  curve (172 verts, ~104px → `_is_long_curve` True) PLUS ~47 thin OPEN slivers
+  (h<1px, w~6px, ~125 verts, aspect 5-9). The slivers pass `marks._is_data_mark`
+  (some via `_shape_of` mis-reading a 125-vertex sliver as a circle/star → relaxed
+  `known_closed` bounds; some via strict bounds), so the colour gets a fake MARKER
+  series → (a) rendered as scattered stars AND (b) the colour enters
+  `marker_colors`, so the REAL long curve is suppressed as a "connector" by
+  `_is_connector`. Net: curve lost, slivers shown as stars.
+  ATTEMPTS (all reverted): (1) `_stitch_fragments` in long-branch — slivers aren't
+  in long_groups, no-op + regressed; (2) blanket marks `_OPEN_MARK_MAX_VERTS=16`
+  guard — regressed 8 test_marks fixtures (valid open many-vertex glyphs exist);
+  (3) require `p.closed` for relaxed `known_closed` bounds — SAFE (suite green) but
+  ineffective (enough slivers pass STRICT bounds h≥1.5/aspect≤3). NEXT (dedicated
+  session): when a colour already has a strong long curve, treat its small
+  same-colour slivers as curve artefacts (don't form a marker series / don't add
+  the colour to marker_colors) — so the long line survives. Needs a fixture +
+  careful guard so true line+marker plots (sparse real markers on a line) keep
+  their markers.
 
 ## ~~Audit confound — refiner-dropped lines counted as residual~~ FIXED
 Resolved: `residual_audit.py` now calls `refiners.is_decoration_line` and scores a
