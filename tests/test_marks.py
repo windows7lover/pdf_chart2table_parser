@@ -174,6 +174,54 @@ def test_hue_gradient_singles_merged():
     assert mark_counts == [3, 5], f"expected [3, 5] marks, got {mark_counts}"
 
 
+def test_colormap_scatter_singles_merged():
+    """A colourmap-coded scatter: same shape + same size markers, each in a
+    DISTINCT colour spanning the whole hue wheel (viridis-style), must merge into
+    ONE series preserving every point — not be shattered into tiny groups and
+    dropped.  The hue-gradient merge (20°) cannot join these (the ramp spans the
+    whole wheel), so the colormap-scatter merge must."""
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(8)), text_indices=[])
+    # 8 same-size squares, colours sampled across a wide hue range (purple ->
+    # blue -> teal -> green -> yellow), one point per colour (all singletons).
+    colors = [
+        (0.27, 0.00, 0.33),   # dark purple
+        (0.21, 0.20, 0.55),   # indigo
+        (0.16, 0.34, 0.55),   # blue
+        (0.13, 0.46, 0.50),   # teal
+        (0.18, 0.56, 0.42),   # green-teal
+        (0.42, 0.65, 0.25),   # green
+        (0.65, 0.71, 0.13),   # yellow-green
+        (0.99, 0.91, 0.14),   # yellow
+    ]
+    paths = [
+        _square(120 + 20 * i, 250 - 12 * i, fill=colors[i])
+        for i in range(8)
+    ]
+    series = classify_marks(region, paths, [])
+    assert len(series) == 1, f"expected 1 colormap series, got {len(series)}"
+    assert len(series[0].marks) == 8, (
+        f"expected all 8 points recovered, got {len(series[0].marks)}"
+    )
+
+
+def test_distinct_color_series_not_colormap_merged():
+    """GUARD: a few genuinely-distinct multi-mark series (3 colours, each a real
+    series of several points) must NOT be collapsed by the colormap merge.  Too
+    few groups (< 4) AND each is a real multi-point series, so they stay separate."""
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(12)), text_indices=[])
+    # Three colours, each with 4 marks at distinct positions (real series).
+    reds = [_square(120 + 15 * i, 130, fill=(0.85, 0.10, 0.10)) for i in range(4)]
+    greens = [_square(120 + 15 * i, 180, fill=(0.10, 0.70, 0.15)) for i in range(4)]
+    blues = [_square(120 + 15 * i, 230, fill=(0.10, 0.15, 0.85)) for i in range(4)]
+    series = classify_marks(region, reds + greens + blues, [])
+    assert len(series) == 3, (
+        f"expected 3 distinct series (no colormap merge), got {len(series)}"
+    )
+    assert sorted(len(s.marks) for s in series) == [4, 4, 4]
+
+
 def _wide_filled_band(fill, x0, y0, x1, y1):
     """A wide filled band path (DOS / SED confidence region)."""
     pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]

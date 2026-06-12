@@ -105,6 +105,22 @@ _DUP_POS_TOL = 1.5
 # identity.
 _HUE_MERGE_DEG = 20.0
 
+# Colormap-scatter merge: a scatter where each point is drawn in a DISTINCT
+# colour sampled from a continuous colourmap (viridis, jet, …) produces one
+# group per colour — many of them singletons — that the hue-gradient merge above
+# cannot join (a full colourmap spans the whole hue wheel, far beyond 20°). The
+# result is a many-point scatter collapsing to a handful of tiny groups that the
+# downstream count filter then discards. This pass recovers it: when MANY
+# (≥ _CMAP_MIN_GROUPS) groups share the SAME shape AND ~the same marker size
+# (diameter within _CMAP_SIZE_TOL px) and together span a WIDE hue range
+# (≥ _CMAP_HUE_SPAN°), they are one colormap-coded series — merge them, keeping
+# ALL their points. Runs AFTER _merge_hue_gradient_singles, so a bimodal palette
+# (e.g. a blue cluster + a red cluster) has already collapsed to 2 groups and
+# fails the ≥4-group requirement — only a genuinely many-coloured ramp qualifies.
+_CMAP_MIN_GROUPS = 4     # need at least this many same-shape/size colour groups
+_CMAP_SIZE_TOL = 1.0     # marker diameters must agree within this many px
+_CMAP_HUE_SPAN = 90.0    # representative hues must span at least this many degrees
+
 # Faint-series locus guard: a small mark cluster (≤ _LOCUS_SMALL_MAX marks)
 # admitted by faint-series recovery must have ALL marks strictly inside the
 # calibrated plot box — the tolerance that normal marks enjoy (_CLIP_FRAC) is
@@ -138,13 +154,18 @@ _DENSE_PATH_VERTS = 8
 
 @dataclass
 class Mark:
-    """One data mark: its pixel centroid and shape/colour signature."""
+    """One data mark: its pixel centroid and shape/colour signature.
+
+    ``size`` is the marker's diameter in pixels (the longer bbox side); it lets
+    the colormap-scatter merge require that merged glyphs share a marker size.
+    """
 
     cx: float
     cy: float
     shape: str
     fill: Color | None
     stroke: Color | None
+    size: float = 0.0
 
 
 @dataclass
@@ -519,6 +540,134 @@ def _merge_hue_gradient_singles(groups: list[SeriesMarks]) -> list[SeriesMarks]:
     return others + new_groups
 
 
+def _group_size(sm: SeriesMarks) -> float:
+    """Representative marker diameter of a group (mean of its marks' sizes)."""
+    sizes = [m.size for m in sm.marks if m.size > 0]
+    return sum(sizes) / len(sizes) if sizes else 0.0
+
+
+def _merge_colormap_scatter(groups: list[SeriesMarks]) -> list[SeriesMarks]:
+    """Merge same-shape, same-size colour groups that span a wide hue range.
+
+    Recovers a colormap-coded scatter (each point a distinct colour from a
+    continuous map, all the same marker shape and size) that the exact-colour
+    grouping shattered into many tiny groups.  See ``_CMAP_*`` for the rationale
+    and guards.  DATA recovery only: every original mark (and its coordinate) is
+    preserved; no centroid is moved.
+
+    Guards (precision-first): considers only candidate groups that have a hue
+    (purely-black/grey/None-colour groups are excluded) and clusters them by
+    (shape, rounded size).  A cluster is merged ONLY when it has
+    ≥ _CMAP_MIN_GROUPS groups AND its representative hues span ≥ _CMAP_HUE_SPAN°.
+    A handful of genuinely-distinct sparse series (too few groups) or a tight
+    palette (narrow hue span) is left untouched.
+    """
+    if len(groups) < _CMAP_MIN_GROUPS:
+        return groups
+
+    # Candidate groups: those with a determinable hue, keyed by (shape, size).
+    by_shape_size: dict[tuple, list[tuple[SeriesMarks, float]]] = defaultdict(list)
+    for sm in groups:
+        h = _hue_of(sm.fill or sm.stroke)
+        if h is None:
+            continue
+        sz = _group_size(sm)
+        size_key = round(sz / _CMAP_SIZE_TOL)
+        by_shape_size[(sm.shape, size_key)].append((sm, h))
+
+    # Find the single largest qualifying cluster (one colormap per region is the
+    # common case; merging just the dominant cluster is the conservative choice).
+    best_key = None
+    best_n = 0
+    for key, members in by_shape_size.items():
+        if len(members) < _CMAP_MIN_GROUPS:
+            continue
+        hues = [h for _, h in members]
+        span = max(
+            _hue_dist(a, b) for a in hues for b in hues
+        )
+        if span < _CMAP_HUE_SPAN:
+            continue
+        if len(members) > best_n:
+            best_n = len(members)
+            best_key = key
+
+    if best_key is None:
+        return groups
+
+    merge_set = {id(sm) for sm, _ in by_shape_size[best_key]}
+    merged_marks: list[Mark] = []
+    first: SeriesMarks | None = None
+    result: list[SeriesMarks] = []
+    for sm in groups:
+        if id(sm) in merge_set:
+            if first is None:
+                first = sm
+            merged_marks.extend(sm.marks)
+        else:
+            result.append(sm)
+    if first is not None:
+        # Insert the merged series at the first member's original position.
+        merged = SeriesMarks(shape=first.shape, fill=first.fill,
+                             stroke=first.stroke, marks=merged_marks)
+        out: list[SeriesMarks] = []
+        inserted = False
+        for sm in groups:
+            if id(sm) in merge_set:
+                if not inserted:
+                    out.append(merged)
+                    inserted = True
+            else:
+                out.append(sm)
+        return out
+    return result
+
+
+def _looks_like_colormap_scatter(
+    region: Region,
+    paths: list[Path],
+    large_fills: list[Path] | None,
+    plot_box: tuple | None,
+) -> bool:
+    """True when the region's in-plot data marks look like a colormap scatter.
+
+    Scans the region's data-mark candidates (passing ``_is_data_mark`` and the
+    plot-box clip, but WITHOUT any legend-box filtering) and groups them by
+    ``(shape, rounded size, rounded colour)``.  Returns True when at least
+    ``_CMAP_MIN_GROUPS`` distinct colours share one shape and ~one marker size
+    and their representative hues span ≥ ``_CMAP_HUE_SPAN°`` -- the signature of a
+    point-per-colour colourmap, not a legend.  Used only to decide whether to
+    trust a detected legend_bbox (a colormap lattice is data, not a legend key).
+    """
+    # (shape, size_key) -> {rounded_colour: representative hue}
+    by_shape_size: dict[tuple, dict[tuple, float]] = defaultdict(dict)
+    for i in region.path_indices:
+        p = paths[i]
+        if not _is_data_mark(p, region, large_fills):
+            continue
+        cx, cy = _centroid(p.points)
+        if not _in_plot_box(cx, cy, plot_box):
+            continue
+        col = p.fill or p.stroke
+        h = _hue_of(col)
+        if h is None:
+            continue
+        shape = _shape_of(p)
+        size = max(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1])
+        size_key = round(size / _CMAP_SIZE_TOL)
+        rc = _round_color(col)
+        by_shape_size[(shape, size_key)].setdefault(rc, h)
+
+    for hue_by_color in by_shape_size.values():
+        if len(hue_by_color) < _CMAP_MIN_GROUPS:
+            continue
+        hues = list(hue_by_color.values())
+        span = max(_hue_dist(a, b) for a in hues for b in hues)
+        if span >= _CMAP_HUE_SPAN:
+            return True
+    return False
+
+
 def _in_legend_box(cx: float, cy: float, legend_bbox: tuple | None) -> bool:
     """True when the centroid falls inside the legend bounding box.
 
@@ -575,6 +724,19 @@ def classify_marks(
         if region_area > 0 and leg_area / region_area > _MAX_LEGEND_PLOT_FRAC:
             effective_legend_bbox = None
 
+    # Colormap-scatter legend-box guard: a colourmap-coded scatter draws each data
+    # point in a distinct colour from a continuous map. The glyph-legend detector
+    # (labels._detect_glyph_legend_box) can mistake a column of these distinctly
+    # coloured data points for a legend key column and return a legend_bbox that
+    # sits ON the data, dropping the points inside it. When the region's in-plot
+    # marks already look like a colormap scatter (many same-shape/same-size marks
+    # spanning a wide hue range), that "legend" is a misdetection of the data
+    # lattice -- suppress the legend-box filter so the colormap points survive.
+    if effective_legend_bbox is not None and _looks_like_colormap_scatter(
+        region, paths, large_fills, plot_box
+    ):
+        effective_legend_bbox = None
+
     groups: dict[tuple, SeriesMarks] = {}
     for i in region.path_indices:
         p = paths[i]
@@ -588,12 +750,15 @@ def classify_marks(
         if _is_legend_swatch(cx, cy, region_texts, plot_box):
             continue
         shape = _shape_of(p)
+        size = max(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1])
         key = (shape, _round_color(p.fill), _round_color(p.stroke))
         sm = groups.get(key)
         if sm is None:
             sm = SeriesMarks(shape=shape, fill=p.fill, stroke=p.stroke)
             groups[key] = sm
-        sm.marks.append(Mark(cx=cx, cy=cy, shape=shape, fill=p.fill, stroke=p.stroke))
+        sm.marks.append(
+            Mark(cx=cx, cy=cy, shape=shape, fill=p.fill, stroke=p.stroke, size=size)
+        )
 
     # Order series by first appearance (stable, deterministic); merge groups
     # that mark identical positions (filled+stroke duplicate of one series);
@@ -616,7 +781,8 @@ def classify_marks(
 
     result = _merge_duplicate_series(all_groups)
     result = _merge_stroke_optional(result)
-    return _merge_hue_gradient_singles(result)
+    result = _merge_hue_gradient_singles(result)
+    return _merge_colormap_scatter(result)
 
 
 def is_sparse_on_dense(
