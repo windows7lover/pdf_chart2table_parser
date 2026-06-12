@@ -17,7 +17,7 @@ import math  # noqa: E402
 
 from render_restyle_prototype import (  # noqa: E402
     _effective_scale, _is_italic, _label_match, _marker_shape, _norm,
-    _threads_markers)
+    _threads_markers, _ticks_in_range)
 
 from pdf_chart2table.model import Path  # noqa: E402
 
@@ -134,3 +134,33 @@ def test_connect_false_when_only_path_misses_markers():
     pts = [(float(x), 50.0 + 0.3 * x) for x in range(0, 60, 4)]
     fit = _path([(0.0, 0.0), (60.0, 5.0)])  # a straight line well below the data
     assert not _threads_markers([fit], pts, tol=4.0)
+
+
+# --- Bug C: a single mis-extracted tick must not collapse the view -------------
+def test_outlier_tick_dropped_from_range():
+    # 2204.11743_p19c4: ticks 0.03..0.09 plus a spurious '680.18'. Forcing 680.18
+    # as a y-tick expanded the view to [0.1, 680] and flattened the curve.
+    kept = _ticks_in_range([0.03, 0.05, 0.07, 0.09, 680.18],
+                           data_range=[0.1, 0.03])
+    assert 680.18 not in kept
+    assert kept == [0.03, 0.05, 0.07, 0.09]
+
+
+def test_legitimate_edge_ticks_kept():
+    # Ticks within (and at) the calibrated range, plus one just past an edge by
+    # less than the span, are ALL legitimate and must survive.
+    kept = _ticks_in_range([0, 10, 20, 30], data_range=[0, 25])
+    assert kept == [0, 10, 20, 30]
+
+
+def test_range_filter_noop_without_range():
+    vals = [0.03, 0.05, 680.18]
+    assert _ticks_in_range(vals, None) == vals
+    assert _ticks_in_range(vals, [None, 1.0]) == vals
+
+
+def test_range_filter_keeps_all_when_too_few_survive():
+    # If filtering would leave <2 ticks, keep the original set (don't strip the
+    # axis bare on an unusual but possibly-correct calibration).
+    kept = _ticks_in_range([100.0, 200.0], data_range=[0.0, 1.0])
+    assert kept == [100.0, 200.0]

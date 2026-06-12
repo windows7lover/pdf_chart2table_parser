@@ -788,7 +788,27 @@ def _effective_scale(axis_style):
     return "log"
 
 
-def _apply_ticks(ax, axis, ticks, scale):
+def _ticks_in_range(values, data_range):
+    """Drop tick values that fall WILDLY outside the calibrated ``data_range``.
+
+    A single mis-extracted tick label (e.g. '680.18' on an axis spanning
+    0.03..0.10) otherwise forces matplotlib's view to that outlier and collapses
+    the real data to a flat line. ``data_range`` is the parser's calibrated axis
+    extent (already trusted for ``set_*lim``); ticks outside it by more than the
+    span itself are spurious and are removed. A small margin keeps legitimate
+    edge ticks. Returns ``values`` unchanged when no usable range is given."""
+    if not values or not data_range or None in data_range:
+        return values
+    lo, hi = sorted(data_range)
+    span = hi - lo
+    if span <= 0:
+        return values
+    margin = span  # generous: keep anything within one full span of the edges
+    kept = [v for v in values if lo - margin <= v <= hi + margin]
+    return kept if len(kept) >= 2 else values
+
+
+def _apply_ticks(ax, axis, ticks, scale, data_range=None):
     """Place the parser's DETECTED ticks: labeled ones as MAJOR (matplotlib
     formats the labels -- extracted label strings are often mangled), and the
     unlabeled detected ticks as MINOR (mapped pixel->value), so both the COUNT
@@ -796,6 +816,7 @@ def _apply_ticks(ax, axis, ticks, scale):
     ticks = ticks or []
     setter = ax.set_xticks if axis == "x" else ax.set_yticks
     major = [t["value"] for t in ticks if t.get("value") is not None]
+    major = _ticks_in_range(major, data_range)
     if len(major) >= 2:
         setter(sorted(major))
     elif scale == "log":
@@ -806,6 +827,7 @@ def _apply_ticks(ax, axis, ticks, scale):
         minor = [f(t["pixel"]) for t in ticks
                  if t.get("value") is None and t.get("pixel") is not None]
         minor = [m for m in minor if scale != "log" or m > 0]
+        minor = _ticks_in_range(minor, data_range) if minor else minor
         if minor:
             from matplotlib.ticker import NullFormatter
             setter(sorted(minor), minor=True)
@@ -889,7 +911,7 @@ def _replot(ax, record, style, tex=False):
             axis_obj.set_major_formatter(fmt)
 
     if xa:
-        _apply_ticks(ax, "x", xa.get("ticks"), x_scale)
+        _apply_ticks(ax, "x", xa.get("ticks"), x_scale, xa.get("data_range"))
         _plain_linear(ax.xaxis, x_scale)
         ax.set_xlabel(L(xa.get("title") or ""),
                       fontsize=_fs(txt.get("x_title_font_size")) or _fs(base_fs),
@@ -899,7 +921,7 @@ def _replot(ax, record, style, tex=False):
         if p and 0.2 <= p[0] <= 0.8 and -0.35 <= p[1] <= 0.02:
             ax.xaxis.set_label_coords(p[0], p[1])
     if ya:
-        _apply_ticks(ax, "y", ya.get("ticks"), y_scale)
+        _apply_ticks(ax, "y", ya.get("ticks"), y_scale, ya.get("data_range"))
         _plain_linear(ax.yaxis, y_scale)
         ax.set_ylabel(L(ya.get("title") or ""),
                       fontsize=_fs(txt.get("y_title_font_size")) or _fs(base_fs),
