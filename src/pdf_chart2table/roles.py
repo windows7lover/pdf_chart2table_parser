@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 
 from .lines import (
     SeriesLine,
+    _is_curve_segment,
     _is_fragment,
     _is_long_curve,
     classify_lines,
@@ -187,8 +188,10 @@ def classify_roles(
     for i in region.path_indices:
         p = paths[i]
         is_mark = _is_data_mark(p, region, large_fills)
-        is_curve = _is_long_curve(p, region, region_texts) or _is_fragment(
-            p, region, region_texts
+        is_curve = (
+            _is_long_curve(p, region, region_texts)
+            or _is_fragment(p, region, region_texts)
+            or _is_curve_segment(p, region, region_texts)
         )
         if is_mark and is_curve:
             if i in _claimed_mark_indices:

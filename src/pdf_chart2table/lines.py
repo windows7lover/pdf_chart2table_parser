@@ -66,6 +66,19 @@ _MIN_FRAG_POINTS = 8
 # many-vertex glyph (a marker circle/star outline) is a marker, not a curve
 # fragment, so it must not be collected and merged into a fake curve.
 _MAX_FRAG_VERTS = 6
+# A wiggly/noisy data curve may be emitted by the renderer as MANY small dense
+# open polylines (each spanning a few px in x but carrying ~100 vertices of fine
+# detail), tiling the x-axis. Each piece is too short to be a _long_curve and too
+# dense to be a _fragment, yet collectively they ARE the curve. We collect
+# same-colour OPEN paths with at least this many vertices whose endpoints do not
+# close back (a marker glyph is a closed loop; a curve segment traverses across)
+# and, only when enough of them tile a wide x-span, merge them into one curve.
+_MIN_SEGMENT_VERTS = 40             # dense (>= "circle" glyph threshold) => curve detail, not a dash
+_MIN_SEGMENT_ENDPOINT_GAP = 0.5     # start->end gap as a fraction of the longer bbox side
+# Guard against fabricating a curve from a few stray dense glyphs: require many
+# tiling segments that together cover a wide fraction of the region width.
+_MIN_SEGMENT_COUNT = 6
+_MIN_SEGMENT_TOTAL_SPAN_FRAC = 0.5
 # An unsaturated (black/gray) stroke qualifies as a DATA curve only if it varies
 # in BOTH axes: its shorter bbox side is at least this fraction of its longer
 # side. Gridlines / spines are ~1-D (one side ~0) and fall below it, so they are
@@ -393,6 +406,31 @@ def _is_fragment(p: Path, region: Region, texts: list[TextSpan]) -> bool:
     return not _off_chart(p, region, texts)
 
 
+def _is_curve_segment(p: Path, region: Region, texts: list[TextSpan]) -> bool:
+    """A dense OPEN sub-segment of a wiggly curve (~100 vertices over a few px),
+    drawn as one of many tiling pieces. Distinguished from a marker glyph (a
+    closed loop: first vertex ≈ last vertex) by its endpoints sitting far apart
+    (it traverses its bbox and never returns). Saturated colours qualify;
+    unsaturated (black/gray) ones must vary in 2-D (not an axis-aligned tick).
+    Off-frame / legend / banded paths are excluded (same gates as a fragment)."""
+    if p.closed or p.stroke is None or len(p.points) < _MIN_SEGMENT_VERTS:
+        return False
+    if p.fill is not None and not _is_near_white(p.fill):
+        return False
+    if not _is_saturated(p.stroke) and (_is_near_white(p.stroke) or not _varies_2d(p)):
+        return False
+    b = p.bbox
+    side = max(b[2] - b[0], b[3] - b[1])
+    if side <= 0:
+        return False
+    x0, y0 = p.points[0]
+    x1, y1 = p.points[-1]
+    gap = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+    if gap <= _MIN_SEGMENT_ENDPOINT_GAP * side:
+        return False  # endpoints close back -> a glyph loop, not a curve segment
+    return not _off_chart(p, region, texts)
+
+
 def _x_overlap(a: tuple[float, float], b: tuple[float, float]) -> bool:
     lo = max(a[0], b[0])
     hi = min(a[1], b[1])
@@ -646,9 +684,12 @@ def classify_lines(
         # No centroid data: legacy solid-only suppression.
         return form == "solid"
 
-    # Per (colour, dash-form): long-path parts; fragments are dash-dot pieces.
+    # Per (colour, dash-form): long-path parts; fragments are dash-dot pieces;
+    # segments are dense open curve pieces (a wiggly curve drawn as many tiling
+    # sub-paths, each too dense to be a fragment and too short to be long).
     long_groups: dict[tuple, list[Path]] = defaultdict(list)
     frag_groups: dict[tuple, list[Path]] = defaultdict(list)
+    seg_groups: dict[tuple, list[Path]] = defaultdict(list)
     for i in region.path_indices:
         p = paths[i]
         color = _round_color(p.stroke)
@@ -656,6 +697,8 @@ def classify_lines(
             long_groups[(color, _dash_form(p.dashes), _width_bucket(p.width))].append(p)
         elif _is_fragment(p, region, region_texts):
             frag_groups[(color, _dash_form(p.dashes), _width_bucket(p.width))].append(p)
+        elif _is_curve_segment(p, region, region_texts):
+            seg_groups[(color, _dash_form(p.dashes), _width_bucket(p.width))].append(p)
 
     # Suppress fill-region boundary outlines: a stroked path whose colour
     # matches the fill colour of a wide background band is the band's
@@ -753,6 +796,29 @@ def classify_lines(
         if _is_connector(verts, color, form):
             continue
         candidates[color].append((verts, parts[0], _raw_order(parts)))
+    rw = region.bbox[2] - region.bbox[0]
+    for (color, form, _wb), parts in seg_groups.items():
+        # A wiggly curve drawn as many dense tiling segments. Require enough
+        # pieces covering a wide x-span before treating them as a curve, so a
+        # few stray dense glyphs cannot fabricate a series.
+        if len(parts) < _MIN_SEGMENT_COUNT:
+            continue
+        xs0 = min(p.bbox[0] for p in parts)
+        xs1 = max(p.bbox[2] for p in parts)
+        if rw <= 0 or (xs1 - xs0) < _MIN_SEGMENT_TOTAL_SPAN_FRAC * rw:
+            continue
+        # The pieces tile the x-axis; split into x-compatible groups and merge
+        # each (same machinery as the overlapping-long-curve case).
+        for sg in _split_into_curves(parts):
+            verts = _merge_long(sg)
+            if verts is None:
+                continue
+            verts = _box_ok(verts)
+            if verts is None:
+                continue
+            if _is_connector(verts, color, form):
+                continue
+            candidates[color].append((verts, sg[0], _raw_order(sg)))
 
     # Per colour: keep candidate forms with distinct y-trajectories; dedup forms
     # that trace the same path (one curve drawn twice -> keep the widest).

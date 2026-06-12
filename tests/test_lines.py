@@ -77,6 +77,52 @@ def test_dashed_black_curve_extracted():
     assert series[0].color == (0.0, 0.0, 0.0)
 
 
+def _dense_segment(x0, x1, y0, y1, stroke, *, n=60):
+    """A dense OPEN sub-segment of a wiggly curve: ~n vertices wandering in y as
+    x advances from x0 to x1 (endpoints far apart -> not a closed glyph loop).
+    Mimics the 2208 case where a smooth curve is emitted as many small dense
+    open polylines that each span a few px in x but carry ~100 vertices."""
+    import math
+    pts = []
+    for k in range(n):
+        t = k / (n - 1)
+        x = x0 + (x1 - x0) * t
+        # wiggle in y but trend from y0 to y1 so start != end
+        y = y0 + (y1 - y0) * t + 1.5 * math.sin(8 * math.pi * t)
+        pts.append((x, y))
+    return _poly(pts, stroke)
+
+
+def test_dense_tiling_segments_become_one_line_not_markers():
+    # Regression for 2208.14630_p20c2: a wiggly curve emitted as MANY small dense
+    # open segments tiling the x-axis must extract as ONE line series (each piece
+    # is too dense to be a fragment and too short to be a long curve on its own).
+    red = (1.0, 0.0, 0.0)
+    seg_w = 12.0
+    segs = [
+        _dense_segment(120 + i * seg_w, 120 + (i + 1) * seg_w,
+                       250 - i * 8, 250 - (i + 1) * 8, red)
+        for i in range(12)  # tile x across most of the region width
+    ]
+    series, _ = _classify(segs)
+    assert len(series) == 1, f"expected 1 merged line, got {len(series)}"
+    assert series[0].color == red
+    # the merged curve spans the tiled segments, not just one piece
+    assert series[0].points[0][0] < 130 and series[0].points[-1][0] > 250
+
+
+def test_few_dense_segments_do_not_fabricate_a_line():
+    # Guard: a couple of stray dense open paths (not enough to tile a wide span)
+    # must NOT be fabricated into a curve.
+    red = (1.0, 0.0, 0.0)
+    segs = [
+        _dense_segment(120, 132, 250, 242, red),
+        _dense_segment(132, 144, 242, 234, red),
+    ]
+    series, _ = _classify(segs)
+    assert series == []
+
+
 def test_solid_black_axis_aligned_rejected():
     # A solid black multi-vertex stroke that is FLAT (axis-aligned, ~constant y)
     # is a gridline/spine, not a curve: it does not vary in 2-D.

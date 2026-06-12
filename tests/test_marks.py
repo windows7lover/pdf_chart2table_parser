@@ -315,6 +315,64 @@ def test_tiny_circle_marker_not_dropped():
     assert len(series[0].marks) == 4, f"expected 4 marks, got {len(series[0].marks)}"
 
 
+def _open_circle_glyph(cx, cy, *, fill=None, stroke=None, r=2.0, n=65):
+    """A matplotlib 'o' glyph: a 65-vertex loop emitted as an OPEN polyline whose
+    first and last vertex coincide (start == end). This is the real marker case
+    -- the endpoint gap is ~0 even though closed=False."""
+    import math
+    pts = [(cx + r * math.cos(2 * math.pi * k / n),
+            cy + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+    pts.append(pts[0])  # close the loop -> start == end
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=stroke, fill=fill, width=1.0, dashes=None,
+                 closed=False, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def _open_curve_segment(x0, x1, y0, y1, stroke, *, n=60):
+    """A dense OPEN curve segment: ~n vertices traversing from (x0,y0) to
+    (x1,y1), so its endpoints sit far apart (it never returns to its start) --
+    the 2208.14630 case of a wiggly curve emitted as many small dense segments."""
+    import math
+    pts = []
+    for k in range(n):
+        t = k / (n - 1)
+        x = x0 + (x1 - x0) * t
+        y = y0 + (y1 - y0) * t + 1.5 * math.sin(8 * math.pi * t)
+        pts.append((x, y))
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=stroke, fill=None, width=1.0, dashes=None,
+                 closed=False, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def test_dense_open_curve_segment_not_a_mark():
+    """Regression for 2208.14630_p20c2: a dense OPEN curve segment (many vertices,
+    endpoints far apart) must NOT be claimed as a data mark -- it is a piece of a
+    wiggly line curve, not a scatter glyph."""
+    from pdf_chart2table.marks import _is_data_mark
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(1)), text_indices=[])
+    seg = _open_curve_segment(150, 156, 200, 206, (1.0, 0.0, 0.0))
+    assert not _is_data_mark(seg, region)
+
+
+def test_real_open_circle_glyph_still_a_mark():
+    """Guard: a genuine 65-vertex circle glyph emitted as an OPEN polyline whose
+    endpoints coincide (start == end) must STILL be a data mark -- the curve-
+    segment guard keys on the endpoint GAP, not on open-ness or vertex count, so
+    real line+marker series keep their markers."""
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(5)), text_indices=[])
+    paths = [
+        _open_circle_glyph(130 + 30 * i, 200 - 10 * i, fill=(0.0, 0.0, 1.0))
+        for i in range(5)
+    ]
+    series = classify_marks(region, paths, [])
+    assert len(series) == 1, f"expected 1 marker series, got {len(series)}"
+    assert len(series[0].marks) == 5
+
+
 # Scatter and line-with-markers fixtures whose data points are markers.
 MARKER_FIXTURES = [
     "linear_scatter_1series",

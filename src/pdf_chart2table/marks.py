@@ -74,6 +74,17 @@ _MIN_MARK_SIZE = 0.5
 _MIN_MARK_SIDE = 1.5
 # Marker aspect ratios stay near 1; reject elongated shapes (segments).
 _MAX_ASPECT = 3.0
+# A matplotlib marker glyph (circle ``o``, star ``*``) is a CLOSED loop: even
+# when emitted as an "open" polyline its first and last flattened vertex coincide
+# (start == end), so the gap between endpoints is ~0 relative to its size. A
+# many-vertex path whose endpoints sit far apart (it traverses across its bbox and
+# never returns) is a dense CURVE SEGMENT drawn open, not a glyph. Reject such
+# paths as marks so a wiggly curve drawn as many small dense segments is not
+# mistaken for a scatter series (lines.py collects them into the real curve).
+# Only applied to many-vertex paths (>= the "circle" vertex threshold); few-vertex
+# glyphs (squares/triangles/crosses) are genuinely open and untouched.
+_GLYPH_VERTS = 40           # matches primitives.shape_of "circle" threshold
+_MAX_GLYPH_ENDPOINT_GAP = 0.5  # gap (start->end) as a fraction of the longer bbox side
 # A mark whose centroid sits within this of the region border is on a
 # spine/frame edge (tick marks live there), not off-axis data.
 _BORDER_TOL = 2.0
@@ -315,6 +326,28 @@ _KNOWN_SHAPE_MIN_SIDE = 0.5    # smaller than default 1.5 — lets small/thin cl
 _KNOWN_SHAPE_MAX_ASPECT = 6.0  # wider than default 3.0 — lets thin diamonds / h-bar markers through
 
 
+def _is_open_curve_segment(p: Path) -> bool:
+    """True when ``p`` is a dense CURVE SEGMENT drawn as an open polyline, not a
+    marker glyph.
+
+    A matplotlib marker (circle, star) is a closed loop: its first and last
+    flattened vertex coincide, so the endpoint gap is ~0 relative to its size.
+    A curve segment traverses its bbox (start far from end) and has many vertices.
+    Only many-vertex paths are tested -- few-vertex glyphs (triangles, crosses,
+    squares) are legitimately open and never flagged here.
+    """
+    if p.closed or len(p.points) < _GLYPH_VERTS:
+        return False
+    b = p.bbox
+    side = max(b[2] - b[0], b[3] - b[1])
+    if side <= 0:
+        return False
+    x0, y0 = p.points[0]
+    x1, y1 = p.points[-1]
+    gap = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+    return gap > _MAX_GLYPH_ENDPOINT_GAP * side
+
+
 def _is_data_mark(
     p: Path, region: Region, large_fills: list[Path] | None = None
 ) -> bool:
@@ -326,6 +359,13 @@ def _is_data_mark(
     if bw < _MIN_MARK_SIZE and bh < _MIN_MARK_SIZE:
         return False
     if p.fill is None and p.stroke is None:
+        return False
+
+    # A many-vertex OPEN path whose endpoints do not close back on themselves is
+    # a dense curve segment, not a marker glyph (glyphs are closed loops). Reject
+    # it so a wiggly curve drawn as many small dense segments is not read as a
+    # scatter series; lines.py collects those segments into the real curve.
+    if _is_open_curve_segment(p):
         return False
 
     # Classify shape so we can apply shape-aware bounds (Fix 2 + Fix 3).
