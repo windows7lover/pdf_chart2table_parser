@@ -444,9 +444,12 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
             if errbar_idx:
                 region.path_indices = [i for i in region.path_indices
                                        if i not in errbar_idx]
-            # Background grid (light-grey lines aligned with the ticks): recorded
-            # as style, not traced as data.
-            grid = detect_grid(region, page.paths)
+            # Background grid (axis-aligned lines on the ticks, any colour/dash):
+            # recorded as style, not traced as data. Tick positions both confirm
+            # real grid lines and recover faint/fragmented ones at a tick.
+            grid = detect_grid(region, page.paths,
+                               x_ticks=[t.pixel for t in x_axis.ticks],
+                               y_ticks=[t.pixel for t in y_axis.ticks])
 
             rl = region_labels[k - 1]
             legend_bbox = rl[5] if len(rl) > 5 else None

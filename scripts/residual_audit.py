@@ -116,9 +116,14 @@ def audit_chart(chart_json):
         if min(bw, bh) < 2.0 and (near_border or max(bw, bh) < 8.0):
             explained += 1
             continue
-        # grey background grid line (long thin interior)
-        if (col and max(col) - min(col) <= 0.15 and 0.4 <= max(col) <= 0.96
-                and ((bw > 0.6 * w and bh < 2) or (bh > 0.6 * h and bw < 2))):
+        # background grid line (full-span axis-aligned thin interior rule). Any
+        # colour/dash counts when the chart HAS a detected grid (the unified
+        # detector now catches dark/dashed grids, not just grey); otherwise only
+        # an unambiguous grey rule is treated as grid decoration.
+        is_fullspan_rule = (bw > 0.6 * w and bh < 2) or (bh > 0.6 * h and bw < 2)
+        is_grey_rule = (col is not None and max(col) - min(col) <= 0.15
+                        and 0.4 <= max(col) <= 0.96)
+        if is_fullspan_rule and (is_grey_rule or d.get("grid")):
             explained += 1
             continue
         # legend region: swatches/connectors/box inside the legend are decoration,

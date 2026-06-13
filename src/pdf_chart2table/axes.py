@@ -263,6 +263,79 @@ def _y_tick_positions(paths: list[Path], region: Region):
 
 
 # --------------------------------------------------------------------------
+# Shared axis-aligned-segment classifier (ticks + gridlines are one family)
+# --------------------------------------------------------------------------
+
+# A gridline spans at least this fraction of the plot on its long side. Tick
+# marks are short (<= _TICK_LEN_MAX); gridlines run across the interior.
+_GRID_SPAN_FRAC = 0.6
+
+
+def axis_segments(paths: list[Path], region: Region) -> list[dict]:
+    """Classify thin axis-aligned segments in a region into one primitive family.
+
+    A tick mark and a gridline are the SAME primitive -- a thin axis-aligned
+    segment at an axis coordinate -- differing only in length/position: a tick is
+    the short segment AT a spine; a gridline is the full-span segment in the
+    INTERIOR at the same coordinate. This scan is COLOR-AGNOSTIC (it gates on
+    geometry, like the tick scan), which is why it catches dark/dashed grids that
+    the old grey-only ``grid._is_grey`` gate missed.
+
+    Returns one dict per thin axis-aligned segment::
+
+        {"orient": "v"|"h", "coord": float, "length": float, "lo": float,
+         "hi": float, "role": str, "stroke": Color|None, "width": float|None,
+         "dashes": str|None}
+
+    ``role`` is "spine" (full-span, on a border), "gridline" (full-span,
+    interior), "tick" (short, near a spine) or "other". ``coord`` is the axis
+    coordinate: cx for vertical segments (an x position), cy for horizontal.
+    ``lo``/``hi`` are the segment's extent along its long axis (y for vertical,
+    x for horizontal) -- used to union collinear dash fragments into one line.
+    """
+    x0, y0, x1, y1 = region.bbox
+    w, h = x1 - x0, y1 - y0
+    out: list[dict] = []
+    if w <= 0 or h <= 0:
+        return out
+    for i in getattr(region, "path_indices", []):
+        p = paths[i]
+        if len(p.points) < 2:
+            continue
+        b = p.bbox
+        bw, bh = b[2] - b[0], b[3] - b[1]
+        cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
+        if bw <= _TICK_THIN_MAX and bh > bw:           # vertical segment
+            orient, coord, length, lo, hi = "v", cx, bh, b[1], b[3]
+            on_border = abs(cx - x0) <= _SPINE_TOL or abs(cx - x1) <= _SPINE_TOL
+            full_span = bh > _GRID_SPAN_FRAC * h
+            interior = x0 + 2 < cx < x1 - 2
+            near_spine = (abs(b[1] - y1) <= _SPINE_TOL or abs(b[3] - y1) <= _SPINE_TOL
+                          or abs(b[1] - y0) <= _SPINE_TOL or abs(b[3] - y0) <= _SPINE_TOL)
+        elif bh <= _TICK_THIN_MAX and bw > bh:         # horizontal segment
+            orient, coord, length, lo, hi = "h", cy, bw, b[0], b[2]
+            on_border = abs(cy - y0) <= _SPINE_TOL or abs(cy - y1) <= _SPINE_TOL
+            full_span = bw > _GRID_SPAN_FRAC * w
+            interior = y0 + 2 < cy < y1 - 2
+            near_spine = (abs(b[0] - x0) <= _SPINE_TOL or abs(b[2] - x0) <= _SPINE_TOL
+                          or abs(b[0] - x1) <= _SPINE_TOL or abs(b[2] - x1) <= _SPINE_TOL)
+        else:
+            continue
+        if full_span and on_border:
+            role = "spine"
+        elif full_span and interior:
+            role = "gridline"
+        elif length <= _TICK_LEN_MAX and near_spine:
+            role = "tick"
+        else:
+            role = "other"
+        out.append({"orient": orient, "coord": coord, "length": length,
+                    "lo": lo, "hi": hi, "role": role, "stroke": p.stroke,
+                    "width": p.width, "dashes": p.dashes})
+    return out
+
+
+# --------------------------------------------------------------------------
 # Tick <-> label pairing
 # --------------------------------------------------------------------------
 
