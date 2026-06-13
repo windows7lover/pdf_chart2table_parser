@@ -720,6 +720,14 @@ def main():
                           os.path.join(bundle, f"{cid}.png"),
                           os.path.join(bundle, f"{cid}_reconstruction.eps"),
                           os.path.join(bundle, f"{cid}_reconstruction.pdf"))
+            # Include the ORIGINAL lossless vector crop for reference (PDF + SVG).
+            # No PDF->EPS converter is installed, so no .eps for the original; add
+            # one here if a converter (pdftops/gs/mutool/inkscape) becomes available.
+            if os.path.exists(crop_pdf):
+                shutil.copy(crop_pdf, os.path.join(bundle, f"{cid}_original.pdf"))
+            crop_svg = crop_pdf[:-4] + ".svg"
+            if os.path.exists(crop_svg):
+                shutil.copy(crop_svg, os.path.join(bundle, f"{cid}_original.svg"))
             ok += 1
             print(f"  ok {cid} (nser={r['n_series']} npts={r['n_points']})",
                   flush=True)
