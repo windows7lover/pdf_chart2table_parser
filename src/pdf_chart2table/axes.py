@@ -266,14 +266,36 @@ def _y_tick_positions(paths: list[Path], region: Region):
 # Tick <-> label pairing
 # --------------------------------------------------------------------------
 
-def _x_label_spans(texts: list[TextSpan], region: Region) -> list[TextSpan]:
-    """Text spans sitting in the label band just below the bottom spine."""
+# A y-axis tick label sits to the LEFT of the left spine and centres precisely
+# (to within this tolerance) on its y-tick mark.  The bottom-most such label can
+# straddle the bottom-left corner and leak into the x-label band, where it then
+# merges with the x-origin label (e.g. y-tick "5" + x-tick "0" -> bogus "50").
+# Genuine x-tick labels sit BELOW all y-ticks, so they never align this tightly
+# with a y-tick mark; this lets us drop the corner y-label without losing the
+# x-origin label.  Tighter than _ALIGN_TOL on purpose.
+_YTICK_ALIGN_TOL = 2.5
+
+
+def _x_label_spans(
+    texts: list[TextSpan], region: Region, paths: list[Path] | None = None
+) -> list[TextSpan]:
+    """Text spans sitting in the label band just below the bottom spine.
+
+    When ``paths`` is supplied, a span at/left of the left spine that aligns
+    tightly (in y) with a detected y-axis tick mark is treated as a y-axis tick
+    label leaking into the bottom-left corner and excluded -- otherwise it would
+    merge with the x-origin label into a spurious x-tick value.
+    """
     x0, _, x1, y1 = region.bbox
+    ytick_ys = _y_tick_positions(paths, region)[0] if paths is not None else []
     out = []
     for t in texts:
         cx, cy = _center(t.bbox)
-        if y1 < cy <= y1 + _LABEL_BAND and x0 - _LABEL_BAND <= cx <= x1 + _LABEL_BAND:
-            out.append(t)
+        if not (y1 < cy <= y1 + _LABEL_BAND and x0 - _LABEL_BAND <= cx <= x1 + _LABEL_BAND):
+            continue
+        if cx <= x0 and any(abs(cy - yp) <= _YTICK_ALIGN_TOL for yp in ytick_ys):
+            continue  # bottom y-axis tick label straddling the corner
+        out.append(t)
     return out
 
 
@@ -441,7 +463,7 @@ def _ticks_from(
 
 def _x_ticks(paths: list[Path], texts: list[TextSpan], region: Region):
     positions, direction, length = _x_tick_positions(paths, region)
-    return (_ticks_from(positions, _x_label_spans(texts, region), paths, "x"),
+    return (_ticks_from(positions, _x_label_spans(texts, region, paths), paths, "x"),
             direction, length)
 
 
@@ -712,7 +734,7 @@ def detect_axes(
     """
     x0, y0, x1, y1 = region.bbox
 
-    x_labels = _x_label_spans(texts, region)
+    x_labels = _x_label_spans(texts, region, paths)
     x_mult = _x_axis_multiplier(texts, region, x_labels)
 
     x_ticks, x_dir, x_len = _x_ticks(paths, texts, region)

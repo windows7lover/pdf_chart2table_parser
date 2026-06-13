@@ -242,3 +242,51 @@ def test_group_labels_merges_mantissa_and_smaller_exponent():
     ]
     groups = _group_labels(spans, "y")
     assert len(groups) == 1
+
+
+# --- x-label band: a bottom y-axis tick label must not leak into the x-ticks --
+# Regression for 2507.19945_p22c1: the y-axis "5" tick label straddled the
+# bottom-left corner, landed in the x-label band, merged with the x-origin "0"
+# into a bogus "50" x-tick (a y-value mis-assigned to the x-axis).
+from pdf_chart2table.axes import _x_label_spans, _group_value
+
+
+def test_x_label_band_excludes_corner_ytick_label():
+    """A y-tick label aligned with a y-tick mark at the corner is not an x-label.
+
+    The x-origin label sits below the spine (not y-aligned with any y-tick) and
+    must still be kept, while the y-axis bottom label leaking into the corner is
+    dropped -- so it never merges into a spurious x-tick value.
+    """
+    # Left spine x0=100, bottom spine y1=200. Bottom y-tick mark is a thin
+    # horizontal segment at y~200, abutting the left spine.
+    region = Region(bbox=(100.0, 60.0, 220.0, 200.0))
+    # Bottom y-tick mark, centred just below the bottom spine (cy~200.6), as in
+    # the real chart where the corner label and its tick straddle the spine.
+    ytick = _make_path(
+        [(96.0, 200.2), (103.0, 200.2), (103.0, 201.0), (96.0, 201.0), (96.0, 200.2)],
+        fill=None, stroke=(0.0, 0.0, 0.0),
+    )
+    # y-axis "5" label: left of the spine, centred (cy~200.6) on the y-tick mark
+    # and just below the bottom spine -> it leaks into the x-label band.
+    y5 = _span("5", 94.5, 199.1, 97.5, 202.1)
+    # x-origin "0" label: just below the spine, NOT aligned with any y-tick.
+    x0lab = _span("0", 97.5, 203.5, 100.5, 206.5)
+    # a normal interior x-tick to prove ordinary labels survive.
+    x02 = _span("0.02", 124.0, 203.5, 136.0, 206.5)
+    texts = [y5, x0lab, x02]
+
+    # Without the y-tick geometry the corner label still leaks (old behaviour).
+    assert "5" in [t.text for t in _x_label_spans(texts, region)]
+    # With the y-tick paths, the corner y-label is excluded but x-labels remain.
+    kept = [t.text for t in _x_label_spans(texts, region, [ytick])]
+    assert "5" not in kept
+    assert "0" in kept and "0.02" in kept
+
+    # End to end: the leaked "5" no longer merges with "0" into a "50" x-tick.
+    groups = _group_labels(_x_label_spans(texts, region, [ytick]), "x")
+    vals = sorted(
+        v for v in (_group_value(g, []) for g in groups) if v is not None
+    )
+    assert 50.0 not in vals
+    assert 0.0 in vals and 0.02 in vals
