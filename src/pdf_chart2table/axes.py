@@ -621,10 +621,10 @@ def _y_axis_multiplier(
                 return val
     # Origin-style "x10^n" offset near the axis TOP, drawn as separate spans
     # ("x"/"10"/"n") rather than matplotlib's single "1eN".
-    return _superscript_mult(texts, region)
+    return _superscript_mult(texts, region, exclude=label_band_spans)
 
 
-def _superscript_mult(texts: list[TextSpan], region: Region) -> float:
+def _superscript_mult(texts: list[TextSpan], region: Region, exclude=()) -> float:
     """Detect a multi-span 'x10^n' multiplier near the top-left of the y-axis.
 
     The mantissa span is ``"10"`` or a leading-times form ``"×10"`` / ``"x10"``
@@ -632,12 +632,18 @@ def _superscript_mult(texts: list[TextSpan], region: Region) -> float:
     span may carry a unicode/ASCII minus (``"−4"`` / ``"-4"``) for small-value
     offsets like ``×10^-4``, so parse it as a signed integer rather than a bare
     digit run.
+
+    ``exclude`` are spans that are already tick LABELS: on a log axis the topmost
+    decade label "10^5" is itself a "10"+raised exponent near the axis top and
+    must NOT be mistaken for a ``x10^5`` multiplier (the 2003.03611 bug).
     """
     x0, y0, x1, _ = region.bbox
+    excl = set(id(s) for s in exclude)
     near = [t for t in texts
             if t.dir == (1.0, 0.0)
             and y0 - 22.0 <= _center(t.bbox)[1] <= y0 + 12.0
-            and x0 - 15.0 <= _center(t.bbox)[0] <= x0 + 0.5 * (x1 - x0)]
+            and x0 - 15.0 <= _center(t.bbox)[0] <= x0 + 0.5 * (x1 - x0)
+            and id(t) not in excl]
     for t in near:
         mant = t.text.strip().replace("×", "").replace("x", "").replace("X", "")
         if mant != "10":

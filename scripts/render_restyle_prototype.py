@@ -319,8 +319,15 @@ def _replot(ax, record, style, tex=False):
             if st.get("connect"):
                 ax.plot(xs, ys, color=col, alpha=alpha,
                         linewidth=st.get("linewidth") or 0.8, linestyle=ls, zorder=1)
-            ax.scatter(xs, ys, s=sz, color=col, label=lab, marker=mk, zorder=2,
-                       alpha=alpha)
+            # FACE / EDGE colour + EDGE width are recovered independently. A None
+            # face = open marker (no fill). Fall back to the series colour.
+            face = _color(st.get("marker_face"))
+            edge = _color(st.get("marker_edge")) or col
+            ew = st.get("marker_edge_width")
+            ax.scatter(xs, ys, s=sz, marker=mk, label=lab, zorder=2, alpha=alpha,
+                       facecolors=(face if face is not None else "none"),
+                       edgecolors=edge,
+                       linewidths=(ew if ew else None))
         else:
             ax.plot(xs, ys, color=col, alpha=alpha,
                     label=lab, linewidth=st.get("linewidth") or 1.2, linestyle=ls)

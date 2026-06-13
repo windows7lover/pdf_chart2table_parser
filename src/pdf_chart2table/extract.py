@@ -119,10 +119,16 @@ def _points_to_data(xs_px, ys_px, x_axis: Axis, y_axis: Axis) -> list[dict]:
 def _build_series(sm: SeriesMarks, x_axis: Axis, y_axis: Axis) -> Series:
     xs_px = [m.cx for m in sm.marks]
     ys_px = [m.cy for m in sm.marks]
+    # An OPEN marker (white/no fill, coloured edge -- e.g. an open circle) carries
+    # its identity in the STROKE, not the white fill. Preferring a white fill makes
+    # the series colour white, which the renderer then drops as "background" -> the
+    # markers vanish. Use the edge stroke whenever the fill is absent or white.
+    fill = sm.fill
+    color = sm.stroke if (fill is None or min(fill) > 0.9) else fill
     return Series(
         label=None,
         marker=_MARKER_CODE.get(sm.shape),
-        color=sm.fill or sm.stroke,
+        color=color or fill,
         points=_points_to_data(xs_px, ys_px, x_axis, y_axis),
     )
 

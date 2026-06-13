@@ -277,9 +277,22 @@ def match_series_styles(paths, region_bbox, series):
         if alpha is None and small_paths:
             alpha = next((p.fill_alpha for p in small_paths
                           if p.fill_alpha is not None), None)
+        # Full marker styling -- FACE colour, EDGE colour and EDGE width are
+        # independent (e.g. a red-filled circle with a black edge, or an open
+        # circle = white/no face + coloured edge). Recover each from the marker
+        # glyph paths so the reconstruction matches.
+        def _modal(vals):
+            return list(max(set(vals), key=vals.count)) if vals else None
+        m_face = _modal([_round_color(p.fill) for p in small_paths if p.fill is not None])
+        m_edge = _modal([_round_color(p.stroke) for p in small_paths if p.stroke is not None])
+        m_ew = _median([p.width for p in small_paths if p.width is not None])
+        if m_face is not None and min(m_face) > 0.9:
+            m_face = None  # white fill -> OPEN marker (renderer uses facecolor none)
         out.append({"width": best.width, "linestyle": ls,
                     "markersize": _median(smalls), "marker_shape": mshape,
-                    "connect": connect, "alpha": alpha})
+                    "connect": connect, "alpha": alpha,
+                    "marker_face": m_face, "marker_edge": m_edge,
+                    "marker_edge_width": m_ew})
 
     # Axis frame/spine stroke width: dark, axis-aligned border lines near the
     # region edge, or the plot-frame rectangle. Sets spine + tick line weight.
@@ -867,6 +880,11 @@ def build_style(d: dict, series_styles: list) -> dict:
             # transparency (None = opaque); renderer passes to plot/scatter alpha
             "alpha": (round(stl["alpha"], 2)
                       if stl.get("alpha") is not None else None),
+            # marker face / edge colour + edge width (independent; face None = open)
+            "marker_face": stl.get("marker_face"),
+            "marker_edge": stl.get("marker_edge"),
+            "marker_edge_width": (round(stl["marker_edge_width"], 2)
+                                  if stl.get("marker_edge_width") else None),
         })
     title = d.get("title")
     title = title.get("text") if isinstance(title, dict) else title

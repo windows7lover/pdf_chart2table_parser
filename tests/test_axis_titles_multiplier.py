@@ -66,3 +66,16 @@ def test_superscript_times10_glued_mantissa_negative_exponent():
         _hspan("−4", 358, 334, 365, 340),         # raised, unicode-minus exponent
     ]
     assert _y_axis_multiplier(texts, REGION, []) == 1e-4
+
+
+def test_log_decade_label_not_read_as_multiplier():
+    """A log y-axis labelled with decades '10^5..10^0' (each = a '10' mantissa +
+    a raised exponent span) must NOT have its topmost '10^5' tick mistaken for a
+    'x10^5' axis multiplier (the 2003.03611_p8c3 bug). With the decade labels
+    passed as the label-band spans, the multiplier must come back 1.0."""
+    x0, y0 = 347.0, 344.0
+    spans = []
+    for exp, yc in [("5", 350), ("3", 372), ("2", 394), ("0", 410)]:
+        spans.append(TextSpan(text="10", bbox=(x0 - 22, yc - 3, x0 - 12, yc + 3)))
+        spans.append(TextSpan(text=exp, bbox=(x0 - 11, yc - 6, x0 - 6, yc)))  # raised
+    assert _y_axis_multiplier(spans, REGION, spans) == 1.0
