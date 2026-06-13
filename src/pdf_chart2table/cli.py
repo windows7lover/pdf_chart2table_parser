@@ -22,7 +22,9 @@ import glob
 import os
 import sys
 
-from . import io_store, pdf_vector
+import fitz
+
+from . import io_store, pdf_vector, style as _style
 from .arrows import detect_arrows
 from .calibrate import calibrate_panels
 from .error_bars import detect_error_bars
@@ -390,6 +392,9 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
     wanted = set(_parse_pages(pages_spec, pdf_vector.page_count(pdf)))
     page_list = pdf_vector.load_pdf(pdf, pages=sorted(wanted))
 
+    # Source fitz doc, kept open for per-span font/flags during style recovery
+    # (the only data the normalized TextSpan does not carry). Closed at the end.
+    fitz_doc = fitz.open(pdf)
     rows: list[dict] = []
     for page in page_list:
         if page.page_index not in wanted:
@@ -477,7 +482,12 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
                 grid=grid,
                 confidence=1.0 if (x_axis.calibration and y_axis.calibration) else 0.5,
             )
+            # Self-contained STYLE block: rendering attributes recovered at parse
+            # time so a downstream renderer never re-opens the source PDF for style.
+            record["style"] = _style.build_chart_style(
+                record, page, fitz_doc[page.page_index])
             rows.append(io_store.write_chart(record, outdir, page_no, k))
+    fitz_doc.close()
     return rows
 
 
