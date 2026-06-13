@@ -112,6 +112,12 @@ _CLUSTER_MERGE_GAP = 12.0
 # above the 0.30 rule-of-thumb so dense legends in small panels are not dropped;
 # the mark extractor keeps an independent 0.25 backstop.
 _LEGEND_MAX_PLOT_FRAC = 0.40
+# When recovering legend swatches by x-column (for mangled / glyph-path labels),
+# a swatch is part of the legend only when it is vertically contiguous with an
+# emitted entry row: within this multiple of the row height above or below it.
+# This stops a data marker series whose points span the label's x-column from
+# being swept in (which would snap the legend box onto a row of real data).
+_LEGEND_RECOVER_VGAP_FRAC = 1.6
 # A legend frame is a stroked, (near-)unfilled rectangle inside the region whose
 # area is at most this fraction of the region (it is a sub-box, not the axes
 # patch / spine frame which fills most of the region).
@@ -614,13 +620,40 @@ def _detect_legend(
     # fake marker/curve series. Recover them: any swatch aligned in the emitted
     # entries' x-column is part of the legend. _legend_box clusters by tight
     # vertical stacking, so only swatches contiguous with the legend are kept.
+    #
+    # The x-column alone is NOT sufficient: a single-column data scatter / a
+    # marker series whose points happen to span the label's x-range will have
+    # markers at many DIFFERENT y-levels that all fall in the column. Sweeping
+    # those in lets _legend_box snap the legend onto the densest row of DATA
+    # markers (dropping them from extraction). Require vertical contiguity with
+    # the emitted entry rows too: a swatch is part of the legend only when it
+    # sits within a tight vertical band of an existing entry row (real legends
+    # stack tightly), not scattered across the plot height.
     if entry_boxes and pick_cols:
         cx0 = min(c[0] for c in pick_cols)
         cx1 = max(c[1] for c in pick_cols)
-        for p in swatches:
-            scx = 0.5 * (p.bbox[0] + p.bbox[2])
-            if cx0 - 4.0 <= scx <= cx1 + 4.0:
-                entry_boxes.append(p.bbox)
+        # Reference row height for the contiguity band (tallest entry row).
+        row_h = max(eb[3] - eb[1] for eb in entry_boxes)
+        vband = _LEGEND_RECOVER_VGAP_FRAC * max(row_h, 1.0)
+        # Candidate swatches in the entry x-column.
+        col_swatches = [p for p in swatches
+                        if cx0 - 4.0 <= 0.5 * (p.bbox[0] + p.bbox[2]) <= cx1 + 4.0]
+        # Grow the legend column by VERTICAL CONTIGUITY (transitive): a swatch
+        # joins only when its vertical gap to an already-accepted entry/swatch row
+        # is within the band. A real stacked legend chains row-to-row; data
+        # markers scattered down the column sit a full data-gap below the legend
+        # text row (> band) and never chain in, so they stay as data.
+        accepted = list(entry_boxes)
+        added = True
+        while added:
+            added = False
+            for p in list(col_swatches):
+                if any(p.bbox[1] - a[3] <= vband and a[1] - p.bbox[3] <= vband
+                       for a in accepted):
+                    accepted.append(p.bbox)
+                    entry_boxes.append(p.bbox)
+                    col_swatches.remove(p)
+                    added = True
 
     return out, _legend_box(entry_boxes, region, paths)
 

@@ -807,6 +807,17 @@ def build_style(d: dict, series_styles: list) -> dict:
         # stroke width is page-space geometry (like coords/marker size), NOT
         # pre-transform like font size -> use as-is, do not apply the scale.
         lw_pt = round(min(6.0, max(0.3, lw)), 2) if lw else None
+        # marker_shape normally comes from same-colour glyph geometry. But a
+        # marker drawn as a coloured FILL blob with a separate edge OUTLINE
+        # (e.g. red-filled square with a black square edge) is colour-matched to
+        # the fill, whose flattened outline reads as a disk 'o' -- losing the real
+        # square. The extractor merged that outline into the series and recorded
+        # its true shape on ``marker``; prefer it when the geometry pass only saw
+        # the generic disk so the marker renders as the shape the source drew.
+        mshape = stl.get("marker_shape")
+        emarker = s.get("marker")
+        if mshape in (None, "o") and emarker and emarker != "o":
+            mshape = emarker
         series.append({
             "label": _clean(s.get("label")),
             "color": col,
@@ -816,7 +827,7 @@ def build_style(d: dict, series_styles: list) -> dict:
             "linestyle": ls,
             # marker diameter is page-space geometry (no scale); only for scatter
             "markersize": (round(md, 2) if (md and is_scatter) else None),
-            "marker_shape": stl.get("marker_shape"),  # from glyph geometry
+            "marker_shape": mshape,
             "connect": bool(stl.get("connect")),      # draw connecting line too
         })
     title = d.get("title")

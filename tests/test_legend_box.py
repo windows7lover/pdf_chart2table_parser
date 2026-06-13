@@ -37,3 +37,25 @@ def test_legend_box_extends_over_mangled_entries():
     # the box must reach down past the labelled row to cover the lower swatches
     assert bbox[3] >= 104, f"legend box too short: {bbox}"
     assert bbox[1] <= 72
+
+
+def test_data_markers_in_label_column_not_swept_into_legend():
+    """Regression (2302.01559_p38c3): a single legend/annotation label near the
+    top of the plot, whose x-column happens to overlap a data marker series, must
+    NOT have the scattered data markers swept into the legend box. Those markers
+    sit a full data-gap below the label row (not a tight legend stack), so the
+    column-recovery must reject them -- otherwise the legend box snaps onto a row
+    of real data and drops those points from extraction.
+    """
+    # One labelled entry at the top (row y~70) with its own swatch.
+    label_y = 70
+    swatch_at_label = _swatch(462, label_y)
+    texts = [_text("zhat", 470, label_y)]
+    # Data markers sharing the label's x-column but scattered DOWN the plot,
+    # spaced far below the label row (a real data series, not a legend stack).
+    data = [_swatch(462, 110), _swatch(462, 150),
+            _swatch(462, 190), _swatch(462, 110 + 35)]
+    entries, bbox = _detect_legend(REGION, [swatch_at_label] + data, texts)
+    assert bbox is not None
+    # The box must stay at the label row, NOT extend down over the data markers.
+    assert bbox[3] <= label_y + 12, f"legend box swept over data: {bbox}"

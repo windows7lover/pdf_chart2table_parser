@@ -453,12 +453,47 @@ def _same_positions(a: SeriesMarks, b: SeriesMarks) -> bool:
     return True
 
 
+def _coalesce_duplicate(kept: SeriesMarks, dup: SeriesMarks) -> None:
+    """Fold a coincident duplicate group ``dup`` into ``kept`` (same positions).
+
+    One physical marker can be emitted as two overlaid paths: a filled blob plus a
+    separate stroked OUTLINE (e.g. a red-filled glyph with a black square edge).
+    The exact-colour grouping splits these into two same-position groups; the
+    surviving series must describe the SINGLE real marker, not just whichever path
+    was drawn first.  Reconcile the SHAPE so the marker renders faithfully:
+
+      * shape: prefer the duplicate's recognised non-blob outline shape when
+        ``kept`` only has the rounded fill blob (``circle``/generic ``marker``).
+        A stroked outline carries the true glyph geometry (square / diamond / …);
+        the filled interior flattens to a near-circular blob.
+
+    Only the shape is reconciled. Fill/stroke colours are deliberately left as the
+    kept group's: the series colour is ``fill or stroke`` (the visible glyph
+    colour), and overwriting the kept stroke here would defeat the downstream
+    ``_merge_stroke_optional`` pass, which folds a stroke-None group into a
+    matching ``(shape, fill)`` stroked group (e.g. a ``cross`` series drawn as a
+    fill-only group at some points and a fill+stroke group at others). Positions
+    are unchanged (the groups already coincide). Conservative: shape is only
+    overridden blob -> recognised shape, never the reverse, so genuine
+    circle/star series are untouched.
+    """
+    _BLOB_SHAPES = {"circle", "marker"}
+    if kept.shape in _BLOB_SHAPES and dup.shape not in _BLOB_SHAPES:
+        kept.shape = dup.shape
+
+
 def _merge_duplicate_series(groups: list[SeriesMarks]) -> list[SeriesMarks]:
     """Collapse groups that mark identical positions (filled+stroke duplicates)
-    into one series, keeping the first occurrence; distinct series stay separate."""
+    into one series, keeping the first occurrence; distinct series stay separate.
+
+    The surviving series adopts the true outline SHAPE of its coincident
+    duplicates so a marker drawn as a filled blob plus a separate stroked outline
+    renders as the single real glyph (see ``_coalesce_duplicate``)."""
     kept: list[SeriesMarks] = []
     for sm in groups:
-        if any(_same_positions(sm, k) for k in kept):
+        dup_of = next((k for k in kept if _same_positions(sm, k)), None)
+        if dup_of is not None:
+            _coalesce_duplicate(dup_of, sm)
             continue
         kept.append(sm)
     return kept

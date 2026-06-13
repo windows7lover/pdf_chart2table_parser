@@ -72,6 +72,42 @@ def test_no_plot_box_keeps_all_marks():
     assert sum(len(s.marks) for s in series) == 2
 
 
+def _circle(cx, cy, *, fill=None, stroke=None, r=2.0, n=48):
+    import math
+    pts = [(cx + r * math.cos(2 * math.pi * k / n),
+            cy + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+    pts.append(pts[0])
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=stroke, fill=fill, width=1.0, dashes=None,
+                 closed=True, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def test_filled_blob_plus_square_outline_merges_to_square():
+    """Regression (2302.01559_p38c3): a marker drawn as a coloured FILL blob
+    (flattens to a ~circle) PLUS a coincident stroked square OUTLINE in a
+    different edge colour is ONE physical glyph. The merged series must adopt the
+    square shape and combine fill + edge colour, not keep the disc blob.
+
+    Before the fix, the two same-position groups collapsed to whichever was drawn
+    first (the red disc), so the markers reported as circles ('o') and the real
+    square shape was lost.
+    """
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(8)), text_indices=[])
+    centers = [(130, 250), (170, 210), (210, 250), (250, 210)]
+    paths = []
+    for cx, cy in centers:
+        paths.append(_circle(cx, cy, fill=(1.0, 0.0, 0.0), stroke=(1.0, 0.0, 0.0)))
+        paths.append(_square(cx, cy, stroke=(0.0, 0.0, 0.0)))  # black edge outline
+    series = classify_marks(region, paths, [])
+    assert len(series) == 1
+    sm = series[0]
+    assert len(sm.marks) == 4
+    assert sm.shape == "square"          # outline shape wins over the fill blob
+    assert sm.fill == (1.0, 0.0, 0.0)    # red fill kept (series colour = fill)
+
+
 def test_distinct_marker_series_not_merged():
     # Two square series at DIFFERENT positions stay separate.
     region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
