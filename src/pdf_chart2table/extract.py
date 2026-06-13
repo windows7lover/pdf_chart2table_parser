@@ -40,7 +40,7 @@ from .calibrate import calibrate_panels, to_data_array
 from .lines import SeriesLine
 from .marks import SeriesMarks, is_sparse_on_dense
 from .plot_region import detect_regions
-from .refiners import drop_spurious_lines
+from .refiners import drop_spurious_lines, refine_dropped_curve
 from .model import (
     Axis,
     ChartResult,
@@ -314,6 +314,19 @@ def extract_region(
 
     if is_sparse_on_dense(region, paths, n_points):
         return ChartResult(status="skipped", skip_reason="sparse markers on dense chart")
+
+    # Residual method step 2 (AFTER the precision guards, so promotion can never
+    # resurrect a region those guards rejected): promote a genuinely-DROPPED
+    # curve back into the series set. Operates only on the residual (in-region
+    # paths NOT claimed as a marker / curve / fill by classify_roles) and is
+    # gated to NOT duplicate an already-extracted curve, reject adjacent-subplot
+    # bleed, exclude decoration, and require sane in-range calibration. A no-op
+    # on charts with no dropped curve (residual all decoration).
+    residual_paths = [paths[i] for i in region.path_indices
+                      if i not in region_roles.roles]
+    series, _promoted = refine_dropped_curve(
+        series, residual_paths, region, (x_axis, y_axis)
+    )
 
     table = ChartTable(
         source=source,

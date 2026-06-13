@@ -7,8 +7,14 @@ a pure line chart are NOT touched.
 """
 from __future__ import annotations
 
-from pdf_chart2table.model import Series
-from pdf_chart2table.refiners import drop_spurious_lines, is_decoration_line
+from pdf_chart2table.model import Axis, Path, Region, Series
+from pdf_chart2table.refiners import (
+    drop_spurious_lines,
+    is_decoration_line,
+    refine_decoration,
+    refine_dropped_curve,
+    refine_region_overcapture,
+)
 
 
 def _series(marker, pix):
@@ -70,3 +76,102 @@ def test_pure_line_chart_untouched():
     line = _series(None, [(i, i) for i in range(50)])  # even a straight line
     kept, reasons = drop_spurious_lines([line])
     assert kept == [line] and reasons == []
+
+
+# ===========================================================================
+# Residual step-2 refiners: refine_dropped_curve / region_overcapture /
+# decoration. Synthetic fixtures exercise the PROMOTE and REJECT/dedup paths.
+# ===========================================================================
+
+# Plot box: pixel x in [0, 100], y in [0, 100] (top-left origin). Identity-ish
+# calibration so a vertex at px maps to data ~= px.
+def _axes():
+    cal = {"scale": "linear", "a": 1.0, "b": 0.0, "r2": 1.0}
+    x = Axis(scale="linear", pixel_range=(0.0, 100.0),
+             data_range=(0.0, 100.0), calibration=cal)
+    y = Axis(scale="linear", pixel_range=(0.0, 100.0),
+             data_range=(0.0, 100.0), calibration=cal)
+    return x, y
+
+
+def _region():
+    return Region(bbox=(0.0, 0.0, 100.0, 100.0))
+
+
+def _path(pix, stroke=(0.2, 0.4, 0.9)):
+    xs = [x for x, _ in pix]
+    ys = [y for _, y in pix]
+    return Path(points=pix, stroke=stroke, fill=None, width=1.0,
+                dashes=None, closed=False,
+                bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def test_dropped_curve_promoted():
+    # A long wavy residual polyline, inside the plot box, NOT overlapping an
+    # existing series, calibrating in range -> PROMOTE as a new series.
+    import math
+    existing = [_series("o", [(5, 90), (15, 88), (25, 85)])]  # unrelated scatter
+    curve = [(10 + i, 50 + 20 * math.sin(i / 8.0)) for i in range(40)]
+    out, reasons = refine_dropped_curve(
+        existing, [_path(curve)], _region(), _axes())
+    assert len(out) == len(existing) + 1, "genuine dropped curve must be promoted"
+    assert any("promoted" in r for r in reasons)
+    assert out[-1].marker is None and len(out[-1].points) == 40
+
+
+def test_dropped_curve_dedup_rejected():
+    # Residual path duplicates an existing series (same geometry) -> REJECT.
+    import math
+    pts = [(10 + i, 50 + 20 * math.sin(i / 8.0)) for i in range(40)]
+    existing = [Series(label=None, marker=None, color=(0.2, 0.4, 0.9),
+                       points=[{"x": x, "y": y, "x_px": x, "y_px": y}
+                               for x, y in pts])]
+    out, reasons = refine_dropped_curve(
+        existing, [_path(pts)], _region(), _axes())
+    assert out == existing and reasons == [], "duplicate residual must not be re-added"
+
+
+def test_overcapture_rejected():
+    # A coherent residual block that lies mostly OUTSIDE the plot box (an
+    # adjacent subplot bled in) must NOT be promoted.
+    import math
+    far = [(200 + i, 250 + 20 * math.sin(i / 8.0)) for i in range(40)]  # off-box
+    out, reasons = refine_dropped_curve(
+        [], [_path(far)], _region(), _axes())
+    assert out == [] and reasons == [], "adjacent-subplot bleed must be rejected"
+    # the guard itself:
+    plot_box = (0.0, 0.0, 100.0, 100.0)
+    assert refine_region_overcapture(far, plot_box) is True
+    inside = [(10 + i, 40 + i) for i in range(40)]
+    assert refine_region_overcapture(inside, plot_box) is False
+
+
+def test_decoration_not_promoted():
+    # Residual that is a connector through markers / straight fit must NOT be
+    # promoted by refine_dropped_curve (refine_decoration guard).
+    markers = [(10, 10), (40, 40), (70, 12), (90, 50)]
+    marks = _series("o", markers)
+    straight = [(5 + i * 1.4, 5 + i * 1.4) for i in range(45)]  # R^2=1 fit
+    out, reasons = refine_dropped_curve(
+        [marks], [_path(straight)], _region(), _axes())
+    assert len(out) == 1 and reasons == [], "straight fit residual must not be promoted"
+    # the guard itself:
+    marker_px = markers
+    assert refine_decoration(straight, marker_px, diag=140.0) is True
+    wavy = [(10 + i, 50 + ((i - 20) ** 2) * 0.03) for i in range(40)]
+    assert refine_decoration(wavy, marker_px, diag=140.0) is False
+    assert refine_decoration(straight, [], diag=140.0) is False  # no markers -> keep
+
+
+def test_dropped_curve_out_of_range_rejected():
+    # A short residual or one that calibrates out of range -> REJECT.
+    # (calibration slack is small; place the path so its data lands far below 0.)
+    cal = {"scale": "linear", "a": 1.0, "b": 0.0, "r2": 1.0}
+    x = Axis(scale="linear", pixel_range=(40.0, 60.0),
+             data_range=(40.0, 60.0), calibration=cal)
+    y = Axis(scale="linear", pixel_range=(40.0, 60.0),
+             data_range=(40.0, 60.0), calibration=cal)
+    import math
+    curve = [(10 + i, 50 + 20 * math.sin(i / 8.0)) for i in range(40)]
+    out, reasons = refine_dropped_curve([], [_path(curve)], _region(), (x, y))
+    assert out == [] and reasons == [], "out-of-range residual must not be promoted"
