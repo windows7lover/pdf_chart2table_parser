@@ -139,6 +139,7 @@ def _build_line_series(sl: SeriesLine, x_axis: Axis, y_axis: Axis) -> Series:
         marker=None,
         color=sl.color,
         points=_points_to_data(xs_px, ys_px, x_axis, y_axis),
+        dashes=sl.dashes,
     )
 
 

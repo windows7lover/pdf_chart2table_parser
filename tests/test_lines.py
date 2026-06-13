@@ -69,6 +69,26 @@ def test_dashed_saturated_curve_extracted():
     assert series[0].dashes == "[2 2] 0"
 
 
+def test_dash_recovered_from_gapped_fragments():
+    # 2205.10303 pattern: a dashed fit is drawn as MANY short SOLID fragments
+    # (each dashes=None), so the merged curve would look solid. classify_lines
+    # must RECOVER a "dashed" signal onto it (so the renderer draws it dashed).
+    blue = (0.0, 0.0, 1.0)
+    frags = [_poly([(120 + 6 * i, 250 - 3 * i), (122 + 6 * i, 249 - 3 * i)], blue)
+             for i in range(12)]  # 12 short gapped collinear solid fragments
+    series, _ = _classify(frags)
+    assert len(series) == 1
+    assert series[0].dashes == "dashed", "gapped-fragment fit must be tagged dashed"
+
+
+def test_continuous_solid_curve_stays_solid():
+    # A single continuous solid polyline is NOT dash-recovered (no fragmentation).
+    solid = _poly([(120 + 4 * i, 250 - 2 * i) for i in range(20)], (0.0, 0.0, 1.0))
+    series, _ = _classify([solid])
+    assert len(series) == 1
+    assert series[0].dashes is None, "a continuous solid curve must stay solid"
+
+
 def test_dashed_black_curve_extracted():
     # An unsaturated (black) curve is kept ONLY when dashed (not a solid grid).
     dashed = _poly([(120, 250), (200, 200), (280, 170)], (0.0, 0.0, 0.0), dashes="[3 3] 0")

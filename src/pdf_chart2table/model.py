@@ -123,6 +123,14 @@ class Series:
     marker: str | None = None
     color: Color | None = None
     points: list[dict] = field(default_factory=list)
+    # Dash form of the source line: the raw PDF dash string, or "dashed" when a
+    # dash was RECOVERED from a curve drawn as many gapped collinear fragments
+    # (a dashed fit rasterised into short solid sub-strokes -- see
+    # lines._recovered_dashes). None for a continuous solid curve / a marker
+    # series. Carried for style-faithful reconstruction; NOT serialized to the
+    # JSON record (io_store emits only label/marker/color/points), so the data
+    # schema is unchanged.
+    dashes: str | None = None
 
 
 @dataclass

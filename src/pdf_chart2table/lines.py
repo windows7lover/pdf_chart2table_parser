@@ -80,6 +80,16 @@ _MIN_SEGMENT_ENDPOINT_GAP = 0.5     # start->end gap as a fraction of the longer
 # tiling segments that together cover a wide fraction of the region width.
 _MIN_SEGMENT_COUNT = 6
 _MIN_SEGMENT_TOTAL_SPAN_FRAC = 0.5
+# Dash recovery: a fit drawn as many short GAPPED collinear fragments is merged
+# into one curve whose every source fragment reports ``dashes=None`` (each piece
+# is itself a tiny solid stroke), so the curve looks solid. When a curve is
+# assembled from at least this many short fragments separated by gaps -- i.e. the
+# dash pattern was rasterised into the fragment set -- we RECOVER a "dashed"
+# signal onto it so downstream (style-faithful reconstruction) knows it is
+# dashed. Only applies to curves whose source paths were all solid short
+# fragments (the fragmentation IS the dash); a curve already carrying a real
+# dash pattern keeps it.
+_MIN_DASH_RECOVERY_FRAGMENTS = 6
 # An unsaturated (black/gray) stroke qualifies as a DATA curve only if it varies
 # in BOTH axes: its shorter bbox side is at least this fraction of its longer
 # side. Gridlines / spines are ~1-D (one side ~0) and fall below it, so they are
@@ -574,6 +584,23 @@ def _split_into_curves(parts: list[Path]) -> list[list[Path]]:
     return clusters
 
 
+def _recovered_dashes(parts: list[Path], exemplar: Path) -> str | None:
+    """Recover a dash signal for a curve drawn as gapped short fragments.
+
+    A dashed fit/guide is often rasterised as MANY tiny solid sub-strokes (each
+    ``dashes=None``), so the merged curve looks solid. When the curve is built
+    from at least ``_MIN_DASH_RECOVERY_FRAGMENTS`` such short solid fragments the
+    fragmentation itself is the dash pattern -> return ``"dashed"``. Otherwise
+    return the exemplar's own dash form (a genuinely dashed path keeps it, a
+    single continuous solid path stays solid)."""
+    if (exemplar.dashes is None
+            and len(parts) >= _MIN_DASH_RECOVERY_FRAGMENTS
+            and all(p.dashes is None for p in parts)
+            and all(len(p.points) <= _MAX_FRAG_VERTS for p in parts)):
+        return "dashed"
+    return exemplar.dashes
+
+
 def _merge_fragments(parts: list[Path]) -> list[tuple[float, float]] | None:
     """Join many short same-colour segments into one x-ordered polyline, or None.
 
@@ -807,9 +834,11 @@ def classify_lines(
         return out if len(out) >= _MIN_VERTS else None
 
     # Build candidate curves per (colour, dash-form): x-sorted verts, exemplar
-    # path, and the true draw-order vertices (or None for multi-path merges).
+    # path, the true draw-order vertices (or None for multi-path merges), and the
+    # recovered dash form (gapped-fragment curves are tagged "dashed").
     candidates: dict[tuple, list[tuple[list[tuple[float, float]], Path,
-                                       list[tuple[float, float]] | None]]] = defaultdict(list)
+                                       list[tuple[float, float]] | None,
+                                       str | None]]] = defaultdict(list)
     reasons: list[str] = []
     for (color, form, _wb), parts in long_groups.items():
         verts = _merge_long(parts)
@@ -832,14 +861,14 @@ def classify_lines(
                     continue
                 if _is_connector(v, color, form):
                     continue
-                candidates[color].append((v, sg[0], _raw_order(sg)))
+                candidates[color].append((v, sg[0], _raw_order(sg), sg[0].dashes))
             continue
         verts = _box_ok(verts)
         if verts is None:
             continue
         if _is_connector(verts, color, form):
             continue
-        candidates[color].append((verts, parts[0], _raw_order(parts)))
+        candidates[color].append((verts, parts[0], _raw_order(parts), parts[0].dashes))
     for (color, form, _wb), parts in frag_groups.items():
         verts = _merge_fragments(parts)
         if verts is None:
@@ -849,7 +878,8 @@ def classify_lines(
             continue
         if _is_connector(verts, color, form):
             continue
-        candidates[color].append((verts, parts[0], _raw_order(parts)))
+        candidates[color].append((verts, parts[0], _raw_order(parts),
+                                  _recovered_dashes(parts, parts[0])))
     rw = region.bbox[2] - region.bbox[0]
     for (color, form, _wb), parts in seg_groups.items():
         # A wiggly curve drawn as many dense tiling segments. Require enough
@@ -872,20 +902,23 @@ def classify_lines(
                 continue
             if _is_connector(verts, color, form):
                 continue
-            candidates[color].append((verts, sg[0], _raw_order(sg)))
+            # A wiggly curve drawn as many short tiling segments is the same
+            # gapped-fragment pattern as a dashed fit -> recover dashes.
+            candidates[color].append((verts, sg[0], _raw_order(sg),
+                                      _recovered_dashes(sg, sg[0])))
 
     # Per colour: keep candidate forms with distinct y-trajectories; dedup forms
     # that trace the same path (one curve drawn twice -> keep the widest).
     series: list[SeriesLine] = []
     for color, cands in candidates.items():
         kept: list[tuple[list[tuple[float, float]], Path,
-                         list[tuple[float, float]] | None]] = []
-        for verts, ex, raw in sorted(cands, key=lambda c: -_xspan(c[0])):
+                         list[tuple[float, float]] | None, str | None]] = []
+        for verts, ex, raw, dash in sorted(cands, key=lambda c: -_xspan(c[0])):
             if any(_same_curve(verts, k[0]) for k in kept):
                 continue
-            kept.append((verts, ex, raw))
-        for verts, ex, raw in kept:
+            kept.append((verts, ex, raw, dash))
+        for verts, ex, raw, dash in kept:
             series.append(SeriesLine(color=ex.stroke, width=ex.width,
-                                     dashes=ex.dashes, points=verts,
+                                     dashes=dash, points=verts,
                                      raw_points=raw or []))
     return series, reasons
