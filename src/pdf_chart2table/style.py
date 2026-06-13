@@ -643,17 +643,21 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
                  if s.get("size") and _norm(s["text"]) in tickset)
     tick_size = (tsz[len(tsz) // 2] * scale) if tsz else base
 
-    # legend: one matched span PER label (dedup -> can't exceed #series)
+    # legend: one matched span PER label (dedup -> can't exceed #series). PREFER
+    # an EXACT normalized match: a short label like '3' (from '=3°') would loosely
+    # match scattered tick spans ('300', '0.3') and blow the legend bbox up across
+    # the whole plot (2009.07658 bug); the real legend entry matches exactly.
     labset = [_norm(l) for l in (series_labels or []) if l]
     matched, used = [], set()
     for lk in labset:
-        for i, s in enumerate(spans):
-            if i in used:
-                continue
-            if _label_match(_norm(s["text"]), lk):
-                matched.append(s)
-                used.add(i)
-                break
+        exact = [(i, s) for i, s in enumerate(spans)
+                 if i not in used and _norm(s["text"]) == lk]
+        loose = [(i, s) for i, s in enumerate(spans)
+                 if i not in used and _label_match(_norm(s["text"]), lk)]
+        pick = exact[0] if exact else (loose[0] if loose else None)
+        if pick:
+            matched.append(pick[1])
+            used.add(pick[0])
     # The legend is only present on THIS panel if at least half its entry labels
     # are found as text inside the region; otherwise it lives on another panel
     # and must NOT be drawn on the reconstruction.
@@ -676,15 +680,23 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         sw = 3.2 * (matched[0].get("size") or base or 8)
         wfrac = (mx1 - (mx0 - sw)) / w
         hfrac = (my1 - my0) / h
-        legend = {
-            "orientation": "horizontal" if horizontal else "vertical",
-            "ncol": int(ncol),
-            "anchor": [round(cxf, 3), round(cyf, 3)],
-            "fontsize": (round(matched[0]["size"] * scale, 2)
-                         if matched[0].get("size") else base),
-            "bold": bold_reliable and any(_is_bold(s) for s in matched),
-            "w_frac": round(wfrac, 4), "h_frac": round(hfrac, 4),
-        }
+        # Plausibility gate: a real legend is a COMPACT cluster. If the matched
+        # spans sprawl across most of the plot, the match is unreliable (short
+        # labels catching scattered ticks) -> emit NO layout (legend stays None)
+        # so the renderer auto-places a default-size legend rather than an
+        # oversized, misplaced one.
+        if wfrac > 0.7 or hfrac > 0.8:
+            legend = None
+        else:
+            legend = {
+                "orientation": "horizontal" if horizontal else "vertical",
+                "ncol": int(ncol),
+                "anchor": [round(cxf, 3), round(cyf, 3)],
+                "fontsize": (round(matched[0]["size"] * scale, 2)
+                             if matched[0].get("size") else base),
+                "bold": bold_reliable and any(_is_bold(s) for s in matched),
+                "w_frac": round(wfrac, 4), "h_frac": round(hfrac, 4),
+            }
 
     # In-graph text ANNOTATIONS: spans inside the plot box that are not ticks,
     # axis/chart titles, or legend entries (e.g. "B = 620 mT", "T = 2 K", "x10^5",
