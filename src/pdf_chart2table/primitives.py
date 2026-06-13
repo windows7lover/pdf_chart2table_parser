@@ -202,11 +202,12 @@ def shape_of(p: Path) -> str:
         # the position of the top vertex relative to the centroid x.
         return "diamond" if is_diamond_geometry(p) else "square"
     if n == 4:
-        if filled:
-            return "triangle"
-        # A 4-vertex OPEN path is one of: a triangle outline (3 distinct corners,
-        # the 4th repeats the first to close), or a cross/plus glyph drawn as two
-        # crossing strokes flattened into one polyline. Distinguish by geometry.
+        # A 4-vertex path is one of: a triangle (3 distinct corners, the 4th
+        # repeats the first to close), or a cross/plus glyph drawn as two crossing
+        # strokes flattened into one polyline (4 distinct endpoints, no repeat).
+        # Distinguish by DISTINCT-vertex count, not by the fill flag: matplotlib
+        # scatter emits ``×``/``+`` strokes with a non-None fill too, so a fill
+        # check alone would mis-send every filled cross/plus to "triangle".
         unique = list(dict.fromkeys(p.points))
         if len(unique) == 3:
             return "triangle"

@@ -44,7 +44,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from PIL import Image
 
-from pdf_chart2table import pdf_vector
+from pdf_chart2table import pdf_vector, primitives
 
 _STYLE_NOTE = ("STYLE ONLY -- rendering attributes used to redraw the extracted "
                "data in the original chart's style; NOT extracted measurements.")
@@ -178,10 +178,21 @@ def _star_spikes(pts):
 
 def _marker_shape(p):
     """Classify a small marker glyph by its outline geometry (overrides the
-    extractor's often-wrong marker field): disk 'o', star '*', square 's'."""
+    extractor's often-wrong marker field): disk 'o', star '*', square 's',
+    cross 'x', plus '+'."""
     pts = p.points
     if len(pts) < 3:
         return None
+    # A cross/plus is an OPEN, low-2D-symmetry stroked glyph (two crossing
+    # strokes) rather than a closed/filled square or triangle. The radius-CV
+    # logic below would call it a square, so resolve it first via the extractor's
+    # vertex-geometry classifier (4 distinct endpoints at bbox corners -> ×, at
+    # edge midpoints -> +).
+    shp = primitives.shape_of(p)
+    if shp == "cross":
+        return "x"
+    if shp == "plus":
+        return "+"
     cx = sum(x for x, _ in pts) / len(pts)
     cy = sum(y for _, y in pts) / len(pts)
     rs = [((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 for x, y in pts]

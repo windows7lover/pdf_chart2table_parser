@@ -828,3 +828,76 @@ def test_small_open_square_markers_recognised():
     assert len(series) == 1, f"expected 1 square series, got {len(series)}"
     assert series[0].shape == "square"
     assert len(series[0].marks) == 6
+
+
+# ---------------------------------------------------------------------------
+# Regression: a FILLED ×/+ scatter glyph must classify as cross/plus, not
+# triangle.  matplotlib scatter emits ``×``/``+`` strokes with a non-None fill,
+# so the old ``if filled: return "triangle"`` fast-path mis-sent every filled
+# cross/plus to triangle (-> rendered as a square).  Repro: 2110.09149_p10c1.
+# ---------------------------------------------------------------------------
+
+def _filled_cross(cx, cy, *, half=7.0):
+    """A matplotlib-scatter ``×``: 4 corner-anchored vertices, non-None fill."""
+    pts = [(cx - half, cy + half), (cx + half, cy - half),
+           (cx - half, cy - half), (cx + half, cy + half)]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=(0.12, 0.47, 0.71), fill=(0.12, 0.47, 0.71),
+                 width=2.0, dashes=None, closed=False,
+                 bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def _filled_plus(cx, cy, *, half=7.0):
+    """A matplotlib-scatter ``+``: 4 edge-midpoint vertices, non-None fill."""
+    pts = [(cx - half, cy), (cx + half, cy), (cx, cy + half), (cx, cy - half)]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=(0.12, 0.47, 0.71), fill=(0.12, 0.47, 0.71),
+                 width=2.0, dashes=None, closed=False,
+                 bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def _filled_triangle(cx, cy, *, half=7.0):
+    """A matplotlib-scatter ``^``: 3 distinct vertices + a closing repeat, fill."""
+    pts = [(cx, cy - half), (cx - half, cy + half), (cx + half, cy + half),
+           (cx, cy - half)]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=(0.12, 0.47, 0.71), fill=(0.12, 0.47, 0.71),
+                 width=2.0, dashes=None, closed=False,
+                 bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def test_filled_cross_glyph_classified_as_cross():
+    """A FILLED ``×`` scatter glyph (4 corner vertices) classifies as 'cross'."""
+    from pdf_chart2table.primitives import shape_of
+    assert shape_of(_filled_cross(200, 200)) == "cross"
+
+
+def test_filled_plus_glyph_classified_as_plus():
+    """A FILLED ``+`` scatter glyph (4 midpoint vertices) classifies as 'plus'."""
+    from pdf_chart2table.primitives import shape_of
+    assert shape_of(_filled_plus(200, 200)) == "plus"
+
+
+def test_filled_triangle_glyph_still_triangle():
+    """Guard: a FILLED triangle (3 distinct vertices) must STAY 'triangle' and
+    not be mis-sent to cross/plus by the vertex-count routing."""
+    from pdf_chart2table.primitives import shape_of
+    assert shape_of(_filled_triangle(200, 200)) == "triangle"
+
+
+def test_marker_shape_render_classifies_cross_and_plus():
+    """The renderer's ``_marker_shape`` must return 'x'/'+' for cross/plus glyphs
+    (previously returned 's', so ×/+ markers were drawn as squares), and keep
+    square/triangle/circle correct."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "render_restyle_prototype",
+        Path(__file__).parents[1] / "scripts" / "render_restyle_prototype.py",
+    )
+    rrp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rrp)
+    assert rrp._marker_shape(_filled_cross(200, 200)) == "x"
+    assert rrp._marker_shape(_filled_plus(200, 200)) == "+"
+    # Guard the non-cross shapes still resolve as before.
+    assert rrp._marker_shape(_axis_square(200, 200, fill=(0.2, 0.6, 0.9))) == "s"
+    assert rrp._marker_shape(_filled_triangle(200, 200)) == "s"
