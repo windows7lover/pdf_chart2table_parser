@@ -6,9 +6,21 @@ import fitz
 import pytest
 
 from conftest import fixture_names, pdf_path
-from pdf_chart2table.pdf_vector import load_page, load_pdf
+from pdf_chart2table.pdf_vector import _alpha, load_page, load_pdf
 
 ALL_FIXTURES = fixture_names()
+
+
+def test_alpha_normalization():
+    # opaque / absent -> None (so the common case adds nothing); otherwise the
+    # clamped opacity is kept so semi-transparent ink re-renders correctly.
+    assert _alpha(None) is None
+    assert _alpha(1.0) is None
+    assert _alpha(0.997) is None      # ~opaque
+    assert _alpha(0.6) == 0.6
+    assert _alpha(0.0) == 0.0
+    assert _alpha(-0.2) == 0.0        # clamped
+    assert _alpha("bad") is None
 
 
 def _valid_bbox(b) -> bool:

@@ -305,6 +305,7 @@ def _replot(ax, record, style, tex=False):
         ls = st.get("linestyle") or "-"
         if isinstance(ls, list):  # JSON round-trip: [offset, [on, off]]
             ls = (ls[0], tuple(ls[1]))
+        alpha = st.get("alpha")  # recovered transparency (None = opaque)
         if st.get("render_as") == "scatter":
             mk = st.get("marker_shape") or st.get("marker") or "o"  # geometry wins
             md = st.get("markersize")  # recovered glyph diameter in points
@@ -316,11 +317,12 @@ def _replot(ax, record, style, tex=False):
             # Points are emitted in TRUE draw order, so plot as-is (do NOT re-sort
             # by x -- that scrambles sideways/folded curves).
             if st.get("connect"):
-                ax.plot(xs, ys, color=col,
+                ax.plot(xs, ys, color=col, alpha=alpha,
                         linewidth=st.get("linewidth") or 0.8, linestyle=ls, zorder=1)
-            ax.scatter(xs, ys, s=sz, color=col, label=lab, marker=mk, zorder=2)
+            ax.scatter(xs, ys, s=sz, color=col, label=lab, marker=mk, zorder=2,
+                       alpha=alpha)
         else:
-            ax.plot(xs, ys, color=col,
+            ax.plot(xs, ys, color=col, alpha=alpha,
                     label=lab, linewidth=st.get("linewidth") or 1.2, linestyle=ls)
 
     xa, ya = _axis_view(record, style, "x"), _axis_view(record, style, "y")
@@ -407,6 +409,12 @@ def _replot(ax, record, style, tex=False):
     if alw:
         for sp in ax.spines.values():
             sp.set_linewidth(alw)
+    # match a COLOURED axis frame (spines + tick marks + tick labels); None=black.
+    acol = _color(style.get("axis_color"))
+    if acol:
+        for sp in ax.spines.values():
+            sp.set_edgecolor(acol)
+        ax.tick_params(axis="both", which="both", color=acol, labelcolor=acol)
     # match the original tick appearance, all parser-sourced where possible:
     # per-axis direction (in/out) and tick LENGTH; minor ticks were already placed
     # at their detected positions by _apply_ticks. Top/right presence is heuristic.

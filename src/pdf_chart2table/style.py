@@ -271,15 +271,27 @@ def match_series_styles(paths, region_bbox, series):
         # threaded) or a model curve that grazes just a few (2102: 3/9).
         tol = max(4.0, 1.5 * (_median(smalls) or 0.0))
         connect = _threads_markers(big, pts, tol)
+        # Transparency: the traced path's stroke alpha (fall back to a same-colour
+        # marker's fill alpha). None when fully opaque -> renderer leaves it solid.
+        alpha = best.stroke_alpha
+        if alpha is None and small_paths:
+            alpha = next((p.fill_alpha for p in small_paths
+                          if p.fill_alpha is not None), None)
         out.append({"width": best.width, "linestyle": ls,
                     "markersize": _median(smalls), "marker_shape": mshape,
-                    "connect": connect})
+                    "connect": connect, "alpha": alpha})
 
     # Axis frame/spine stroke width: dark, axis-aligned border lines near the
     # region edge, or the plot-frame rectangle. Sets spine + tick line weight.
     spine_w = []
+    spine_cols = []
     for p in inreg:
-        if p.stroke is None or p.width is None or max(p.stroke) > 0.5:
+        # A spine/frame is DARK (grey/black) or CHROMATIC (a coloured frame, any
+        # brightness). Exclude only light-grey strokes (gridlines), so a bright
+        # coloured axis is kept and its colour recovered.
+        if p.stroke is None or p.width is None:
+            continue
+        if max(p.stroke) > 0.6 and (max(p.stroke) - min(p.stroke)) <= 0.12:
             continue
         bw, bh = p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]
         near = (abs(p.bbox[1] - y0) < 6 or abs(p.bbox[3] - y1) < 6 or
@@ -290,6 +302,18 @@ def match_series_styles(paths, region_bbox, series):
                  len(p.points) <= 6)
         if (thin_long and near) or frame:
             spine_w.append(p.width)
+            spine_cols.append(_round_color(p.stroke))
+    # The axis/frame colour (modal spine stroke); None when plain black -> the
+    # renderer keeps matplotlib's default black axes.
+    axis_color = None
+    if spine_cols:
+        modal = max(set(spine_cols), key=spine_cols.count)
+        # Only a CHROMATIC frame counts as a coloured axis. A near-black / grey
+        # spine (sat ~ 0) stays matplotlib-default black -> no cosmetic churn on
+        # the many ordinary dark-grey axes; only genuine colour (e.g. a blue
+        # frame) is recovered.
+        if max(modal) - min(modal) > 0.12:
+            axis_color = list(modal)
     # Legend frame: a mid-sized, white-FILLED, stroked rectangle (not the plot
     # frame) -> the original legend is boxed. Matplotlib legend frames are often a
     # light-GRAY stroke (~0.8) with many points (rounded corners), so we accept
@@ -307,6 +331,7 @@ def match_series_styles(paths, region_bbox, series):
             legend_box = True
             break
     meta = {"axis_linewidth": _median(spine_w),
+            "axis_color": axis_color,
             "ticks": recover_tick_style(inreg, region_bbox),
             "legend_box": legend_box}
     return out, meta
@@ -839,6 +864,9 @@ def build_style(d: dict, series_styles: list) -> dict:
             "markersize": (round(md, 2) if (md and is_scatter) else None),
             "marker_shape": mshape,
             "connect": bool(stl.get("connect")),      # draw connecting line too
+            # transparency (None = opaque); renderer passes to plot/scatter alpha
+            "alpha": (round(stl["alpha"], 2)
+                      if stl.get("alpha") is not None else None),
         })
     title = d.get("title")
     title = title.get("text") if isinstance(title, dict) else title
@@ -888,4 +916,5 @@ def build_chart_style(d: dict, page, fitz_page) -> dict:
         style["axis_linewidth"] = round(min(3.0, max(0.2, alw)), 2)
     style["ticks_style"] = meta.get("ticks")
     style["legend_box"] = meta.get("legend_box", False)
+    style["axis_color"] = meta.get("axis_color")  # coloured axes/frame (None=black)
     return style

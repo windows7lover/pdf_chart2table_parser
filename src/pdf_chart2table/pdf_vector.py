@@ -78,6 +78,20 @@ def _as_color(c) -> Color | None:
     return (float(c[0]), float(c[1]), float(c[2]))
 
 
+def _alpha(o) -> float | None:
+    """Normalize a PDF opacity to [0,1]; None when opaque/absent (so the common
+    fully-opaque case adds nothing to the record)."""
+    if o is None:
+        return None
+    try:
+        a = float(o)
+    except (TypeError, ValueError):
+        return None
+    if a >= 0.995:
+        return None
+    return max(0.0, a)
+
+
 def _dashes_str(d) -> str | None:
     if not d:
         return None
@@ -104,6 +118,8 @@ def load_page(page: fitz.Page) -> tuple[list[Path], list[TextSpan]]:
                 dashes=_dashes_str(d.get("dashes")),
                 closed=bool(d.get("closePath")),
                 bbox=_bbox_of(pts),
+                stroke_alpha=_alpha(d.get("stroke_opacity")),
+                fill_alpha=_alpha(d.get("fill_opacity")),
             )
         )
 

@@ -34,6 +34,10 @@ class Path:
     dashes: str | None
     closed: bool
     bbox: BBox
+    # Transparency (1.0 = opaque). Recovered from the PDF so semi-transparent
+    # shaded regions / CI bands / markers re-render with the right alpha.
+    stroke_alpha: float | None = None
+    fill_alpha: float | None = None
 
 
 @dataclass
