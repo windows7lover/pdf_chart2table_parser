@@ -16,7 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
-from residual_audit import _frac_in_box  # noqa: E402
+from residual_audit import _explained_by_series, _frac_in_box  # noqa: E402
 
 
 # Calibrated plot box (spine-to-spine): a thin horizontal subplot strip.
@@ -40,3 +40,31 @@ def test_no_box_falls_back_to_keep():
     # Without a calibrated box we cannot gate; default to keeping the candidate.
     pts = [(100.0, 9999.0), (200.0, 9999.0)]
     assert _frac_in_box(pts, None) == 1.0
+
+
+# --- explained-by-series match (overcount fix) ----------------------------
+RED = (0.9, 0.1, 0.1)
+BLUE = (0.1, 0.1, 0.9)
+
+
+def test_extracted_band_slightly_off_is_explained():
+    # A path whose vertices sit ~5px off its SAME-colour series must count as
+    # explained (the old hard-3px test mis-flagged these as "missed").
+    path = [(100.0 + i, 200.0) for i in range(60)]
+    series_pts = [(100.0 + i, 205.0) for i in range(60)]  # 5px below, same colour
+    assert _explained_by_series(path, RED, [(RED, series_pts)])
+
+
+def test_colour_mismatch_but_coincident_is_explained():
+    # Same geometry within 2px but the recovered series colour differs slightly
+    # (rounding) -> still explained via the tight colour-agnostic clause.
+    path = [(100.0 + i, 200.0) for i in range(60)]
+    series_pts = [(100.0 + i, 201.5) for i in range(60)]
+    assert _explained_by_series(path, RED, [(BLUE, series_pts)])
+
+
+def test_genuinely_uncovered_path_not_explained():
+    # A path far (>>tol) from every series is a true miss and must NOT be hidden.
+    path = [(100.0 + i, 200.0) for i in range(60)]
+    series_pts = [(100.0 + i, 260.0) for i in range(60)]  # 60px away
+    assert not _explained_by_series(path, RED, [(RED, series_pts)])

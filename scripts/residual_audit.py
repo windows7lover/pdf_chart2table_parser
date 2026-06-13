@@ -26,7 +26,38 @@ import fitz
 from PIL import Image
 
 from pdf_chart2table import pdf_vector
-from pdf_chart2table.refiners import is_decoration_line
+from pdf_chart2table.refiners import _DEDUP_FRAC, is_decoration_line
+
+# A path is "explained" by a series when >= _DEDUP_FRAC of its sampled vertices
+# lie within _MATCH_PX (L1) of a SAME-colour series point, OR within the tighter
+# _MATCH_PX_ANY of ANY series point (a colour-mismatched but geometrically
+# coincident band -- tight enough to be the same curve, not an adjacent one).
+# The old hard 3px / sparse-sampling / exact-colour test flagged genuinely
+# extracted bands as "missed" (overcounting the residual).
+_MATCH_PX = 6.0
+_MATCH_PX_ANY = 3.0
+
+
+def _explained_by_series(path_pts, col, series):
+    """True if ``path_pts`` (colour ``col``) is covered by an extracted series.
+
+    Same-colour series match at the looser ``_MATCH_PX``; a different-colour
+    series only counts at the tight ``_MATCH_PX_ANY`` (coincident enough to be the
+    same band, handling colour rounding without matching an adjacent neighbour)."""
+    if not path_pts:
+        return True
+    pp = path_pts[:: max(1, len(path_pts) // 40)] or path_pts
+    for scol, spts in series:
+        if not spts:
+            continue
+        # densely sample the series so a real band is not missed by sampling gaps
+        sp = spts[:: max(1, len(spts) // 800)]
+        tol = _MATCH_PX if (scol and col and scol == col) else _MATCH_PX_ANY
+        hit = sum(1 for qx, qy in pp
+                  if min(abs(qx - sx) + abs(qy - sy) for sx, sy in sp) < tol)
+        if hit >= _DEDUP_FRAC * len(pp):
+            return True
+    return False
 
 
 def _rc(c, q=0.08):
@@ -131,21 +162,11 @@ def audit_chart(chart_json):
         if legend_bbox is not None and _in_region(b, *legend_bbox):
             explained += 1
             continue
-        # matched to an extracted series: same colour AND most of the PATH's own
-        # points are covered by the series' points (so the series genuinely
-        # accounts for this path's geometry, not just its centroid).
-        pp = p.points[::max(1, len(p.points) // 30)] or p.points
-        matched = False
-        for scol, spts in series:
-            if not (scol and col and scol == col and spts):
-                continue
-            sp = spts[::max(1, len(spts) // 200)]
-            hit = sum(1 for qx, qy in pp
-                      if min(abs(qx - sx) + abs(qy - sy) for sx, sy in sp) < 3.0)
-            if hit >= 0.6 * len(pp):
-                matched = True
-                break
-        if matched:
+        # matched to an extracted series: most of the PATH's own points are
+        # covered by some series' points (so the series genuinely accounts for
+        # this path's geometry). Densely sampled + colour-soft, so a genuinely
+        # extracted band is not mis-flagged as missed.
+        if _explained_by_series(p.points, col, series):
             explained += 1
             continue
         # refiner-dropped decoration: a connector through markers or a straight
@@ -156,10 +177,12 @@ def audit_chart(chart_json):
             continue
         residual.append({"idx": i, "color": col, "npts": len(p.points),
                          "span": round(max(bw, bh), 1), "bbox": [round(v, 1) for v in b]})
-    # a residual path is a "candidate missed curve" if it is long + multi-vertex
-    # AND lies mostly within the calibrated plot box (so a curve bleeding in from
-    # an adjacent subplot is not falsely counted as a dropped data curve here).
+    # a residual path is a "candidate missed curve" if it is long + multi-vertex,
+    # OPEN (a closed path is a filled shape / heatmap cell / loop, never a dropped
+    # data curve -- matches refine_dropped_curve), AND lies mostly within the
+    # calibrated plot box (not an adjacent subplot bleeding in).
     missed = [r for r in residual if r["span"] > 0.3 * diag and r["npts"] >= 6
+              and not paths[r["idx"]].closed
               and _frac_in_box(paths[r["idx"]].points, plot_box) >= 0.5]
     return d, len(inreg), explained, residual, missed
 
