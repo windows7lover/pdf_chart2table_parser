@@ -4,6 +4,12 @@ A QA loop samples 3 random reconstructions (`scripts/qa_sample.py`) and logs any
 extraction/reconstruction problems here. Newest round on top. Each item: what's
 wrong → likely cause → owner. Fixed items get struck through with the commit.
 
+## Round 9 (2026-06-12) — post-regen spot-check (clean 23-set)
+Draw: 2302.01559_p38c3, 2110.09149_p10c1, 2108.13102_p83c1.
+- **2110.09149_p10c1** [~clean]: scatter faithful. JSON: blue [182pts] + orange [36] are correctly `marker=x shape=x` (my thumbnail "blue squares" read was WRONG — verify-vs-JSON caught it). Minor: two tiny 3-pt series have marker/shape mismatch (s vs x). Dashed ref-lines (x=32, y=283) not drawn (decoration). Not worth a fix.
+- **2108.13102_p83c1** [defer]: known dual-Y-axis limitation (point 3 / Round 6), unchanged.
+- **2302.01559_p38c3** [D, REAL extraction bug → dedicated agent]: JSON has 3 series. **series[0] is SPURIOUS**: red `[1,0,0]`, npts=3, y≈0.549–0.552, `connect=True` → the bogus horizontal red line in the recon; there is NO red element in the original. **series[1]** (black zigzag, 141pts, y −0.547..1) has `shape=s` (squares detected) but `marker=None render=line` → square markers vanish, drawn as a plain line. Root cause: the black square-marker zigzag is mis-decomposed — 3 squares split into a fake red connected series, the rest merged into a markerless black line. Owner: marks.py/extract.py series decomposition + marker/connect typing. Verify the red points' source in the raw PDF (where does [1,0,0] come from?) before fixing.
+
 ## Round 8b (2026-06-12) — full regen + axis cleanup + original-crop landed
 Regen (re-extract 23 + render + audit + rsync) propagating style→JSON (af9191b), axis data/style cleanup (d5d018d), original-crop-in-bundle (ac487c0). **23/24 rendered**; axis style-bleed = **0** on all real charts (the lone flagged one was a stale bundle). Each bundle now ships `<cid>_original.pdf`/`.svg` + reconstruction + chart.json. Audit n=24 median **96%** mean 91% min 44%, **missed_curves total = 0**.
 - **2308.10009_p16c8 — DROPPED from set (correct skip, NOT a regression)**: page 16 is a corner-plot grid; charts 1–6 hit the 2D credible-band/contour gate, 7–10 (incl. c8) → "no series extracted". Current parser correctly declines; old parser extracted junk. Removed from restyle_cids.txt (now 23) + stale bundle deleted.
