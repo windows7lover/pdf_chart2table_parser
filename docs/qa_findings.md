@@ -4,6 +4,9 @@ A QA loop samples 3 random reconstructions (`scripts/qa_sample.py`) and logs any
 extraction/reconstruction problems here. Newest round on top. Each item: what's
 wrong → likely cause → owner. Fixed items get struck through with the commit.
 
+## Round 7 (2026-06-12) — NEW real bug: y-tick leaked into x-ticks (2507.19945)
+- **2507.19945_p22c1** [D]: reconstruction squashes both noisy curves (ε=1e-4 blue, ε=1e-8 orange) into a thin sliver — x-axis distorted. Data is CORRECT (x_axis.data_range 0.0002–0.1997, series x-extent 0.0006–0.2, matching original t=0–0.2). Root cause: `xticks` wrongly contains `(50.0,'50')` — a Y-AXIS tick value (y runs 5–55) mis-assigned to the X-axis tick list → distorts x rendering. EXTRACTION (tick→axis assignment in `axes.py`); the render `_ticks_in_range` guard may also not be dropping it for the x-limit. NEXT: dedicated agent — prevent a y-axis tick value from being classified as an x-tick (and/or have the render reject the cross-axis outlier). Deferred to post-session-limit (resets 9:10pm).
+
 ## Round 6 (2026-06-12) — fresh-set low-explained charts are FALSE ALARMS (no data loss)
 Checked the fresh-set's lowest explained%-charts against their reconstructions; all faithful, low% is decoration/geometry the audit undercounts (total candidate-missed-curves across all 24 = 0):
 - **2503.10490_p8c2 (44%)**: 5 overlapping oscillating traces + legend + 2 dotted reference lines — all reconstructed; low% = overlapping-curve fragments + decoration.
