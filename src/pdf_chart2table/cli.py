@@ -25,6 +25,7 @@ import sys
 import fitz
 
 from . import io_store, ocr_backfill as _ocr_backfill, pdf_vector, style as _style
+from . import tick_ocr as _tick_ocr
 from .arrows import detect_arrows
 from .calibrate import calibrate_panels
 from .error_bars import detect_error_bars
@@ -424,6 +425,12 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
                 rows.append(io_store.write_skip(
                     region.skip_reason, source, outdir, page_no, k))
                 continue
+            # A tick whose value breaks the regular pixel<->value spacing was
+            # mis-read (merged adjacent labels); OCR re-reads its label region to
+            # recover the true value (or drops it), then the axis is re-fitted.
+            # No-op without an outlier / when OCR is disabled.
+            x_axis, y_axis = _tick_ocr.validate_and_correct(
+                x_axis, y_axis, region, fitz_doc[page.page_index])
             # Skip when neither axis could be calibrated.
             if x_axis.calibration is None and y_axis.calibration is None:
                 rows.append(io_store.write_skip(
