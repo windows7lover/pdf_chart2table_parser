@@ -557,21 +557,23 @@ def _recon_figure(record, style, tex=False):
     return fig
 
 
-def _compose_pdf(crop_pdf, recon_pdf, out_pdf):
-    """Side-by-side PDF: original VECTOR crop | VECTOR reconstruction (no raster)."""
+def _compose_pdf(crop_pdf, recon_pdf, out_pdf, resid_pdf=None):
+    """Side-by-side PDF: original VECTOR crop | VECTOR reconstruction, plus an
+    optional RESIDUAL panel (unexplained ink) when ``resid_pdf`` is given."""
     cap = 14.0  # caption band height (points)
     rec = fitz.open(recon_pdf)
     r1 = rec[0].rect
     crop = fitz.open(crop_pdf) if (crop_pdf and os.path.exists(crop_pdf)) else None
     r0 = crop[0].rect if crop else fitz.Rect(0, 0, r1.width, r1.height)
+    res = fitz.open(resid_pdf) if resid_pdf else None
+    r2 = res[0].rect if res else None
     gap = 18.0
-    # Place BOTH panels at their NATURAL size (no scaling): the plot area is the
-    # region's W x H in both the crop and the reconstruction, so leaving them
-    # unscaled makes the two graphs the SAME physical size. The crop's region
-    # margin (_CROP_MARGIN=18pt) equals the recon's top margin, so top-aligning
-    # the pages also lines the plot areas up vertically.
-    H = cap + max(r0.height, r1.height)
-    W = r0.width + gap + r1.width
+    # Place panels at their NATURAL size (no scaling): the plot area is the
+    # region's W x H in crop and reconstruction, so unscaled => SAME physical size;
+    # top-aligning the pages lines the plot areas up vertically.
+    heights = [r0.height, r1.height] + ([r2.height] if r2 else [])
+    H = cap + max(heights)
+    W = r0.width + gap + r1.width + ((gap + r2.width) if r2 else 0)
     out = fitz.open()
     pg = out.new_page(width=W, height=H)
     if crop:
@@ -580,13 +582,53 @@ def _compose_pdf(crop_pdf, recon_pdf, out_pdf):
     pg.show_pdf_page(fitz.Rect(x1, cap, x1 + r1.width, cap + r1.height), rec, 0)
     pg.insert_text((4, 11), "original", fontsize=9)
     pg.insert_text((x1 + 4, 11), "reconstruction", fontsize=9)
+    if res:
+        x2 = x1 + r1.width + gap
+        pg.show_pdf_page(fitz.Rect(x2, cap, x2 + r2.width, cap + r2.height), res, 0)
+        pg.insert_text((x2 + 4, 11), "residual (unexplained)", fontsize=9)
+        res.close()
     out.save(out_pdf)
     out.close(); rec.close()
     if crop:
         crop.close()
 
 
-def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None):
+def _residual_paths(record, chart_json):
+    """In-region paths the extractor left UNEXPLAINED (the residual), each tagged
+    missed=True when it is a candidate dropped CURVE. Reuses the residual audit so
+    the panel shows exactly what the audit metric counts. [] on any failure."""
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(__file__))
+        from residual_audit import audit_chart
+        from pdf_chart2table.pdf_vector import load_pdf
+        d, _n, _e, residual, missed = audit_chart(chart_json)
+        missed_idx = {m["idx"] for m in missed}
+        page = load_pdf(record["source"]["pdf"], [record["source"]["page"]])[0]
+        return [(page.paths[r["idx"]].points, r["idx"] in missed_idx)
+                for r in residual]
+    except Exception:
+        return []
+
+
+def _draw_residual(ax, arr, clip, dpi, resid, show_title=True):
+    """Original crop (faded) + the unexplained residual ink overlaid: candidate
+    dropped curves in bold red, other residual (decoration) in thin orange."""
+    ax.imshow(arr, alpha=0.30)
+    s = dpi / 72.0
+    for pts, is_missed in resid:
+        xs = [(x - clip.x0) * s for x, y in pts]
+        ys = [(y - clip.y0) * s for x, y in pts]
+        ax.plot(xs, ys, color=("red" if is_missed else "orange"),
+                lw=(1.4 if is_missed else 0.7), solid_capstyle="round")
+    if show_title:
+        nmiss = sum(1 for _, m in resid if m)
+        ax.set_title(f"residual (unexplained: {len(resid)}, missed-curve: {nmiss})")
+    ax.axis("off")
+
+
+def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None,
+                  chart_json=None):
     arr, clip, dpi = _original_image(record)
     txt = style.get("text") or {}
     title = style.get("title")
@@ -606,14 +648,18 @@ def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None):
             ax.scatter(xs, ys, s=10, facecolors="none", edgecolors="red",
                        linewidths=0.6)
 
+    resid = _residual_paths(record, chart_json) if chart_json else []
+
     with plt.rc_context(rc):
-        # PNG: 3-panel raster overview (original | original+pixels | reconstruction)
-        fig, (a0, a1, a2) = plt.subplots(1, 3, figsize=(17, 5))
+        # PNG: 4-panel overview (original | +extracted pixels | reconstruction |
+        # residual = unexplained ink, so misses are visible at a glance).
+        fig, (a0, a1, a2, a3) = plt.subplots(1, 4, figsize=(22, 5))
         a0.imshow(arr); a0.set_title("original"); a0.axis("off")
         a1.imshow(arr); a1.set_title("original + extracted pixels"); a1.axis("off")
         overlay(a1)
         a2.set_title("reconstructed (original style)")
         _box(a2, record, style)
+        _draw_residual(a3, arr, clip, dpi, resid)
         if title:
             fig.suptitle(title, fontsize=tfs,
                          fontweight="bold" if txt.get("title_bold") else "normal")
@@ -643,10 +689,23 @@ def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None):
             if not done:
                 figP = _recon_figure(record, style)
                 figP.savefig(tmp, format="pdf"); plt.close(figP)
+            # Residual panel: original (faded) + unexplained ink, sized like the
+            # crop so the three panels line up.
+            tmpR = None
+            if resid:
+                tmpR = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False).name
+                bb = record["source"]["region_bbox"]
+                rw, rh = max(bb[2]-bb[0], 1.0), max(bb[3]-bb[1], 1.0)
+                figR = plt.figure(figsize=((rw+24)/72.0, (rh+24)/72.0))
+                axR = figR.add_axes([0.02, 0.02, 0.96, 0.96])
+                _draw_residual(axR, arr, clip, dpi, resid, show_title=False)
+                figR.savefig(tmpR, format="pdf"); plt.close(figR)
             try:
-                _compose_pdf(crop_pdf, tmp, out_pdf)
+                _compose_pdf(crop_pdf, tmp, out_pdf, resid_pdf=tmpR)
             finally:
                 os.remove(tmp)
+                if tmpR:
+                    os.remove(tmpR)
 
 
 def _select(root: str, n: int, exclude=frozenset(), seed=None):
@@ -734,7 +793,8 @@ def main():
             render_bundle(d, style, crop_pdf,
                           os.path.join(bundle, f"{cid}.png"),
                           os.path.join(bundle, f"{cid}_reconstruction.eps"),
-                          os.path.join(bundle, f"{cid}_reconstruction.pdf"))
+                          os.path.join(bundle, f"{cid}_reconstruction.pdf"),
+                          chart_json=jp)
             # Include the ORIGINAL lossless vector crop for reference (PDF + SVG).
             # No PDF->EPS converter is installed, so no .eps for the original; add
             # one here if a converter (pdftops/gs/mutool/inkscape) becomes available.
