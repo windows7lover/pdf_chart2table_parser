@@ -12,6 +12,8 @@ dependencies = [
     "numpy>=2.4.6",
     "pandas>=3.0.3",
     "pymupdf>=1.27.2.3",
+    "rapidocr-onnxruntime>=1.4.0",
+    "opencv-python-headless>=4.10.0",
 ]
 
 [project.scripts]

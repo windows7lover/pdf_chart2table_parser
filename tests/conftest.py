@@ -14,6 +14,11 @@ import os
 
 import pytest
 
+# Keep the suite fast + offline: the OCR title-backfill (on by default in real
+# runs) would otherwise construct an OCR engine / download models on fixtures
+# with empty titles. Disable it for the whole test session.
+os.environ.setdefault("PDFCHART_OCR", "0")
+
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
 # ---------------------------------------------------------------------------

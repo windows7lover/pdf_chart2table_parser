@@ -24,7 +24,7 @@ import sys
 
 import fitz
 
-from . import io_store, pdf_vector, style as _style
+from . import io_store, ocr_backfill as _ocr_backfill, pdf_vector, style as _style
 from .arrows import detect_arrows
 from .calibrate import calibrate_panels
 from .error_bars import detect_error_bars
@@ -482,6 +482,10 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
                 grid=grid,
                 confidence=1.0 if (x_axis.calibration and y_axis.calibration) else 0.5,
             )
+            # OCR backfill: fill EMPTY axis-title slots from zone-targeted OCR
+            # (text drawn outside the plot crop / as outlines that get_text misses).
+            # Detection-gated, never overrides vector text; no-op if OCR disabled.
+            _ocr_backfill.backfill(record, fitz_doc[page.page_index])
             # Self-contained STYLE block: rendering attributes recovered at parse
             # time so a downstream renderer never re-opens the source PDF for style.
             record["style"] = _style.build_chart_style(
