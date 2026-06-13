@@ -96,12 +96,13 @@ def _grid_lines(segs, orient, dim, lo_b, hi_b, ticks):
     return lines
 
 
-def _axis_has_grid(lines, ticks) -> bool:
-    if len(lines) < 2:
-        return False
-    if ticks:  # cross-validation: >=2 of the lines must sit on ticks
-        return sum(1 for c, _ in lines if _aligned(c, ticks)) >= 2
-    return True
+def _keep_lines(lines, ticks):
+    """Lines to record for an axis: a full grid (>=2 lines, tick cross-validated)
+    OR individual tick-aligned reference lines (e.g. a y=0 axhline). A lone line
+    that is NOT on a tick is dropped (could be a stray rule), keeping precision."""
+    aligned = [ln for ln in lines if _aligned(ln[0], ticks)]
+    is_grid = len(lines) >= 2 and (not ticks or len(aligned) >= 2)
+    return lines if is_grid else aligned, is_grid
 
 
 def detect_grid(region: Region, paths: list[Path],
@@ -113,19 +114,22 @@ def detect_grid(region: Region, paths: list[Path],
         return None
     segs = axis_segments(paths, region)
     # vertical grid lines sit at x positions (x-axis grid); horizontal at y.
-    vlines = _grid_lines(segs, "v", h, x0, x1, x_ticks)
-    hlines = _grid_lines(segs, "h", w, y0, y1, y_ticks)
-
-    grid: dict = {}
-    if _axis_has_grid(vlines, x_ticks):
-        grid["x"] = True
-    if _axis_has_grid(hlines, y_ticks):
-        grid["y"] = True
-    if not grid:
+    vkeep, v_is_grid = _keep_lines(_grid_lines(segs, "v", h, x0, x1, x_ticks), x_ticks)
+    hkeep, h_is_grid = _keep_lines(_grid_lines(segs, "h", w, y0, y1, y_ticks), y_ticks)
+    if not vkeep and not hkeep:
         return None
 
-    members = [m for _, ms in (vlines if grid.get("x") else []) for m in ms]
-    members += [m for _, ms in (hlines if grid.get("y") else []) for m in ms]
+    grid: dict = {}
+    # ``x``/``y`` mark a true background GRID (>=2 lines); the positions list
+    # records EVERY kept line (incl. lone reference lines) for faithful redraw.
+    if v_is_grid:
+        grid["x"] = True
+    if h_is_grid:
+        grid["y"] = True
+    grid["x_px"] = sorted(c for c, _ in vkeep)   # vertical line x-coordinates
+    grid["y_px"] = sorted(c for c, _ in hkeep)   # horizontal line y-coordinates
+
+    members = [m for _, ms in vkeep for m in ms] + [m for _, ms in hkeep for m in ms]
 
     def _key(s):
         st = tuple(round(v, 3) for v in s["stroke"]) if s["stroke"] else None

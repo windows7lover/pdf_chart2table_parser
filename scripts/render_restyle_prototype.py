@@ -443,12 +443,27 @@ def _replot(ax, record, style, tex=False):
     # the ticks, in the recovered grey colour.
     g = style.get("grid")
     if g:
-        axis = ("both" if (g.get("x") and g.get("y"))
-                else ("x" if g.get("x") else "y"))
-        gls = ":" if g.get("dashes") else "-"
-        ax.grid(True, axis=axis, which="major", zorder=0, linestyle=gls,
-                color=_color(g.get("color")) or "0.85",
-                linewidth=g.get("linewidth") or 0.5)
+        # The original grid is dashed (not dotted) -- "--" reads like the source
+        # and stays visible at thin widths where ":" disappears.
+        gls = "--" if g.get("dashes") else "-"
+        gcolor = _color(g.get("color")) or "0.85"
+        # The recovered stroke width can be sub-point and render invisibly; keep a
+        # visible floor so the grid reads like the original.
+        glw = max(g.get("linewidth") or 0.5, 0.6)
+        xl, yl = g.get("x_lines"), g.get("y_lines")
+        if xl or yl:
+            # Draw each recovered grid / reference line at its exact position
+            # (incl. log-axis minors and lone axhline/axvline references) rather
+            # than relying on matplotlib's auto major ticks.
+            for xv in (xl or []):
+                ax.axvline(xv, zorder=0, linestyle=gls, color=gcolor, linewidth=glw)
+            for yv in (yl or []):
+                ax.axhline(yv, zorder=0, linestyle=gls, color=gcolor, linewidth=glw)
+        else:
+            axis = ("both" if (g.get("x") and g.get("y"))
+                    else ("x" if g.get("x") else "y"))
+            ax.grid(True, axis=axis, which="major", zorder=0, linestyle=gls,
+                    color=gcolor, linewidth=glw)
         ax.set_axisbelow(True)
     # Draw a legend only when it is actually present on THIS panel.
     if has_label and txt.get("show_legend", True):

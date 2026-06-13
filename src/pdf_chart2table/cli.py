@@ -450,6 +450,21 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
             grid = detect_grid(region, page.paths,
                                x_ticks=[t.pixel for t in x_axis.ticks],
                                y_ticks=[t.pixel for t in y_axis.ticks])
+            if grid:
+                # Convert recovered line PIXEL positions to data coords so the
+                # renderer can draw each grid / reference line exactly where it is
+                # (axvline/axhline), not just at matplotlib's auto major ticks.
+                from .calibrate import to_data as _to_data
+                if x_axis.calibration is not None:
+                    grid["x_lines"] = [float(_to_data(x_axis.calibration, px))
+                                       for px in grid.pop("x_px", [])]
+                else:
+                    grid.pop("x_px", None)
+                if y_axis.calibration is not None:
+                    grid["y_lines"] = [float(_to_data(y_axis.calibration, px))
+                                       for px in grid.pop("y_px", [])]
+                else:
+                    grid.pop("y_px", None)
 
             rl = region_labels[k - 1]
             legend_bbox = rl[5] if len(rl) > 5 else None

@@ -70,6 +70,28 @@ def test_dark_lines_off_ticks_not_grid():
     assert detect_grid(_region(paths), paths, y_ticks=[133.0, 167.0, 201.0]) is None
 
 
+def test_records_grid_line_positions():
+    ys = (140, 180, 220, 260)
+    paths = [_line(110, y, 290, y) for y in ys]
+    grid = detect_grid(_region(paths), paths)
+    assert grid["y_px"] == sorted(ys) and grid.get("x_px") == []
+
+
+def test_single_tick_aligned_reference_line_captured():
+    # A lone full-span line that sits ON a tick is a reference line (e.g. y=0
+    # axhline) and IS recorded, even though it is not a >=2-line grid.
+    paths = [_line(110, 200, 290, 200, stroke=(0.0, 0.0, 0.0))]
+    grid = detect_grid(_region(paths), paths, y_ticks=[200.0])
+    assert grid and grid["y_px"] == [200.0]
+    assert not grid.get("y")  # a single reference line is NOT a background grid
+
+
+def test_single_offtick_line_not_captured():
+    # A lone full-span line NOT on a tick is dropped (could be a stray rule).
+    paths = [_line(110, 205, 290, 205, stroke=(0.0, 0.0, 0.0))]
+    assert detect_grid(_region(paths), paths, y_ticks=[200.0]) is None
+
+
 def test_axis_segments_classifies_gridline_vs_tick():
     # A full-span interior horizontal line is a gridline; a short segment at the
     # left spine is a tick. The classifier is the shared primitive both consume.
