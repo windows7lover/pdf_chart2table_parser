@@ -260,6 +260,33 @@ def _apply_ticks(ax, axis, ticks, scale, data_range=None):
                 NullFormatter())
 
 
+def _axis_view(record, style, which):
+    """Merge an axis's DATA (record) with its STYLE (style) into the dict the
+    tick/limit helpers consume. data_range + per-tick pixel/value are DATA and
+    live in the record (``record["x_axis"]["data_range"]``, ``record["xticks"]``);
+    the displayed tick-label strings live in the STYLE block. Join the labels to
+    the data ticks BY INDEX (same order the extractor wrote both)."""
+    ast = style.get(f"{which}_axis")
+    if ast is None:
+        return None
+    adata = record.get(f"{which}_axis") or {}
+    dticks = record.get("xticks" if which == "x" else "yticks") or []
+    slabels = ast.get("ticks") or []
+    ticks = []
+    for i, t in enumerate(dticks):
+        lbl = slabels[i].get("label") if i < len(slabels) else None
+        ticks.append({"pixel": t.get("pixel"), "value": t.get("value"),
+                      "label": lbl})
+    return {
+        "scale": ast.get("scale"),
+        "title": ast.get("title"),
+        "tick_direction": ast.get("tick_direction"),
+        "tick_length": ast.get("tick_length"),
+        "data_range": adata.get("data_range"),  # DATA, from the record
+        "ticks": ticks,
+    }
+
+
 def _replot(ax, record, style, tex=False):
     """Draw the extracted data into ``ax`` in the original's style."""
     L = _latexify if tex else (lambda x: x)
@@ -296,7 +323,7 @@ def _replot(ax, record, style, tex=False):
             ax.plot(xs, ys, color=col,
                     label=lab, linewidth=st.get("linewidth") or 1.2, linestyle=ls)
 
-    xa, ya = style["x_axis"], style["y_axis"]
+    xa, ya = _axis_view(record, style, "x"), _axis_view(record, style, "y")
     x_scale = _effective_scale(xa)
     y_scale = _effective_scale(ya)
     if x_scale == "log":

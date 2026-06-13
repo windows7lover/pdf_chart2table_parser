@@ -779,14 +779,18 @@ def _clean(t):
 def _axis_style(ax, ticks):
     if not ax:
         return None
+    # STYLE = render-how only. data_range and per-tick pixel/value are DATA and
+    # live authoritatively in the record's data section (d["x_axis"]["data_range"],
+    # d["xticks"]/d["yticks"] with pixel+value); the renderer reads them from there
+    # and joins these per-tick label strings by index. We keep only render-how:
+    # scale (a rendering choice), title, tick_direction, tick_length, and the
+    # displayed tick label text.
     return {
         "scale": ax.get("scale"),
         "title": _clean(ax.get("title")),
-        "data_range": ax.get("data_range"),
         "tick_direction": ax.get("tick_direction"),  # authoritative, from the parser
         "tick_length": ax.get("tick_length"),        # median tick length (pt)
-        "ticks": [{"pixel": t.get("pixel"), "value": t.get("value"),
-                   "label": _clean(t.get("label"))} for t in (ticks or [])],
+        "ticks": [{"label": _clean(t.get("label"))} for t in (ticks or [])],
     }
 
 
