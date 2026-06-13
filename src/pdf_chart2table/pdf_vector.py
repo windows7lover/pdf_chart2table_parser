@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import fitz
 
+from .font_recovery import FontDecoder, is_broken_text
 from .model import BBox, Color, Path, PageData, Point, TextSpan
 
 # Number of segments used to flatten each cubic bezier curve.
@@ -107,6 +108,7 @@ def load_page(page: fitz.Page) -> tuple[list[Path], list[TextSpan]]:
         )
 
     texts: list[TextSpan] = []
+    decoder = FontDecoder(page.parent)
     td = page.get_text("dict")
     for block in td.get("blocks", []):
         for line in block.get("lines", []):
@@ -115,6 +117,14 @@ def load_page(page: fitz.Page) -> tuple[list[Path], list[TextSpan]]:
                 text = span.get("text", "")
                 if text == "":
                     continue
+                # Recover text mangled by a broken ToUnicode map (private math /
+                # symbol fonts). Gated: only broken spans engage, so normal text
+                # is returned unchanged. Labels/titles only -- never coordinates.
+                fontname = span.get("font", "")
+                if is_broken_text(text, fontname):
+                    rec = decoder.recover(page, [ord(c) for c in text], fontname)
+                    if rec:
+                        text = rec
                 bb = span["bbox"]
                 # PyMuPDF encodes text color as 0xRRGGBB integer; 0 = black.
                 c_int = span.get("color", 0) or 0

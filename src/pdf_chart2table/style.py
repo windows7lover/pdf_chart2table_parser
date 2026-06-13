@@ -21,6 +21,7 @@ import re
 import fitz
 
 from . import primitives
+from .font_recovery import FontDecoder, is_broken_text
 
 _STYLE_NOTE = ("STYLE ONLY -- rendering attributes used to redraw the extracted "
                "data in the original chart's style; NOT extracted measurements.")
@@ -477,11 +478,20 @@ def _spans_in_region(fitz_page, region_bbox, margin=44.0):
         td = fitz_page.get_text("dict")
     except Exception:
         return spans, fonts
+    decoder = FontDecoder(fitz_page.parent)
     for b in td.get("blocks", []):
         for ln in b.get("lines", []):
             d = ln.get("dir", (1.0, 0.0))
             for s in ln.get("spans", []):
-                t = (s.get("text") or "").strip()
+                raw = s.get("text") or ""
+                fn0 = s.get("font", "")
+                # Match the broken-text recovery applied in pdf_vector so style
+                # matching sees the same (recovered) text as the extracted record.
+                if is_broken_text(raw, fn0):
+                    rec = decoder.recover(fitz_page, [ord(c) for c in raw], fn0)
+                    if rec:
+                        raw = rec
+                t = raw.strip()
                 if not t:
                     continue
                 bb = s["bbox"]
