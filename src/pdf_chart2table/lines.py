@@ -306,6 +306,21 @@ def _is_spine_line(pts, plot_box) -> bool:
     near_top    = all(abs(y - yhi) <= yband for y in ys)
     if near_left or near_right or near_bottom or near_top:
         return True
+    # Plot-box FRAME / spine-set: a path (>=4 vertices) whose every vertex hugs
+    # SOME box edge (not all the same one) and that spans most of the box is the
+    # rectangular border -- or the four spines drawn / joined as one path with
+    # corner jumps -- not data. (2003.00176: the frame leaked in as two black
+    # "series".) A real curve's interior vertices are not near any edge, so it is
+    # unaffected; the >=4 floor keeps a genuine 2-point corner-to-corner line.
+    if len(pts) >= 4:
+        on_edge = all(
+            abs(x - xlo) <= xband or abs(x - xhi) <= xband
+            or abs(y - ylo) <= yband or abs(y - yhi) <= yband
+            for x, y in pts)
+        if on_edge:
+            bw, bh = max(xs) - min(xs), max(ys) - min(ys)
+            if bw >= 0.7 * (xhi - xlo) and bh >= 0.7 * height:
+                return True
     # Flat-and-near: nearly horizontal AND hugging the bottom or top edge.
     if height > 0:
         yspan = max(ys) - min(ys)

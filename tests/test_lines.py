@@ -349,6 +349,29 @@ def test_baseline_spine_line_rejected():
     assert series == []
 
 
+def test_plot_box_frame_rejected():
+    # The rectangular plot frame -- or the four spines joined as one path with
+    # corner jumps -- has every vertex on a box edge and spans the whole box; it
+    # is not data (2003.00176: the frame leaked in as black "series").
+    plot_box = (110.0, 110.0, 290.0, 290.0)
+    frame = _poly([(110, 110), (110, 290), (290, 110), (290, 290), (110, 110)],
+                  (0.0, 0.0, 0.0))
+    region = Region(bbox=REGION.bbox, path_indices=[0], text_indices=[])
+    series, _ = classify_lines(region, [frame], [], plot_box=plot_box)
+    assert series == []
+
+
+def test_full_box_diagonal_data_line_kept():
+    # A genuine curve spanning the box but with INTERIOR vertices (off every edge)
+    # must NOT be mistaken for a frame.
+    plot_box = (110.0, 110.0, 290.0, 290.0)
+    curve = _poly([(115, 285), (160, 210), (210, 170), (285, 150)],
+                  (0.0, 0.0, 1.0))
+    region = Region(bbox=REGION.bbox, path_indices=[0], text_indices=[])
+    series, _ = classify_lines(region, [curve], [], plot_box=plot_box)
+    assert len(series) == 1
+
+
 def test_marker_color_deduped():
     region = Region(bbox=REGION.bbox, path_indices=[0], text_indices=[])
     blue = _poly([(120, 250), (170, 200), (220, 170)], (0.0, 0.0, 1.0))
