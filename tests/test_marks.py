@@ -965,6 +965,49 @@ def test_real_star_glyph_still_classified_as_star():
     assert shape_of(_star(200, 200, tips=6)) == "star"
 
 
+def _word_cands(widths, heights, cy=50.0, x0=10.0, gap=0.2):
+    """A same-row run of glyphs placed letter-tight (bbox gap ``gap``)."""
+    cands, x = [], x0
+    for k, (w, h) in enumerate(zip(widths, heights)):
+        x += w / 2
+        cands.append((k, x, cy, w, h))
+        x += w / 2 + gap
+    return cands
+
+
+def test_text_run_flags_size_varying_tight_word():
+    """A tight horizontal run of size-VARYING glyphs (a legend word drawn as
+    vector outlines, e.g. 'Experiment') is flagged as text, not data."""
+    from pdf_chart2table.marks import _text_run_indices
+    cands = _word_cands([4, 3, 5, 2.5, 4, 3.5], [5, 4, 5, 4, 5, 4])
+    assert _text_run_indices(cands) == {0, 1, 2, 3, 4, 5}
+
+
+def test_text_run_keeps_uniform_spaced_data_row():
+    """A flat data series (identical glyphs, spaced apart) is NEVER flagged."""
+    from pdf_chart2table.marks import _text_run_indices
+    cands = [(k, 10.0 + k * 30.0, 50.0, 4.0, 4.0) for k in range(6)]
+    assert _text_run_indices(cands) == set()
+
+
+def test_text_run_keeps_uniform_tight_data_row():
+    """Even tightly packed marks are kept when they are IDENTICAL in size (CV~0):
+    only size-varying runs (letters) are text."""
+    from pdf_chart2table.marks import _text_run_indices
+    cands = [(k, 10.0 + k * 4.2, 50.0, 4.0, 4.0) for k in range(6)]
+    assert _text_run_indices(cands) == set()
+
+
+def test_text_run_flags_whole_line_including_short_neighbour():
+    """A short word ('Fit', 2 glyphs) on the SAME baseline as a confirmed word is
+    flagged too (whole text line dropped), so it leaves no 2-point stub series."""
+    from pdf_chart2table.marks import _text_run_indices
+    word = _word_cands([4, 3, 5, 2.5, 4, 3.5], [5, 4, 5, 4, 5, 4])
+    # a short 2-glyph word far to the right on the same row
+    short = [(6, 90.0, 50.0, 3.0, 5.0), (7, 94.0, 50.0, 2.0, 4.0)]
+    assert _text_run_indices(word + short) == {0, 1, 2, 3, 4, 5, 6, 7}
+
+
 def test_marker_shape_render_classifies_cross_and_plus():
     """The renderer's ``_marker_shape`` must return 'x'/'+' for cross/plus glyphs
     (previously returned 's', so ×/+ markers were drawn as squares), and keep

@@ -151,6 +151,18 @@ _SOD_MIN_DENSE_PATHS = 2   # require at least this many >8-vertex paths (lines)
 # not a single data-mark glyph.
 _DENSE_PATH_VERTS = 8
 
+# Glyph-text-run guard: a legend / annotation label drawn as VECTOR GLYPH OUTLINES
+# (no ToUnicode text) leaves a horizontal row of small glyph paths that the mark
+# extractor would otherwise read as a scatter series (2001.11305: "Experiment"
+# became 11 black points). A run of letters is told apart from a real flat data
+# series by TWO signals a data series never has together: the glyphs are packed
+# letter-tight (bbox gaps ~0) AND vary in size (a series repeats ONE identical
+# glyph). Both must hold, so an evenly-spaced uniform data row is never flagged.
+_TEXTRUN_MIN_LEN = 5          # letters in a row before it counts as a word
+_TEXTRUN_GAP_FRAC = 0.9       # max bbox gap as a fraction of median glyph width
+_TEXTRUN_ROW_FRAC = 0.7       # same-row tolerance as a fraction of median height
+_TEXTRUN_MIN_SIZE_CV = 0.18   # min width/height CV (letters vary; markers don't)
+
 
 @dataclass
 class Mark:
@@ -265,6 +277,72 @@ def _strictly_in_plot_box(cx: float, cy: float, plot_box: tuple | None) -> bool:
         return True
     xlo, ylo, xhi, yhi = _box_bounds(plot_box)
     return (xlo <= cx <= xhi) and (ylo <= cy <= yhi)
+
+
+def _cv(vals: list[float]) -> float:
+    """Coefficient of variation (std/mean); 0 for an empty/constant list."""
+    if not vals:
+        return 0.0
+    mean = sum(vals) / len(vals)
+    if mean <= 0:
+        return 0.0
+    var = sum((v - mean) ** 2 for v in vals) / len(vals)
+    return var ** 0.5 / mean
+
+
+def _text_run_indices(cands: list[tuple]) -> set[int]:
+    """Indices (into ``cands``) of candidate marks that are really GLYPH-OUTLINE
+    TEXT (a legend/annotation word drawn as vector paths), not data points.
+
+    ``cands`` items are ``(idx, cx, cy, w, h)``. A word is a same-row run of
+    >= _TEXTRUN_MIN_LEN glyphs that are packed letter-tight (consecutive bbox
+    gap <= _TEXTRUN_GAP_FRAC x median width) AND vary in size (width or height
+    CV >= _TEXTRUN_MIN_SIZE_CV). A genuine flat data series fails the size-CV
+    test (it repeats one identical glyph), so it is never flagged.
+    """
+    if len(cands) < _TEXTRUN_MIN_LEN:
+        return set()
+    heights = sorted(c[4] for c in cands)
+    medh = heights[len(heights) // 2] or 1.0
+    rows: list[list[tuple]] = []
+    for c in sorted(cands, key=lambda c: c[2]):          # by cy
+        for r in rows:
+            if abs(c[2] - r[0][2]) <= _TEXTRUN_ROW_FRAC * medh:
+                r.append(c)
+                break
+        else:
+            rows.append([c])
+    flagged: set[int] = set()
+    for r in rows:
+        items = sorted(r, key=lambda c: c[1])            # by cx
+        widths = sorted(c[3] for c in items)
+        medw = widths[len(widths) // 2] or 1.0
+        gap_max = _TEXTRUN_GAP_FRAC * medw
+        run = [items[0]]
+        runs = [run]
+        for cur in items[1:]:
+            prev = run[-1]
+            gap = (cur[1] - cur[3] / 2) - (prev[1] + prev[3] / 2)  # bbox gap
+            if gap <= gap_max:
+                run.append(cur)
+            else:
+                run = [cur]
+                runs.append(run)
+        # A row that contains a confirmed WORD (a long, size-varying tight run) is
+        # a text LINE -- flag every glyph on it, so short neighbouring words on the
+        # same baseline (e.g. "Fit" beside "Experiment") are dropped too.
+        if any(_is_word(run) for run in runs):
+            flagged.update(c[0] for c in items)
+    return flagged
+
+
+def _is_word(run: list[tuple]) -> bool:
+    """A tight horizontal run is a glyph-text word when it is long enough AND its
+    glyphs vary in size (the discriminator vs a uniform flat data series)."""
+    if len(run) < _TEXTRUN_MIN_LEN:
+        return False
+    size_cv = max(_cv([c[3] for c in run]), _cv([c[4] for c in run]))
+    return size_cv >= _TEXTRUN_MIN_SIZE_CV
 
 
 def _on_border(cx: float, cy: float, region: Region) -> bool:
@@ -781,7 +859,11 @@ def classify_marks(
     ):
         effective_legend_bbox = None
 
-    groups: dict[tuple, SeriesMarks] = {}
+    # First pass: collect candidate marks (path index + geometry) so a horizontal
+    # run of glyph-OUTLINE text (a borderless legend whose label is drawn as vector
+    # paths, invisible to the text-based swatch filter) can be detected and dropped
+    # before grouping -- otherwise the letters become a spurious scatter series.
+    cand_marks = []  # (i, cx, cy, w, h)
     for i in region.path_indices:
         p = paths[i]
         if not _is_data_mark(p, region, large_fills):
@@ -793,6 +875,15 @@ def classify_marks(
             continue
         if _is_legend_swatch(cx, cy, region_texts, plot_box):
             continue
+        cand_marks.append((i, cx, cy, p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]))
+
+    text_idx = _text_run_indices(cand_marks)
+
+    groups: dict[tuple, SeriesMarks] = {}
+    for i, cx, cy, _w, _h in cand_marks:
+        if i in text_idx:
+            continue
+        p = paths[i]
         shape = _shape_of(p)
         size = max(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1])
         key = (shape, _round_color(p.fill), _round_color(p.stroke))
