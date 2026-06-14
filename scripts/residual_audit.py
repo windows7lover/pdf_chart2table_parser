@@ -81,6 +81,18 @@ def _frac_in_box(pts, box):
     return n_in / len(pts)
 
 
+def _paints_no_ink(stroke, fill):
+    """True when a path paints no VISIBLE ink: a near-white stroke, OR no stroke
+    and only a near-white fill (a background / clip rectangle). Such paths are
+    invisible in the original, so they can never be 'unexplained' residual ink.
+    A dark-stroked white-filled box (visible border) is NOT excluded."""
+    if stroke is not None and min(stroke) > 0.92:
+        return True
+    if stroke is None and fill is not None and min(fill) > 0.92:
+        return True
+    return False
+
+
 def audit_chart(chart_json):
     d = json.load(open(chart_json))
     src = d["source"]
@@ -137,8 +149,9 @@ def audit_chart(chart_json):
         if i in eb_idx:
             explained += 1
             continue
-        # near-white background / frame fill
-        if p.stroke is not None and min(p.stroke) > 0.92:
+        # near-white background / frame fill -> paints no visible ink (a white
+        # STROKE, or a white FILL with no stroke = a background/clip rectangle)
+        if _paints_no_ink(p.stroke, p.fill):
             explained += 1
             continue
         # ticks / spines / frame: short or axis-aligned near the border

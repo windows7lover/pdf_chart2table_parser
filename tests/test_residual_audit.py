@@ -16,11 +16,34 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
-from residual_audit import _explained_by_series, _frac_in_box  # noqa: E402
+from residual_audit import (  # noqa: E402
+    _explained_by_series, _frac_in_box, _paints_no_ink)
 
 
 # Calibrated plot box (spine-to-spine): a thin horizontal subplot strip.
 PLOT_BOX = (90.0, 415.0, 309.0, 466.0)
+
+
+# --- invisible white background/clip rectangles are not residual ink ----------
+def test_white_fill_no_stroke_paints_no_ink():
+    # 2001.04375_p9c6: the plot background + a legend background were 5-point
+    # white-filled rectangles (fill=(1,1,1), stroke=None). With no stroke they
+    # paint nothing, yet were shown as orange "unexplained ink" boxes.
+    assert _paints_no_ink(None, (1.0, 1.0, 1.0))
+    assert _paints_no_ink(None, (0.97, 0.98, 0.99))
+
+
+def test_white_stroke_paints_no_ink():
+    assert _paints_no_ink((1.0, 1.0, 1.0), None)
+
+
+def test_visible_paths_do_paint_ink():
+    # a dark stroke, or a dark-stroked white-filled box (visible border), is ink.
+    assert not _paints_no_ink((0.0, 0.0, 0.0), None)
+    assert not _paints_no_ink((0.1, 0.1, 0.1), (1.0, 1.0, 1.0))
+    # a dark/coloured FILL with no stroke (a real filled band) is ink.
+    assert not _paints_no_ink(None, (0.9, 0.1, 0.1))
+    assert not _paints_no_ink(None, None)
 
 
 def test_neighbour_subplot_curve_mostly_outside_box():
