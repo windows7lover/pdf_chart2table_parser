@@ -327,20 +327,31 @@ def match_series_styles(paths, region_bbox, series):
         # frame) is recovered.
         if max(modal) - min(modal) > 0.12:
             axis_color = list(modal)
-    # Legend frame: a mid-sized, white-FILLED, stroked rectangle (not the plot
-    # frame) -> the original legend is boxed. Matplotlib legend frames are often a
-    # light-GRAY stroke (~0.8) with many points (rounded corners), so we accept
-    # light strokes and any vertex count; the white fill is the discriminator that
-    # keeps random gridline/curve strokes from being mistaken for a legend box.
+    # Legend frame: a stroked rectangle NARROWER than the full plot frame, with a
+    # white-ish background -- either on the SAME path, OR on a COINCIDENT sibling
+    # rectangle (papers commonly draw the legend as a white FILL rect plus a
+    # separate BORDER-stroke rect, so neither single path has both -- the
+    # 2009.07658 miss). The white background is the discriminator vs gridlines.
+    def _rectish(p):
+        return len(p.points) <= 8
+    white_bgs = [p.bbox for p in inreg
+                 if p.fill is not None and min(p.fill) >= 0.85 and _rectish(p)]
+
+    def _has_white_bg(b):
+        return any(abs(f[0]-b[0]) < 3 and abs(f[1]-b[1]) < 3
+                   and abs(f[2]-b[2]) < 3 and abs(f[3]-b[3]) < 3 for f in white_bgs)
+
     legend_box = False
     for p in inreg:
-        if p.stroke is None or max(p.stroke) > 0.9:
-            continue
-        if p.fill is None or min(p.fill) < 0.85:   # white-ish background fill
+        if p.stroke is None or max(p.stroke) > 0.9 or not _rectish(p):
             continue
         bw, bh = p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]
-        if (0.08 * (x1 - x0) < bw < 0.85 * (x1 - x0)
-                and 0.03 * (y1 - y0) < bh < 0.6 * (y1 - y0)):
+        # narrower than the full frame (excludes the plot frame), not a sliver
+        if not (0.08 * (x1 - x0) < bw < 0.7 * (x1 - x0)
+                and 0.05 * (y1 - y0) < bh < 0.95 * (y1 - y0)):
+            continue
+        same_white = p.fill is not None and min(p.fill) >= 0.85
+        if same_white or _has_white_bg(p.bbox):
             legend_box = True
             break
     meta = {"axis_linewidth": _median(spine_w),
@@ -652,9 +663,18 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     for lk in labset:
         exact = [(i, s) for i, s in enumerate(spans)
                  if i not in used and _norm(s["text"]) == lk]
+        # FRAGMENT: a multi-glyph label ('θ =3°' -> norm 'θ3') is drawn as several
+        # raw spans, none equal to the whole label -- match a span that is a piece
+        # of it (norm in label). Prefer the LONGEST fragment so the legend's own
+        # '10'/'20' span beats a stray single-digit tick ('0' is a sub-piece of
+        # 'θ10'); the scatter gate below rejects the rest.
+        frag = sorted(((i, s) for i, s in enumerate(spans)
+                       if i not in used and _norm(s["text"]) and _norm(s["text"]) in lk),
+                      key=lambda x: -len(_norm(x[1]["text"])))
         loose = [(i, s) for i, s in enumerate(spans)
                  if i not in used and _label_match(_norm(s["text"]), lk)]
-        pick = exact[0] if exact else (loose[0] if loose else None)
+        pick = exact[0] if exact else (frag[0] if frag else
+                                       (loose[0] if loose else None))
         if pick:
             matched.append(pick[1])
             used.add(pick[0])
@@ -680,12 +700,13 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         sw = 3.2 * (matched[0].get("size") or base or 8)
         wfrac = (mx1 - (mx0 - sw)) / w
         hfrac = (my1 - my0) / h
-        # Plausibility gate: a real legend is a COMPACT cluster. If the matched
-        # spans sprawl across most of the plot, the match is unreliable (short
-        # labels catching scattered ticks) -> emit NO layout (legend stays None)
-        # so the renderer auto-places a default-size legend rather than an
-        # oversized, misplaced one.
-        if wfrac > 0.7 or hfrac > 0.8:
+        # Plausibility gate: a VERTICAL legend is narrow. If a "vertical" match
+        # sprawls across most of the plot WIDTH, it is unreliable (short labels
+        # caught scattered ticks) -> emit NO layout so the renderer auto-places a
+        # default-size legend. Height is NOT gated: a many-entry legend is
+        # legitimately tall in a short panel. A genuinely horizontal legend is
+        # wide by design, so it is exempt.
+        if not horizontal and wfrac > 0.6:
             legend = None
         else:
             legend = {

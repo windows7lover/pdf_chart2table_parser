@@ -338,6 +338,15 @@ def _assemble_label(
         if (t.size is not None and t.size < base_size
                 and cy_off <= _SUB_ROW_TOL_FRAC * base_size):
             return True
+        # Vertical-OVERLAP fallback: glyphs of different heights on the SAME
+        # baseline (e.g. a Greek 'θ' next to '=3') have offset centres yet overlap
+        # strongly in y. Without this the anchor 'θ' can't grab '=3°' and is
+        # dropped (2009.07658: 'θ=3°' -> '=3°'). Rows are ~1 line-height apart, so
+        # this never reaches the next row.
+        lo, hi = max(t.bbox[1], first.bbox[1]), min(t.bbox[3], first.bbox[3])
+        h_min = min(t.bbox[3] - t.bbox[1], first.bbox[3] - first.bbox[1]) or 1.0
+        if hi - lo >= 0.6 * h_min:
+            return True
         return False
 
     cont = sorted(
