@@ -314,7 +314,7 @@ def _axis_view(record, style, which):
     }
 
 
-def _replot(ax, record, style, tex=False):
+def _replot(ax, record, style, tex=False, font_scale=1.0):
     """Draw the extracted data into ``ax`` in the original's style."""
     L = _latexify if tex else (lambda x: x)
     has_label = False
@@ -379,8 +379,10 @@ def _replot(ax, record, style, tex=False):
     base_fs = txt.get("base_font_size")
     font_ok = bool(base_fs) and 3 <= base_fs <= 40
 
-    def _fs(v):  # accept a recovered (scale-corrected) point size only if sane
-        return v if (font_ok and v and 3 <= v <= 44) else None
+    def _fs(v):  # accept a recovered (scale-corrected) point size only if sane,
+        # then magnify by font_scale so a panel larger than the original crop keeps
+        # the same font-to-plot proportion (font_scale=1.0 leaves it untouched).
+        return v * font_scale if (font_ok and v and 3 <= v <= 44) else None
 
     def _w(flag):
         return "bold" if flag else "normal"
@@ -439,7 +441,7 @@ def _replot(ax, record, style, tex=False):
         if p and -0.35 <= p[0] <= 0.02 and 0.2 <= p[1] <= 0.8:
             ax.yaxis.set_label_coords(p[0], p[1])
     if _fs(txt.get("tick_font_size")):
-        ax.tick_params(labelsize=txt["tick_font_size"])
+        ax.tick_params(labelsize=txt["tick_font_size"] * font_scale)
     # match the original axis frame / tick line weight
     alw = style.get("axis_linewidth")
     if alw:
@@ -572,8 +574,8 @@ def _original_image(record):
     return arr, clip, dpi
 
 
-def _box(ax, record, style):
-    _replot(ax, record, style)
+def _box(ax, record, style, font_scale=1.0):
+    _replot(ax, record, style, font_scale=font_scale)
     ar = style.get("aspect_ratio")
     if ar and ar > 0:
         try:
@@ -705,8 +707,16 @@ def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None,
     if txt.get("font_family"):
         rc["font.family"] = txt["font_family"]
     base = txt.get("base_font_size")
+    # The 4-panel PNG forces each panel to ~5in, while recovered font sizes are in
+    # the original crop's points; the original is shown as a raster MAGNIFIED to
+    # fill its panel, so absolute-point recon fonts look tiny beside it. Magnify
+    # the reconstruction fonts by the same panel/crop ratio to restore the
+    # font-to-plot proportion (the vector EPS/PDF deliverables keep scale 1.0).
+    panel_w_pt, panel_h_pt = 5.0 * 72.0, 4.2 * 72.0  # usable area of one (22,5)/4 axes
+    png_font_scale = max(1.0, min(4.5, min(panel_w_pt / max(clip.width, 1.0),
+                                           panel_h_pt / max(clip.height, 1.0))))
     if base and 3 <= base <= 40:  # scale-corrected; final plausibility guard
-        rc["font.size"] = base
+        rc["font.size"] = base * png_font_scale
 
     def overlay(ax):
         s = dpi / 72.0
@@ -726,10 +736,10 @@ def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None,
         a1.imshow(arr); a1.set_title("original + extracted pixels"); a1.axis("off")
         overlay(a1)
         a2.set_title("reconstructed (original style)")
-        _box(a2, record, style)
+        _box(a2, record, style, font_scale=png_font_scale)
         _draw_residual(a3, arr, clip, dpi, resid)
         if title:
-            fig.suptitle(title, fontsize=tfs,
+            fig.suptitle(title, fontsize=(tfs * png_font_scale if tfs else None),
                          fontweight="bold" if txt.get("title_bold") else "normal")
         fig.tight_layout(); fig.savefig(out_png, dpi=110); plt.close(fig)
 

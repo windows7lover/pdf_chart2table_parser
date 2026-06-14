@@ -158,6 +158,33 @@ def test_math_italic_keeps_latin_in_math_and_maps_unicode():
     assert _math_italic("ε") == r"$\epsilon$"  # greek -> math command
 
 
+# --- font_scale magnifies recovered point sizes (PNG panel proportion fix) ------
+def _mini_record_style():
+    record = {"series": [{"points": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]}],
+              "x_axis": {"data_range": [0.0, 1.0]},
+              "y_axis": {"data_range": [0.0, 1.0]},
+              "xticks": [], "yticks": []}
+    style = {"series": [{"color": [0.0, 0.0, 0.0], "label": None}],
+             "x_axis": {"title": "X", "ticks": []},
+             "y_axis": {"title": "Y", "ticks": []},
+             "text": {"base_font_size": 10.0, "x_title_font_size": 10.0,
+                      "y_title_font_size": 10.0}}
+    return record, style
+
+
+def test_font_scale_multiplies_recovered_label_size():
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert ax.xaxis.label.get_size() == 10.0
+    plt.close(fig)
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=2.5)   # a larger panel -> bigger fonts
+    assert ax.xaxis.label.get_size() == 25.0
+    plt.close(fig)
+
+
 # --- Bug A: filled circle drawn as a noisy/doubled loop must NOT be a star -----
 def test_noisy_doubled_circle_is_disk_not_star():
     # 2102.11637_p6c5: half the data markers are filled circles encoded as a
