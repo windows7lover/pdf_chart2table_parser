@@ -16,12 +16,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import math  # noqa: E402
 
 from render_restyle_prototype import (  # noqa: E402
-    _draw_residual, _effective_scale, _faithful_tick_label, _group_color,
-    _group_spans, _is_italic, _join_group, _label_match, _marker_shape, _norm,
-    _plain_num, _span_color, _threads_markers, _ticks_in_range,
-    _use_axis_multiplier)
+    _compose_runs, _draw_residual, _effective_scale, _faithful_tick_label,
+    _group_color, _group_spans, _is_italic, _join_group, _label_match,
+    _marker_shape, _math_italic, _norm, _plain_num, _span_color,
+    _threads_markers, _ticks_in_range, _use_axis_multiplier)
 
 from pdf_chart2table.model import Path  # noqa: E402
+from pdf_chart2table.style import _is_symbol_font, _label_runs  # noqa: E402
 
 
 def _path(points, fill=None, stroke=(0.0, 0.0, 0.0)):
@@ -100,6 +101,61 @@ def test_italic_detected_from_flag_and_font_name():
     assert _is_italic({"flags": 0, "font": "NimbusRomNo9L-Ital"})
     assert _is_italic({"flags": 0, "font": "CMMI10-Oblique"})
     assert not _is_italic({"flags": 0, "font": "Helvetica"})
+
+
+# --- symbol fonts carry the italic flag but are NOT italic text ----------------
+def test_symbol_fonts_excluded_from_italic_vote():
+    # CMSY (≪/→), CMEX (big ops), AMS msam/msbm, rsfs, dingbats are symbol fonts.
+    assert _is_symbol_font({"font": "CMSY10"})
+    assert _is_symbol_font({"font": "ABCDEF+CMEX10"})
+    assert _is_symbol_font({"font": "MSBM10"})
+    # math-ITALIC (CMMI), text-italic (CMTI) and roman (CMR) are NOT symbol fonts.
+    assert not _is_symbol_font({"font": "CMMI10"})
+    assert not _is_symbol_font({"font": "CMTI10"})
+    assert not _is_symbol_font({"font": "CMR10"})
+
+
+def _tspan(text, x0, italic, font="CMR10", size=10.0):
+    """Horizontal text span carrying the italic flag, for _label_runs tests."""
+    w = max(1.0, 0.55 * size * len(text))
+    return {"text": text, "size": size, "bbox": (x0, 0.0, x0 + w, size),
+            "dir": (1.0, 0.0), "font": font, "flags": 2 if italic else 0}
+
+
+# --- per-token italic runs: a math var + roman units render token by token -----
+def test_label_runs_splits_mixed_italic_and_roman():
+    # 'τ (s)': italic math variable then a roman unit -> two runs.
+    spans = [_tspan("τ", 0.0, True, font="CMMI10"),
+             _tspan("(s)", 30.0, False, font="CMR10")]
+    runs = _label_runs(spans)
+    assert runs == [["τ", True], [" (s)", False]]
+
+
+def test_label_runs_none_when_uniform():
+    # all-italic (or all-roman) -> the whole-label boolean suffices, no runs.
+    allit = [_tspan("a", 0.0, True, font="CMMI10"),
+             _tspan("b", 10.0, True, font="CMMI10")]
+    assert _label_runs(allit) is None
+    allrom = [_tspan("R", 0.0, False), _tspan("e", 6.0, False)]
+    assert _label_runs(allrom) is None
+
+
+def test_label_runs_none_when_scripted():
+    # a group already carrying sub/superscript mathtext keeps that path (no runs).
+    spans = [_tspan("E", 0.0, True, font="CMMI10"),
+             _tspan("g$_{0}$", 8.0, False)]  # '$' marks existing script markup
+    assert _label_runs(spans) is None
+
+
+# --- renderer composition of runs into a mathtext string -----------------------
+def test_compose_runs_builds_mixed_mathtext():
+    out = _compose_runs([["τ", True], [" (s)", False]])
+    assert out == r"$\tau$ (s)"
+
+
+def test_math_italic_keeps_latin_in_math_and_maps_unicode():
+    assert _math_italic("E") == "$E$"          # latin -> math italic
+    assert _math_italic("ε") == r"$\epsilon$"  # greek -> math command
 
 
 # --- Bug A: filled circle drawn as a noisy/doubled loop must NOT be a star -----

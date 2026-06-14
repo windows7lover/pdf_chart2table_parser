@@ -103,6 +103,28 @@ def _latexify(s):
     return "".join(out)
 
 
+def _math_italic(text):
+    """Render a run as math-italic: letters/digits slant in math mode, unicode
+    symbols map to their math command (already italic). Used to compose mixed
+    italic/roman labels token by token (e.g. the 'τ' of 'τ (s)')."""
+    inner = []
+    for ch in text:
+        if ch in _UNI2TEX:
+            inner.append(_UNI2TEX[ch])
+        elif ch == " ":
+            inner.append(r"\ ")
+        else:
+            inner.append(ch)            # latin/digits italic in math; /,(,),- ok
+    return "$" + "".join(inner) + "$"
+
+
+def _compose_runs(runs):
+    """Build a label string from [text, is_italic] runs: italic runs as math-italic,
+    roman runs latexified normally. The result already carries '$', so the usual
+    _latexify pass-through leaves it intact."""
+    return "".join(_math_italic(t) if it else _latexify(t) for t, it in runs)
+
+
 # --------------------------------------------------------------------------
 # Style recovery now lives in the extraction library (pdf_chart2table.style)
 # and is written into chart.json at parse time. Re-exported here so existing
@@ -397,20 +419,22 @@ def _replot(ax, record, style, tex=False):
     if xa:
         _apply_ticks(ax, "x", xa.get("ticks"), x_scale, xa.get("data_range"))
         _plain_linear(ax.xaxis, x_scale, xa.get("ticks"))
-        ax.set_xlabel(L(xa.get("title") or ""),
+        xr_runs = txt.get("x_title_runs")
+        ax.set_xlabel(_compose_runs(xr_runs) if xr_runs else L(xa.get("title") or ""),
                       fontsize=_fs(txt.get("x_title_font_size")) or _fs(base_fs),
                       fontweight=_w(txt.get("x_title_bold")),
-                      fontstyle=_i(txt.get("x_title_italic")))
+                      fontstyle="normal" if xr_runs else _i(txt.get("x_title_italic")))
         p = txt.get("x_label_pos")  # only a plausibly-placed x label
         if p and 0.2 <= p[0] <= 0.8 and -0.35 <= p[1] <= 0.02:
             ax.xaxis.set_label_coords(p[0], p[1])
     if ya:
         _apply_ticks(ax, "y", ya.get("ticks"), y_scale, ya.get("data_range"))
         _plain_linear(ax.yaxis, y_scale, ya.get("ticks"))
-        ax.set_ylabel(L(ya.get("title") or ""),
+        yr_runs = txt.get("y_title_runs")
+        ax.set_ylabel(_compose_runs(yr_runs) if yr_runs else L(ya.get("title") or ""),
                       fontsize=_fs(txt.get("y_title_font_size")) or _fs(base_fs),
                       fontweight=_w(txt.get("y_title_bold")),
-                      fontstyle=_i(txt.get("y_title_italic")))
+                      fontstyle="normal" if yr_runs else _i(txt.get("y_title_italic")))
         p = txt.get("y_label_pos")
         if p and -0.35 <= p[0] <= 0.02 and 0.2 <= p[1] <= 0.8:
             ax.yaxis.set_label_coords(p[0], p[1])

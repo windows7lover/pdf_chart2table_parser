@@ -514,6 +514,37 @@ def _join_group(group):
     return "".join(parts)
 
 
+def _label_runs(group):
+    """Per-token [text, italic] runs for a label whose spans MIX italic and roman
+    (e.g. math var 'τ' + roman units ' (s)'), so the renderer can slant only the
+    italic tokens. Returns None when the whole-label italic boolean already
+    suffices: a uniform group (all/none italic), a scripted group (keep its
+    sub/superscript markup), or fewer than two real text spans."""
+    real = [s for s in group if not _is_symbol_font(s)]
+    if len(real) < 2:
+        return None
+    flags = [_is_italic(s) for s in real]
+    if all(flags) or not any(flags):
+        return None
+    if "$" in _join_group(group):
+        return None
+    ordered = sorted(real, key=lambda s: _reading_pos(s)[0])
+    runs, prev_end, prev_ital = [], None, None
+    for s in ordered:
+        a0, a1, _ = _reading_pos(s)
+        t = s["text"]
+        if prev_end is not None and (a0 - prev_end) > 0.18 * max(s.get("size") or 8, 1):
+            t = " " + t                       # restore inter-token space
+        it = _is_italic(s)
+        if runs and it == prev_ital:
+            runs[-1][0] += t                  # merge same-style adjacent spans
+        else:
+            runs.append([t, it])
+        prev_end = a1 if prev_end is None else max(prev_end, a1)
+        prev_ital = it
+    return runs
+
+
 def _group_color(group):
     """Dominant color of a group, weighted by character count."""
     counts = {}
@@ -575,6 +606,16 @@ def _is_bold(span):
     return bool(span.get("flags", 0) & 16) or "bold" in (span.get("font") or "").lower()
 
 
+def _is_symbol_font(span):
+    """Math-SYMBOL fonts (CMSY ≪/→, CMEX big-ops, AMS msam/msbm, rsfs, dingbats).
+    They carry the PDF italic flag but are NOT italic text, so they must not vote
+    in the italic decision (else a single ≪ flips a roman label to italic)."""
+    name = (span.get("font") or "").lower()
+    return any(k in name for k in (
+        "cmsy", "cmex", "msam", "msbm", "rsfs", "symbol", "dingbat",
+        "wingding", "marvosym", "esint", "stmary"))
+
+
 def _is_italic(span):
     return bool(span.get("flags", 0) & 2) or any(
         k in (span.get("font") or "").lower() for k in ("ital", "oblique"))
@@ -621,8 +662,14 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     # real emphasis, so bold detection is then unreliable and disabled.
     _bold_spans = sum(1 for s in spans if _is_bold(s))
     bold_reliable = _bold_spans <= 0.5 * len(spans)
-    _ital_spans = sum(1 for s in spans if _is_italic(s))
-    italic_reliable = _ital_spans <= 0.6 * len(spans)
+    # Italic vote excludes symbol fonts (CMSY/CMEX/AMS): they carry the italic flag
+    # but are not italic text, so counting them would spuriously trip the
+    # font-quirk guard. The guard only fires when essentially EVERY real text span
+    # is flagged italic (a genuine flag quirk); math-heavy panels that legitimately
+    # have mostly-italic variables (e.g. 'ε/E') are no longer disabled wholesale.
+    _txt_spans = [s for s in spans if not _is_symbol_font(s)]
+    _ital_spans = sum(1 for s in _txt_spans if _is_italic(s))
+    italic_reliable = (not _txt_spans) or _ital_spans <= 0.95 * len(_txt_spans)
 
     sizes = sorted(s["size"] for s in spans if s.get("size"))
     base = sizes[len(sizes) // 2] * scale if sizes else None
@@ -650,7 +697,29 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
 
     def italic_of(text):
         s = find(text)
-        return bool(s and _is_italic(s)) and italic_reliable
+        return bool(s and _is_italic(s) and not _is_symbol_font(s)) and italic_reliable
+
+    def find_group(text):
+        """The group of spans (reading order) whose joined text best matches a
+        label string -- so a multi-span title can be inspected token by token."""
+        key = _norm(text)
+        if not key:
+            return None
+        best, best_len = None, -1
+        for grp in _group_spans(spans, base):
+            gk = _norm(_join_group(grp))
+            if gk and (gk == key or gk in key or key in gk):
+                if len(gk) > best_len:
+                    best, best_len = grp, len(gk)
+        return best
+
+    def runs_of(text):
+        """Per-token italic runs for a label (see _label_runs); None when the
+        whole-label italic boolean suffices or italic is unreliable."""
+        if not italic_reliable:
+            return None
+        grp = find_group(text)
+        return _label_runs(grp) if grp else None
 
     def label_pos(text):
         s = find(text)
@@ -844,10 +913,13 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         "x_title_font_size": size_of(axis_titles.get("x")),
         "x_title_bold": bold_of(axis_titles.get("x")),
         "x_title_italic": italic_of(axis_titles.get("x")),
+        "x_title_runs": runs_of(axis_titles.get("x")),
         "y_title_font_size": size_of(axis_titles.get("y")),
         "y_title_bold": bold_of(axis_titles.get("y")),
         "y_title_italic": italic_of(axis_titles.get("y")),
+        "y_title_runs": runs_of(axis_titles.get("y")),
         "title_italic": italic_of(title_text),
+        "title_runs": runs_of(title_text),
         "x_label_pos": label_pos(axis_titles.get("x")),
         "y_label_pos": label_pos(axis_titles.get("y")),
         "show_legend": show_legend,
