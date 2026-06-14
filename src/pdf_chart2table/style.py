@@ -117,6 +117,10 @@ def _marker_shape(p):
         return "x"
     if shp == "plus":
         return "+"
+    if shp == "triangle":
+        return "^"          # 3-corner glyph: was falling through to 's' (square)
+    if shp == "diamond":
+        return "D"          # 45°-rotated square
     cx = sum(x for x, _ in pts) / len(pts)
     cy = sum(y for _, y in pts) / len(pts)
     rs = [((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 for x, y in pts]

@@ -231,6 +231,47 @@ def is_diamond_geometry(p: Path) -> bool:
     return abs(top[0] - cx) < bw / 4
 
 
+def _is_starlike(pts: list[tuple[float, float]]) -> bool:
+    """True when a many-vertex closed glyph has the REGULAR radial spikes of a
+    star (a few evenly spaced tips) rather than the smooth ~constant radius of a
+    circle.
+
+    Vertex count alone cannot tell them apart: a circle flattened to 9-39 points
+    (common in vector charts) and a star both clear a raw count threshold, which
+    is why a blanket ``n >= 9 -> star`` mislabelled filled circles as stars. Radii
+    from the centroid are binned by polar angle (which washes out the per-vertex
+    jitter of a doubled-arc circle), then the local maxima are counted: a real
+    star has 4-7 significant, evenly spaced spikes; a circle has ~none.
+    """
+    import math
+    n = len(pts)
+    if n < 9:
+        return False
+    cx = sum(x for x, _ in pts) / n
+    cy = sum(y for _, y in pts) / n
+    nbins = 24
+    binmax = [0.0] * nbins
+    for x, y in pts:
+        a = math.atan2(y - cy, x - cx)
+        r = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+        b = int((a + math.pi) / (2 * math.pi) * nbins) % nbins
+        if r > binmax[b]:
+            binmax[b] = r
+    rs = [v for v in binmax if v > 0]
+    if len(rs) < 6:
+        return False
+    mean = sum(rs) / len(rs)
+    if mean <= 0:
+        return False
+    amp = (max(rs) - min(rs)) / mean
+    margin = 0.10 * mean
+    m = len(rs)
+    spikes = sum(1 for i in range(m)
+                 if rs[i] > mean + margin
+                 and rs[i] >= rs[(i - 1) % m] and rs[i] >= rs[(i + 1) % m])
+    return 4 <= spikes <= 7 and amp > 0.35
+
+
 def shape_of(p: Path) -> str:
     """Classify a small mark path by vertex count / open-vs-closed.
 
@@ -243,7 +284,11 @@ def shape_of(p: Path) -> str:
     if n >= 40:
         return "circle"
     if n >= 9:
-        return "star"
+        # A 9-39-vertex closed glyph is a circle OR a star; tell them apart by
+        # radial geometry rather than assuming star (filled circles flatten to
+        # this many points and were being mislabelled, so their markers rendered
+        # as '*').
+        return "star" if _is_starlike(p.points) else "circle"
     if n == 5:
         # A 5-vertex closed path is either a square (axis-aligned corners) or a
         # diamond (rotated 45°, corners at top/right/bottom/left). Distinguish by

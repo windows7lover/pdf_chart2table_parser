@@ -921,6 +921,50 @@ def test_filled_triangle_glyph_still_triangle():
     assert shape_of(_filled_triangle(200, 200)) == "triangle"
 
 
+def _ngon(cx, cy, n, r=4.0, fill=(0.2, 0.4, 0.6)):
+    """A closed regular n-gon (a circle flattened to n vertices)."""
+    import math
+    pts = [(cx + r * math.cos(2 * math.pi * k / n),
+            cy + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+    pts.append(pts[0])
+    xs = [x for x, _ in pts]
+    ys = [y for _, y in pts]
+    return VPath(points=pts, stroke=None, fill=fill, width=None, dashes=None,
+                 closed=True, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def _star(cx, cy, tips=5, r_out=5.0, r_in=2.0, fill=(0.2, 0.4, 0.6)):
+    """A closed star: alternating long/short radii (the real star geometry)."""
+    import math
+    pts = []
+    for k in range(2 * tips):
+        r = r_out if k % 2 == 0 else r_in
+        a = math.pi * k / tips
+        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    pts.append(pts[0])
+    xs = [x for x, _ in pts]
+    ys = [y for _, y in pts]
+    return VPath(points=pts, stroke=None, fill=fill, width=None, dashes=None,
+                 closed=True, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def test_circle_flattened_to_few_vertices_is_circle_not_star():
+    """A filled circle flattened to 9-39 vertices must classify as 'circle'.
+
+    The old ``n >= 9 -> star`` rule called every such glyph a star, so circle
+    markers rendered as '*' (2002.09528, 2005.00241 K-valley)."""
+    from pdf_chart2table.primitives import shape_of
+    for n in (12, 15, 24, 33):
+        assert shape_of(_ngon(200, 200, n)) == "circle", n
+
+
+def test_real_star_glyph_still_classified_as_star():
+    """A genuine star (regular alternating radii) must STILL classify as 'star'."""
+    from pdf_chart2table.primitives import shape_of
+    assert shape_of(_star(200, 200, tips=5)) == "star"
+    assert shape_of(_star(200, 200, tips=6)) == "star"
+
+
 def test_marker_shape_render_classifies_cross_and_plus():
     """The renderer's ``_marker_shape`` must return 'x'/'+' for cross/plus glyphs
     (previously returned 's', so ×/+ markers were drawn as squares), and keep
@@ -934,6 +978,8 @@ def test_marker_shape_render_classifies_cross_and_plus():
     spec.loader.exec_module(rrp)
     assert rrp._marker_shape(_filled_cross(200, 200)) == "x"
     assert rrp._marker_shape(_filled_plus(200, 200)) == "+"
-    # Guard the non-cross shapes still resolve as before.
+    # Guard the non-cross shapes resolve correctly.
     assert rrp._marker_shape(_axis_square(200, 200, fill=(0.2, 0.6, 0.9))) == "s"
-    assert rrp._marker_shape(_filled_triangle(200, 200)) == "s"
+    # A triangle must classify as '^', not 's' (the old code had no triangle case
+    # so it fell through to square -- 2003.07592 Isotropic rendered as squares).
+    assert rrp._marker_shape(_filled_triangle(200, 200)) == "^"
