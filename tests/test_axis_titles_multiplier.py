@@ -68,6 +68,34 @@ def test_superscript_times10_glued_mantissa_negative_exponent():
     assert _y_axis_multiplier(texts, REGION, []) == 1e-4
 
 
+def test_superscript_separate_minus_and_digit_spans():
+    """×10^-2 offset where the SIGN and DIGIT are SEPARATE raised spans.
+
+    Reproduces 2002.06092_p6c1: the offset is '×','10','−','2' as four distinct
+    spans. The old scan tried int() per span, int('−') failed, so it kept '2' and
+    returned ×10^2 -- y values came out 1e4x too large. The exponent must be read
+    as the JOINED contiguous raised run '−2'."""
+    texts = [
+        _hspan("×", 346, 340, 352, 346),
+        _hspan("10", 353, 338, 359, 344),
+        _hspan("−", 359, 335, 363, 341),         # raised, separate sign glyph
+        _hspan("2", 363, 335, 366, 341),         # raised, separate digit
+    ]
+    assert _y_axis_multiplier(texts, REGION, []) == 1e-2
+
+
+def test_superscript_missing_minus_glyph_yields_no_multiplier():
+    """×10^-5 whose minus glyph was NOT extracted leaves a GAP between '10' and
+    the raised '5' (2003.13245_p8c2). Rather than guess ×10^5 (catastrophic, data
+    1e10x off), the contiguity break -> no multiplier (1.0)."""
+    texts = [
+        _hspan("×", 346, 340, 352, 346),
+        _hspan("10", 353, 338, 359, 344),
+        _hspan("5", 363.5, 335, 366.5, 341),     # 4.5pt gap where '−' should be
+    ]
+    assert _y_axis_multiplier(texts, REGION, []) == 1.0
+
+
 def test_log_decade_label_not_read_as_multiplier():
     """A log y-axis labelled with decades '10^5..10^0' (each = a '10' mantissa +
     a raised exponent span) must NOT have its topmost '10^5' tick mistaken for a

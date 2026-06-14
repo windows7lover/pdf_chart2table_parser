@@ -650,16 +650,29 @@ def _superscript_mult(texts: list[TextSpan], region: Region, exclude=()) -> floa
         if mant != "10":
             continue
         b = t.bbox
-        for e in near:
-            es = e.text.strip().replace("−", "-")
+        bcy = _center(b)[1]
+        # The exponent can be SEVERAL raised spans right of "10": a separate sign
+        # glyph ("−") and the digits ("2") are emitted as DISTINCT spans, so the
+        # old single-span scan parsed only "2" and silently dropped the minus
+        # (rendering ×10^-2 as ×10^2 -> data off by 10^4). Collect the CONTIGUOUS
+        # run of raised spans just right of the mantissa and parse the joined,
+        # sign-normalised text. A gap (e.g. an unextracted minus glyph) breaks the
+        # run, so we return no multiplier rather than guess a wrong sign.
+        cands = sorted((e for e in near
+                        if e.bbox[0] >= b[2] - 1.0 and _center(e.bbox)[1] < bcy),
+                       key=lambda e: e.bbox[0])
+        es, edge = "", b[2]
+        for e in cands:
+            if e.bbox[0] - edge > 3.0:     # contiguity break (missing glyph / gap)
+                break
+            es += e.text.strip()
+            edge = e.bbox[2]
+        m = _re.match(r"[+-]?\d+", es.replace("−", "-").replace(" ", ""))
+        if m:
             try:
-                exp = int(es)
+                return 10.0 ** int(m.group())
             except ValueError:
-                continue
-            eb = e.bbox
-            # exponent sits just right of "10" and raised (smaller PDF y = higher)
-            if eb[0] >= b[2] - 1.0 and _center(eb)[1] < _center(b)[1]:
-                return 10.0 ** exp
+                pass
     return 1.0
 
 

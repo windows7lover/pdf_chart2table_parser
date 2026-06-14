@@ -203,3 +203,48 @@ glyphs to the right) is still detected; the 2409 data column is now rejected at
 the labels level (the `marks._looks_like_colormap_scatter` workaround stays as
 redundant defense-in-depth). Corpus-wide spot-check (102 charts) unchanged;
 suite green (1037→1039 with 2 new regression tests in test_labels.py).
+
+---
+
+## Round 11 — fresh 20-chart set (2001–2006 arxiv_semicond), 2026-06-13
+
+QA pass over a brand-new 20-chart draw (disjoint from the prior curated set).
+
+**Faithful (8):** 2001.02216 (5 series log-y), 2001.06601 (5 strain curves),
+2003.07825 (hysteresis ×10⁻⁶), 2006.04478 (6 temp curves log-y), 2006.05363
+(5 curves+grid), 2006.16872 (multi-peak spectra), 2006.04979 (PL peak),
+2001.07556 (sigmoid; ref-lines dropped).
+
+**Data-affecting bugs:**
+- **Y-multiplier exponent sign/glyph lost** (×10⁻ⁿ → ×10⁺ⁿ): 2002.06092 (×10⁻²,
+  data ×10⁴ too big), 2003.13245 (×10⁻⁵, data ×10¹⁰ too big). FIXED for the
+  separate-minus-span case (join contiguous raised spans); the missing-minus-glyph
+  case (2003.13245) now degrades to no-multiplier (sane magnitude) instead of a
+  wrong positive exponent. Recovering an UNEXTRACTED minus glyph (drawn as a path)
+  is still open.
+- **Mis-bounded region / wrong-tick calibration:** 2006.08318 (y came out
+  −1.10…−1.30; inset present). Multi-panel/inset family.
+- **Dropped curve:** 2001.03975 (Nonlocal Re(ε), steep red solid) — residual panel
+  now flags it (missed-curve:1).
+- **Legend extracted as a data series:** 2001.11305 (legend "Experiment — Fit"
+  glyphs became a black scatter row at y≈1.5); 2006.08318 (spurious "/T_C" series).
+
+**Inset contamination (leaks into main plot):** 2001.04704 (scatter+vertical line),
+2006.08318 (inset curve as series + garbled inset axis text), 2003.09804
+("Pressure"/"(GPa)" text + vertical line).
+
+**Style bugs:**
+- **Marker-shape misclassification (recurring):** circle→star (2005.00241,
+  2002.09528), triangle→square (2003.07592), open→filled (2002.05277).
+- **Panel enumerator promoted to giant suptitle:** 2003.09804 ("(b)").
+- **Spurious frame/diagonal lines:** 2003.00176 (two diagonals).
+- **Dropped connecting line / reference guide-lines:** 2002.09528 (connect line),
+  2002.05277 / 2005.00241 / 2001.07556 / 2003.07592 (ref/fit guide-lines).
+
+**Also fixed this round:** residual PNG panel no longer draws a faded full-chart
+"ghost" when residual≈0 (now reads "no unexplained ink (fully explained)"); with
+residual it keeps a lighter backdrop + bolder leftover ink.
+
+**Next tractable levers (by frequency):** (1) marker-shape classifier (≥4 charts);
+(2) inset detection+isolation / mis-bounded multi-panel calibration (≥3 charts,
+the big one); (3) legend-region masking from data extraction (2 charts).
