@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass, field
 
 from .model import BBox, Color, Path, Region, TextSpan
-from .primitives import bbox_center as _bbox_center
+from .primitives import bbox_center as _bbox_center, join_scripts as _join_scripts
 
 # Numeric tick label (to exclude from title detection).
 _NUMERIC = re.compile(r"^[-+]?\d*\.?\d+$")
@@ -364,14 +364,13 @@ def _assemble_label(
             break
         picked.append(i)
         prev = t
-    # Join, inserting a space only where spans are horizontally separated (so a
-    # hyphenated "BN-x5-Sigmoid" stays one token while "T = 100" keeps spaces).
-    parts = [texts[picked[0]].text]
-    for pa, pb in zip(picked, picked[1:]):
-        a, b = texts[pa], texts[pb]
-        sep = " " if b.bbox[0] - a.bbox[2] > _ADJ_GAP * _eff_size(a) else ""
-        parts.append(sep + b.text)
-    label = re.sub(r"\s+", " ", "".join(parts)).strip()
+    # Join the spans, marking sub/superscripts as inline mathtext (so 'P'+lowered
+    # 'in' -> 'P$_{in}$', 'cm'+raised'-3' -> 'cm$^{-3}$') and inserting a space
+    # only where spans are horizontally separated.
+    items = [(texts[i].text, texts[i].size,
+              0.5 * (texts[i].bbox[1] + texts[i].bbox[3]),
+              texts[i].bbox[0], texts[i].bbox[2]) for i in picked]
+    label = _join_scripts(items)
     return label, set(picked)
 
 

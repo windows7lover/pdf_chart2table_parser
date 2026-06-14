@@ -485,9 +485,17 @@ def _group_spans(spans, base):
 
 
 def _join_group(group):
-    """Concatenate a group's spans (in reading order) into one string. Insert a
-    space where the original token gap is wide (word break); join directly for
-    tight runs (sub/superscripts, glyph fragments)."""
+    """Concatenate a group's spans (in reading order) into one string. For
+    HORIZONTAL text, mark sub/superscripts as inline mathtext (e.g. 'cm$^{-3}$',
+    'E$_{g}$'). For rotated/vertical text (a y-title), the baseline test does not
+    apply, so fall back to a plain reading-order join with word-gap spaces."""
+    from .primitives import join_scripts as _join_scripts
+    horizontal = all(abs((s.get("dir") or (1.0, 0.0))[1]) < 0.3 for s in group)
+    if horizontal:
+        items = [(s["text"], s.get("size"),
+                  0.5 * (s["bbox"][1] + s["bbox"][3]), s["bbox"][0], s["bbox"][2])
+                 for s in group]
+        return _join_scripts(items)
     ordered = sorted(group, key=lambda s: _reading_pos(s)[0])
     parts = []
     prev_end = None

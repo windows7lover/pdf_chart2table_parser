@@ -83,6 +83,11 @@ def _latexify(s):
     """Make a (possibly unicode/mangled) label safe + nice for usetex."""
     if not s:
         return s
+    # Already-formatted inline mathtext (our sub/superscript markup '$^{..}$' /
+    # '$_{..}$') is valid in usetex as-is; escaping its '$', '_', '{' would break
+    # it. Pass such strings through untouched.
+    if "$" in s:
+        return s
     out = []
     for ch in s:
         if ch in _UNI2TEX:

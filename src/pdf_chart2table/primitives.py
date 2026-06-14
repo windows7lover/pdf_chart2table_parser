@@ -22,8 +22,56 @@ Public API:
 from __future__ import annotations
 
 import colorsys
+import re
 
 from .model import Color, Path, Region
+
+
+def join_scripts(items) -> str:
+    """Join text spans into one string, marking SUB/SUPERSCRIPTS as inline
+    mathtext so '10'+raised'5' -> '10$^{5}$', 'cm'+raised'-3' -> 'cm$^{-3}$',
+    'P'+lowered'in' -> 'P$_{in}$'.
+
+    ``items`` is an iterable of ``(text, size, cy, x0, x1)`` (any order; sorted by
+    x0). A span SMALLER than the base (largest) size whose centre is raised above
+    the baseline -> superscript; smaller and lowered -> subscript. Consecutive
+    same-script spans merge into one group. A wide horizontal gap inserts a space.
+    Falls back to a plain concatenation when sizes are absent (so non-script
+    labels are returned UNCHANGED -- no '$', no behaviour change)."""
+    items = sorted(items, key=lambda it: it[3])
+    sizes = [sz for _, sz, _, _, _ in items if sz]
+    if not sizes:
+        return "".join(t for t, *_ in items)
+    base = max(sizes)
+    base_cys = [cy for _, sz, cy, _, _ in items if sz and sz >= 0.9 * base]
+    base_cy = sorted(base_cys)[len(base_cys) // 2] if base_cys else None
+    out, buf, cur = [], [], None
+    prev_x1 = None
+
+    def flush():
+        nonlocal buf, cur
+        if buf:
+            seg = "".join(buf)
+            out.append("$%s{%s}$" % (cur, seg) if cur else seg)
+            buf = []
+
+    for text, sz, cy, x0, x1 in items:
+        script = None
+        if base_cy is not None and sz and sz < 0.82 * base:
+            if cy < base_cy - 0.12 * base:      # raised (smaller PDF y)
+                script = "^"
+            elif cy > base_cy + 0.12 * base:    # lowered
+                script = "_"
+        if script != cur:
+            flush()
+            cur = script
+        if (prev_x1 is not None and script is None
+                and (x0 - prev_x1) > 0.28 * base):
+            buf.append(" ")
+        buf.append(text)
+        prev_x1 = x1
+    flush()
+    return re.sub(r"\s+", " ", "".join(out)).strip()
 
 # --------------------------------------------------------------------------
 # Colour predicates
