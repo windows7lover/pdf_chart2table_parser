@@ -639,15 +639,32 @@ def _residual_paths(record, chart_json):
 
 
 def _draw_residual(ax, arr, clip, dpi, resid, show_title=True):
-    """Original crop (faded) + the unexplained residual ink overlaid: candidate
-    dropped curves in bold red, other residual (decoration) in thin orange."""
-    ax.imshow(arr, alpha=0.30)
+    """The unexplained residual ink: candidate dropped curves in bold red, other
+    residual (decoration) in thin orange.
+
+    The panel's POINT is the leftover ink, so an empty residual must read as "all
+    ink accounted for" -- NOT a faded copy of the whole chart (a near-empty
+    residual over a 0.30-alpha full backdrop looked like the entire graph shown
+    faint). So: no residual -> plain "fully explained" panel; with residual -> a
+    LIGHT backdrop for spatial context + the leftover ink drawn boldly on top."""
+    w = getattr(arr, "width", None) or arr.shape[1]   # PIL Image vs ndarray
+    h = getattr(arr, "height", None) or arr.shape[0]
+    if not resid:
+        ax.set_xlim(0, w); ax.set_ylim(h, 0)
+        ax.text(0.5, 0.5, "no unexplained ink\n(fully explained)",
+                transform=ax.transAxes, ha="center", va="center",
+                fontsize=13, color="green")
+        if show_title:
+            ax.set_title("residual (none — fully explained)")
+        ax.axis("off")
+        return
+    ax.imshow(arr, alpha=0.15)
     s = dpi / 72.0
     for pts, is_missed in resid:
         xs = [(x - clip.x0) * s for x, y in pts]
         ys = [(y - clip.y0) * s for x, y in pts]
         ax.plot(xs, ys, color=("red" if is_missed else "orange"),
-                lw=(1.4 if is_missed else 0.7), solid_capstyle="round")
+                lw=(1.8 if is_missed else 1.0), solid_capstyle="round")
     if show_title:
         nmiss = sum(1 for _, m in resid if m)
         ax.set_title(f"residual (unexplained: {len(resid)}, missed-curve: {nmiss})")

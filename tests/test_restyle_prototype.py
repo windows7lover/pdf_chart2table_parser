@@ -16,9 +16,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import math  # noqa: E402
 
 from render_restyle_prototype import (  # noqa: E402
-    _effective_scale, _faithful_tick_label, _group_color, _group_spans,
-    _is_italic, _join_group, _label_match, _marker_shape, _norm, _plain_num,
-    _span_color, _threads_markers, _ticks_in_range, _use_axis_multiplier)
+    _draw_residual, _effective_scale, _faithful_tick_label, _group_color,
+    _group_spans, _is_italic, _join_group, _label_match, _marker_shape, _norm,
+    _plain_num, _span_color, _threads_markers, _ticks_in_range,
+    _use_axis_multiplier)
 
 from pdf_chart2table.model import Path  # noqa: E402
 
@@ -291,3 +292,37 @@ def test_real_top_center_title_is_corroborated():
     # one coherent line centered above the plot box -> a legitimate title
     top = [_span("Sample", 70, 90), _span("A", 100, 90)]
     assert _title_corroborated("Sample A", top, region)
+
+
+def test_residual_empty_shows_fully_explained_not_ghost():
+    # A near-empty residual must NOT be drawn over a faded full-chart backdrop
+    # (that looked like "the whole graph, faint"). Empty -> no image, clear text.
+    import types
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from PIL import Image
+    arr = Image.new("RGB", (60, 40))      # PIL image, as the renderer passes
+    clip = types.SimpleNamespace(x0=0.0, y0=0.0)
+    fig, ax = plt.subplots()
+    _draw_residual(ax, arr, clip, 72.0, [])
+    assert len(ax.images) == 0           # no faded backdrop
+    assert "fully explained" in ax.get_title()
+    plt.close(fig)
+
+
+def test_residual_nonempty_draws_ink_over_light_backdrop():
+    import types
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from PIL import Image
+    arr = Image.new("RGB", (60, 40))      # PIL image, as the renderer passes
+    clip = types.SimpleNamespace(x0=0.0, y0=0.0)
+    resid = [([(1.0, 1.0), (2.0, 2.0)], True)]  # one missed curve
+    fig, ax = plt.subplots()
+    _draw_residual(ax, arr, clip, 72.0, resid)
+    assert len(ax.images) == 1           # light context backdrop present
+    assert ax.images[0].get_alpha() < 0.2
+    assert len(ax.lines) == 1            # the residual stroke drawn on top
+    plt.close(fig)
