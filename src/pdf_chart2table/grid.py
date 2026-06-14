@@ -141,4 +141,10 @@ def detect_grid(region: Region, paths: list[Path],
     grid["color"] = list(ref["stroke"]) if ref["stroke"] else None
     grid["linewidth"] = ref["width"]
     grid["dashes"] = ref["dashes"]
+    # Grid transparency: many grids are drawn faint via a low stroke opacity, not
+    # just a light colour. Record the median of the transparent members so the
+    # renderer reproduces a subtle grid instead of a heavy opaque one.
+    alphas = sorted(s["stroke_alpha"] for s in members
+                    if s.get("stroke_alpha") is not None)
+    grid["alpha"] = alphas[len(alphas) // 2] if alphas else None
     return grid

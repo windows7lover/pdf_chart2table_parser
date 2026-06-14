@@ -467,23 +467,30 @@ def _replot(ax, record, style, tex=False):
         # and stays visible at thin widths where ":" disappears.
         gls = "--" if g.get("dashes") else "-"
         gcolor = _color(g.get("color")) or "0.85"
-        # The recovered stroke width can be sub-point and render invisibly; keep a
-        # visible floor so the grid reads like the original.
-        glw = max(g.get("linewidth") or 0.5, 0.6)
+        # Keep the grid SUBTLE like the source: a thin line at a low opacity. The
+        # recovered width can be sub-point; floor just enough to stay visible but
+        # not heavy. Many grids are faint via a low stroke opacity (recovered as
+        # ``alpha``) rather than a light colour -- reproduce it (default subtle).
+        glw = min(max(g.get("linewidth") or 0.5, 0.4), 0.8)
+        galpha = g.get("alpha")
+        if galpha is None:
+            galpha = 0.5 if (gcolor != "0.85" and max(gcolor) < 0.5) else None
         xl, yl = g.get("x_lines"), g.get("y_lines")
         if xl or yl:
             # Draw each recovered grid / reference line at its exact position
             # (incl. log-axis minors and lone axhline/axvline references) rather
             # than relying on matplotlib's auto major ticks.
             for xv in (xl or []):
-                ax.axvline(xv, zorder=0, linestyle=gls, color=gcolor, linewidth=glw)
+                ax.axvline(xv, zorder=0, linestyle=gls, color=gcolor,
+                           linewidth=glw, alpha=galpha)
             for yv in (yl or []):
-                ax.axhline(yv, zorder=0, linestyle=gls, color=gcolor, linewidth=glw)
+                ax.axhline(yv, zorder=0, linestyle=gls, color=gcolor,
+                           linewidth=glw, alpha=galpha)
         else:
             axis = ("both" if (g.get("x") and g.get("y"))
                     else ("x" if g.get("x") else "y"))
             ax.grid(True, axis=axis, which="major", zorder=0, linestyle=gls,
-                    color=gcolor, linewidth=glw)
+                    color=gcolor, linewidth=glw, alpha=galpha)
         ax.set_axisbelow(True)
     # Draw a legend only when it is actually present on THIS panel.
     if has_label and txt.get("show_legend", True):

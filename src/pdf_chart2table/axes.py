@@ -331,7 +331,8 @@ def axis_segments(paths: list[Path], region: Region) -> list[dict]:
             role = "other"
         out.append({"orient": orient, "coord": coord, "length": length,
                     "lo": lo, "hi": hi, "role": role, "stroke": p.stroke,
-                    "width": p.width, "dashes": p.dashes})
+                    "width": p.width, "dashes": p.dashes,
+                    "stroke_alpha": p.stroke_alpha})
     return out
 
 
