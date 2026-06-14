@@ -514,6 +514,22 @@ def _join_group(group):
     return "".join(parts)
 
 
+def _title_span_match(sk, key):
+    """True when span-norm ``sk`` should be taken as (part of) label-norm ``key``,
+    for resolving a label's font size / weight / italic from its source span.
+
+    Matches: exact; the whole label sitting INSIDE a bigger span (key in sk); or
+    ``sk`` being a SUBSTANTIAL (>=4 char) fragment of a longer label. A 1-3 char
+    fragment must NOT match a long multi-word title -- otherwise a stray legend
+    letter ('S' in 'False', 'CTI' in 'Detection') steals the title's font size,
+    inflating it (2004.06765_p10c6: titles came out ~1.7x too big)."""
+    if not sk or not key:
+        return False
+    if sk == key or key in sk:
+        return True
+    return len(sk) >= 4 and sk in key
+
+
 def _label_runs(group):
     """Per-token [text, italic] runs for a label whose spans MIX italic and roman
     (e.g. math var 'τ' + roman units ' (s)'), so the renderer can slant only the
@@ -621,6 +637,26 @@ def _is_italic(span):
         k in (span.get("font") or "").lower() for k in ("ital", "oblique"))
 
 
+def _content_scale(spans):
+    """Per-chart CONTENT-TRANSFORM scale, from horizontal text box-height / size.
+
+    A span's box-height / font-size equals the FONT's intrinsic
+    (ascender - descender) -- a per-font constant, NOT a content transform. It runs
+    ~1.0-1.4 for compact fonts but up to ~1.7-1.8 for tall-metric ones (DejaVuSans
+    = 1.70), so any ratio in that band is just font metrics and snaps to 1.0 (a 1.70
+    was inflating EVERY font ~1.7x on 2004.06765_p10c6). Only a figure genuinely
+    drawn small then scaled up multiplies this into a much larger ratio (>=2); there
+    we DO rescale fonts + line widths back to their true on-page size."""
+    ratios = [(s["bbox"][3] - s["bbox"][1]) / s["size"]
+              for s in spans
+              if s.get("size") and s["size"] > 0.05
+              and abs((s.get("dir") or (1.0, 0.0))[1]) < 0.3]
+    if not ratios:
+        return 1.0
+    scale = min(50.0, max(0.2, sorted(ratios)[len(ratios) // 2]))
+    return 1.0 if 0.7 <= scale < 2.0 else scale
+
+
 def _is_latex_font(font_weights):
     """Dominant font looks like a TeX font (Computer Modern / Latin Modern / ...)."""
     if not font_weights:
@@ -641,22 +677,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     x0, y0, x1, y1 = region_bbox
     w, h = (x1 - x0) or 1.0, (y1 - y0) or 1.0
 
-    # Per-chart CONTENT-TRANSFORM scale. PyMuPDF reports font `size` and stroke
-    # `width` in pre-transform units while coordinates are page-space; for a
-    # figure drawn small then scaled up (common), size << on-page height. The
-    # ratio (span box-height / size) of horizontal text recovers that scale, so
-    # we can rescale fonts AND line widths back to their true on-page size.
-    ratios = [(s["bbox"][3] - s["bbox"][1]) / s["size"]
-              for s in spans
-              if s.get("size") and s["size"] > 0.05 and abs(s["dir"][1]) < 0.3]
-    scale = sorted(ratios)[len(ratios) // 2] if ratios else 1.0
-    scale = min(50.0, max(0.2, scale))
-    # box-height/size is ~1.0-1.4 for normal (untransformed) text, so a ratio in
-    # that band is NOT a real transform -- snap to 1.0 to avoid inflating fonts
-    # (e.g. a spurious 1.12 made every label ~12 % too big). Only large ratios
-    # (a figure genuinely drawn small then scaled up) are applied.
-    if 0.7 <= scale <= 1.5:
-        scale = 1.0
+    scale = _content_scale(spans)
 
     # Bold is emphasis: if MOST region text reads bold it's a font-flag quirk, not
     # real emphasis, so bold detection is then unreliable and disabled.
@@ -682,8 +703,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         if not key:
             return None
         for s in spans:
-            sk = _norm(s["text"])
-            if sk and (sk == key or sk in key or key in sk):
+            if _title_span_match(_norm(s["text"]), key):
                 return s
         return None
 

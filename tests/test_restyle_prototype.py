@@ -22,7 +22,8 @@ from render_restyle_prototype import (  # noqa: E402
     _threads_markers, _ticks_in_range, _use_axis_multiplier)
 
 from pdf_chart2table.model import Path  # noqa: E402
-from pdf_chart2table.style import _is_symbol_font, _label_runs  # noqa: E402
+from pdf_chart2table.style import (  # noqa: E402
+    _content_scale, _is_symbol_font, _label_runs, _title_span_match)
 
 
 def _path(points, fill=None, stroke=(0.0, 0.0, 0.0)):
@@ -170,6 +171,43 @@ def _mini_record_style():
              "text": {"base_font_size": 10.0, "x_title_font_size": 10.0,
                       "y_title_font_size": 10.0}}
     return record, style
+
+
+def _hspan_box(boxh, size, x0=0.0):
+    # a horizontal span with a given box height and font size (dir along x)
+    return {"size": size, "bbox": (x0, 0.0, x0 + 5.0, boxh), "dir": (1.0, 0.0)}
+
+
+def test_content_scale_treats_tall_font_metrics_as_no_transform():
+    # 2004.06765_p10c6: DejaVuSans box-height/size = 1.70 is the font's intrinsic
+    # (ascender-descender), NOT a 1.7x zoom -- must snap to 1.0 (else every font
+    # is inflated ~1.7x). Confirmed: a tick "10" size 5.23 renders ink ~5.76pt.
+    tall = [_hspan_box(8.87, 5.23) for _ in range(10)]
+    assert _content_scale(tall) == 1.0
+    compact = [_hspan_box(5.5, 5.0) for _ in range(10)]  # ratio 1.1
+    assert _content_scale(compact) == 1.0
+
+
+def test_content_scale_keeps_genuine_large_transform():
+    # a figure truly drawn small then scaled up shows a much larger ratio (>=2).
+    scaled = [_hspan_box(15.0, 5.0) for _ in range(10)]  # ratio 3.0
+    assert _content_scale(scaled) == 3.0
+    assert _content_scale([]) == 1.0
+
+
+def test_title_span_match_rejects_short_fragments():
+    # 2004.06765_p10c6: a stray 1-char legend span 'S' (norm 's') matched the long
+    # title (norm contains 's' via "false"), stealing its font size -> titles 1.7x
+    # too big. A 1-3 char fragment must NOT match a long multi-word title.
+    key = _norm("Pfp False Alarm Probability")
+    assert not _title_span_match("s", key)          # stray legend letter
+    assert not _title_span_match("cti", key)        # 'cti' is inside "...probab"? no
+    assert not _title_span_match("cti", _norm("P d Detection Probability"))  # in "detection"
+    # legitimate matches still hold
+    assert _title_span_match("false", key)          # a real >=4-char word fragment
+    assert _title_span_match(_norm("Pfp False Alarm Probability"), key)      # exact
+    assert _title_span_match("g", "g")              # single-letter title, exact
+    assert _title_span_match("x" + key, key)        # whole label inside a bigger span
 
 
 def test_font_scale_multiplies_recovered_label_size():
