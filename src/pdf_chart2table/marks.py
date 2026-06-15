@@ -120,6 +120,11 @@ _HUE_MERGE_DEG = 20.0
 _CMAP_MIN_GROUPS = 4     # need at least this many same-shape/size colour groups
 _CMAP_SIZE_TOL = 1.0     # marker diameters must agree within this many px
 _CMAP_HUE_SPAN = 90.0    # representative hues must span at least this many degrees
+# A colourmap-coded scatter is point-PER-colour: each colour group is ~1 mark.
+# DISCRETE multi-colour series (e.g. 5 power-law fits, each its own solid colour
+# with many markers) must NOT be merged. Require the cluster's groups to be sparse
+# (median marks-per-group at or below this) before treating it as a colormap.
+_CMAP_MAX_MEDIAN_MARKS = 2
 
 # Faint-series locus guard: a small mark cluster (≤ _LOCUS_SMALL_MAX marks)
 # admitted by faint-series recovery must have ALL marks strictly inside the
@@ -713,6 +718,11 @@ def _merge_colormap_scatter(groups: list[SeriesMarks]) -> list[SeriesMarks]:
             _hue_dist(a, b) for a in hues for b in hues
         )
         if span < _CMAP_HUE_SPAN:
+            continue
+        # Sparsity guard: a real colormap is point-per-colour (each group ~1 mark);
+        # discrete multi-colour series have many marks per colour -- don't merge.
+        counts = sorted(len(sm.marks) for sm, _ in members)
+        if counts[len(counts) // 2] > _CMAP_MAX_MEDIAN_MARKS:
             continue
         if len(members) > best_n:
             best_n = len(members)

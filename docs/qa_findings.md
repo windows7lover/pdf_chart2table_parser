@@ -374,3 +374,11 @@ hardening pass is the next high-value lever (distinct from per-chart fixes).
   "right" -> 0 entries, series unlabeled, labels fell through to black annotations.
   Fix: allow a small swatch/label overlap (_SWATCH_OVERLAP=2.5). Now all 4 series
   labeled; legend renders with colored handles. Test: test_legend_swatch_side.py.
+
+### QA pass 2026-06-15 (set5) — DETAIL: discrete multi-colour series merged (FIXED)
+- **2001.01769_p17c3** — 5 power-law series (each own SOLID colour, ~16 circles)
+  were merged into ONE teal series (n_series=1) by _merge_colormap_scatter, which
+  fired on "≥4 same-shape colour groups, wide hue span" without checking marks-per-
+  group. A real colormap is point-per-colour (~1 mark/group); these are dense
+  discrete series. Added a sparsity guard (median marks-per-group ≤ 2). Now 5
+  series with correct colours. Test: test_colormap_merge_guard.py.
