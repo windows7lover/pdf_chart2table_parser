@@ -29,6 +29,13 @@ def _seg(x, y):  # a stray 2-point black segment (~2pt) that is NOT a marker
                 dashes=None, closed=False, bbox=(x, y, x + 2.0, y))
 
 
+def _open_circle(cx, cy, r=2.5, n=24):  # stroked ring, NO fill (open marker)
+    pts = [(cx + r * math.cos(2 * math.pi * i / n),
+            cy + r * math.sin(2 * math.pi * i / n)) for i in range(n + 1)]
+    return Path(points=pts, stroke=BLACK, fill=None, width=0.4, dashes=None,
+                closed=True, bbox=(cx - r, cy - r, cx + r, cy + r))
+
+
 def test_markersize_from_glyphs_not_stray_segments():
     centres = [(20.0, 50.0), (40.0, 50.0), (60.0, 50.0), (80.0, 50.0)]
     glyphs = [_circle(cx, cy) for cx, cy in centres]            # 5pt diameter
@@ -38,3 +45,16 @@ def test_markersize_from_glyphs_not_stray_segments():
     styles, _ = match_series_styles(glyphs + segs, REGION, series)
     ms = styles[0].get("markersize")
     assert ms is not None and ms >= 4.0, f"markersize dragged down: {ms}"
+
+
+def test_open_marker_majority_stays_open():
+    # 2503.07760_p4c1: a mostly-OPEN series (many fill=None rings) with a couple of
+    # incidental FILLED glyphs (e.g. a filled legend sample) must stay open --
+    # the face vote includes None so the majority (open) wins.
+    centres = [(20.0 + 8 * i, 50.0) for i in range(8)]
+    opens = [_open_circle(cx, cy) for cx, cy in centres]      # 8 open rings
+    filled = [_circle(100.0, 60.0), _circle(108.0, 60.0)]     # 2 filled (minority)
+    series = [{"color": list(BLACK),
+               "points": [{"x_px": cx, "y_px": cy} for cx, cy in centres]}]
+    styles, _ = match_series_styles(opens + filled, REGION, series)
+    assert styles[0].get("marker_face") is None, "open marker flipped to filled"

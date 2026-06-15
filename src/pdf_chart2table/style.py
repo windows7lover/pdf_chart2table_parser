@@ -299,13 +299,15 @@ def match_series_styles(paths, region_bbox, series):
         smalls = [max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) for p in small_paths]
         shapes = [s for s in (_marker_shape(p) for p in small_paths) if s]
         mshape = max(set(shapes), key=shapes.count) if shapes else None
-        # Marker SIZE from the actual glyph paths only. Small 2-point segments in
-        # the series colour (fit-line dashes, error-bar caps, ticks) are NOT
-        # markers and otherwise drag the median size down (2002.02623_p25c2: 4.85pt
-        # circles were recovered as 2.03pt because of stray 1-2pt black segments).
-        glyph_szs = [max(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1])
-                     for p in small_paths if _marker_shape(p)]
-        msize = _median(glyph_szs) if glyph_szs else _median(smalls)
+        # Use the actual marker GLYPH paths (recognised shapes) for size AND
+        # face/edge/width. Stray same-colour small paths (fit-line dashes, error-bar
+        # caps, ticks, text) otherwise pollute these: they shrank markersize
+        # (2002.02623_p25c2: 4.85pt -> 2.03pt) and made an OPEN marker look FILLED
+        # (2503.07760_p4c1: an open '○' got a black face from stray filled paths).
+        # Fall back to all small paths when no shape is recognised.
+        glyph_paths = [p for p in small_paths if _marker_shape(p)] or small_paths
+        msize = _median([max(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1])
+                         for p in glyph_paths])
         # CONNECT only on EVIDENCE that the original drew a line THROUGH the
         # markers. A marker series is joined iff some same-colour "big" path
         # actually THREADS the points -- i.e. (most of) the series' marker points
@@ -328,9 +330,16 @@ def match_series_styles(paths, region_bbox, series):
         # glyph paths so the reconstruction matches.
         def _modal(vals):
             return list(max(set(vals), key=vals.count)) if vals else None
-        m_face = _modal([_round_color(p.fill) for p in small_paths if p.fill is not None])
-        m_edge = _modal([_round_color(p.stroke) for p in small_paths if p.stroke is not None])
-        m_ew = _median([p.width for p in small_paths if p.width is not None])
+        # Face vote INCLUDES None (an open marker has no fill): an OPEN series with
+        # a couple of incidental filled glyphs (e.g. a filled legend sample) must
+        # stay open by majority, not be flipped to filled (2503.07760_p4c1: 20 open
+        # '○' + 2 filled glyphs were read as a black face). None wins -> open.
+        _faces = [tuple(_round_color(p.fill)) if p.fill is not None else None
+                  for p in glyph_paths]
+        _mf = max(set(_faces), key=_faces.count) if _faces else None
+        m_face = list(_mf) if _mf is not None else None
+        m_edge = _modal([_round_color(p.stroke) for p in glyph_paths if p.stroke is not None])
+        m_ew = _median([p.width for p in glyph_paths if p.width is not None])
         if m_face is not None and min(m_face) > 0.9:
             m_face = None  # white fill -> OPEN marker (renderer uses facecolor none)
         out.append({"width": best.width, "linestyle": ls,

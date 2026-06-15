@@ -464,3 +464,14 @@ doesn't fit per-point styling. Logged.
   (+ existing test_pure_numeric_anchor_still_filtered still green).
 - Draw also faithful: 2406.05032 log-scatter+fit, 2311.09347 (solid->dashed branch
   nuance), 2305.00719 curve family. Parser healthy on line/scatter.
+
+### QA pass 2026-06-15 (corpus) — DETAIL: open marker flipped to filled (FIXED)
+- **2503.07760_p4c1** — two OPEN-circle series (∥c black, ⊥c red); black rendered
+  FILLED, red open. Both glyphs identical (fill=None rings). The face vote (_modal)
+  considered only paths WITH a fill, so 2 incidental filled-black glyphs (legend
+  sample) outvoted 20 open rings (fill=None excluded) -> black face=[0,0,0]. Now the
+  face vote INCLUDES None (open) and uses glyph paths only, so the open majority
+  wins -> face=None. Also scoped marker face/edge/width to glyph paths (like
+  markersize). Test: test_open_marker_majority_stays_open.
+- Draw also: 2207.03135 / 2107.11117(data) faithful; 2107.11117 legend ℓx/α are
+  glyph-PATH math symbols (deep glyph-OCR); 2509.11041 phase-diagram (OOS).
