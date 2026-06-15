@@ -315,6 +315,26 @@ def _inside(b: BBox, region: Region, margin: float) -> bool:
             and ry0 - margin <= _cy(b) <= ry1 + margin)
 
 
+def _is_axis_tick_anchor(t: TextSpan, region: Region) -> bool:
+    """True when ``t`` is an axis TICK label, not a legend entry.
+
+    Legend numeric entries (years "2016", temperatures "300 K", currents "5")
+    sit INSIDE the plot beside their swatch; axis tick numbers sit in the margin
+    just OUTSIDE the plotting area (y-ticks left of the left spine, x-ticks below
+    the bottom spine). The legend candidate filter admits spans within
+    ``_LEGEND_MARGIN`` of the region so legends that nudge past an edge still
+    pair — but that same slack lets a y/x tick number sneak in as a false legend
+    anchor (2006.03681_p4c3: y-ticks '2000'/'1800' paired with the legend's own
+    line samples sitting to their right, flipping swatch_side and dropping the
+    real entries). So a PURELY-NUMERIC anchor whose centre is outside the region
+    proper is treated as a tick label and skipped; non-numeric labels and numeric
+    labels strictly inside the plot are unaffected.
+    """
+    if not _is_numeric(t.text):
+        return False
+    return not _inside(t.bbox, region, 0.0)
+
+
 def _assemble_label(
     start: int, ty: float, texts: list[TextSpan], used: set[int]
 ) -> tuple[str, set[int]]:
@@ -606,7 +626,8 @@ def _detect_legend(
 
     _cand = [texts[i] for i in order
              if i not in used and _horizontal(texts[i]) and texts[i].text.strip()
-             and _inside(texts[i].bbox, region, _LEGEND_MARGIN)]
+             and _inside(texts[i].bbox, region, _LEGEND_MARGIN)
+             and not _is_axis_tick_anchor(texts[i], region)]
     _left_n = sum(1 for t in _cand if _row_for(t, "left"))
     _right_n = sum(1 for t in _cand if _row_for(t, "right"))
     swatch_side = "right" if _right_n > _left_n else "left"
@@ -616,6 +637,11 @@ def _detect_legend(
         if ti in used or not _horizontal(t) or not t.text.strip():
             continue
         if not _inside(t.bbox, region, _LEGEND_MARGIN):
+            continue
+        # An axis tick number (numeric span just outside the plot) is not a
+        # legend entry, even if a swatch (the legend's own line sample, or a
+        # spine) happens to sit beside it. Skip it before swatch pairing.
+        if _is_axis_tick_anchor(t, region):
             continue
         # Skip purely numeric anchors unless a swatch is immediately to the
         # left — a numeric like "0" in "0 ≤ J ≤ 15" can start a legend entry
