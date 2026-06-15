@@ -54,6 +54,10 @@ _CENTER_FRAC = 0.5
 _VERTICAL_DIR = 0.7
 # A legend swatch path is "small" if both bbox sides are under this (points).
 _SWATCH_MAX = 30.0
+# A legend line/dashed SAMPLE spans only a small fraction of the plot width; a
+# horizontal line wider than this fraction of the region is a spine / gridline,
+# not a legend swatch (kept generous so a wide real sample still qualifies).
+_LEGEND_SWATCH_MAX_WFRAC = 0.5
 # Max horizontal gap between a swatch group and the label text to its right.
 _SWATCH_GAP = 18.0
 # A swatch line/marker often abuts or slightly overlaps the label's (space-padded)
@@ -715,11 +719,20 @@ def _detect_legend(
     That bbox lets the mark extractor exclude mini-curve decorations rendered
     inside legend boxes from data extraction.
     """
+    # A legend line/dashed sample is SHORT (a small handle). A near-full-width
+    # horizontal line is a SPINE / gridline, never a legend swatch -- excluding it
+    # matters because the recovery sweep would otherwise pull a full-width spine
+    # into the legend cluster, oversizing it past the plot-fraction cap so
+    # _legend_box returns None and the legend region is never excluded from data
+    # (2006.04478_p19c1: the top spine poisoned the box, leaking swatch markers).
+    _rw = region.bbox[2] - region.bbox[0]
     swatches = [
         p for p in paths
         if _swatch_style(p) is not None
         and (p.stroke if p.stroke is not None else p.fill) is not None
         and _inside(p.bbox, region, _LEGEND_MARGIN)
+        and not (_swatch_style(p) in ("line", "dashed")
+                 and (p.bbox[2] - p.bbox[0]) > _LEGEND_SWATCH_MAX_WFRAC * _rw)
     ]
 
     out: list[tuple[str, Color | None, str]] = []
