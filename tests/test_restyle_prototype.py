@@ -23,7 +23,8 @@ from render_restyle_prototype import (  # noqa: E402
 
 from pdf_chart2table.model import Path  # noqa: E402
 from pdf_chart2table.style import (  # noqa: E402
-    _content_scale, _is_symbol_font, _label_runs, _title_span_match)
+    _content_scale, _is_symbol_font, _label_runs, _text_rotation,
+    _title_span_match)
 
 
 def _path(points, fill=None, stroke=(0.0, 0.0, 0.0)):
@@ -256,6 +257,30 @@ def test_legend_frame_style_applied_to_renderer():
     assert all(abs(ec[i] - 0.149) < 1e-3 for i in range(3))
     assert abs(fr.get_linewidth() - 0.432) < 1e-3
     assert type(fr.get_boxstyle()).__name__ == "Square"
+    plt.close(fig)
+
+
+def test_text_rotation_recovers_diagonal_and_snaps_horizontal():
+    # 2006.14257_p10c1: curve labels drawn diagonally (~24 deg up-right). PDF y is
+    # DOWN, so an up-right baseline is dir=(cos, -sin) -> positive matplotlib deg.
+    import math as _m
+    assert _text_rotation((1.0, 0.0)) == 0          # horizontal -> snapped
+    assert _text_rotation((0.999, -0.01)) == 0      # near-horizontal -> snapped
+    up = _text_rotation((_m.cos(_m.radians(24)), -_m.sin(_m.radians(24))))
+    assert abs(up - 24.0) < 0.5                       # diagonal preserved
+    assert abs(_text_rotation((0.0, -1.0)) - 90.0) < 0.5   # vertical preserved
+
+
+def test_annotation_rotation_applied_by_renderer():
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    style["text"]["annotations"] = [
+        {"text": "r=20%", "x": 0.5, "y": 0.5, "size": 8.0, "color": None,
+         "rotation": 24.0, "bold": False}]
+    fig, ax = plt.subplots()
+    _replot(ax, record, style)
+    rotated = [t for t in ax.texts if abs(t.get_rotation() - 24.0) < 0.5]
+    assert rotated, "annotation rotation not applied"
     plt.close(fig)
 
 

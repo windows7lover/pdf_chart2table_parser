@@ -482,6 +482,8 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
     for a in (txt.get("annotations") or []):
         ax.text(a["x"], a["y"], L(a.get("text") or ""), transform=ax.transAxes,
                 ha="center", va="center",
+                rotation=a.get("rotation") or 0,  # diagonal labels along a curve
+                rotation_mode="anchor",
                 fontsize=_fs(a.get("size")) or _fs(base_fs),
                 color=_color(a.get("color")) or "black",
                 fontweight="bold" if a.get("bold") else "normal")

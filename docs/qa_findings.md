@@ -317,3 +317,13 @@ inset isolation, and the 2001.07029 dense-page (~29k pts) parse cost (~200s).
 - 2001.11728_p5c2 — faithful points; minor: connecting lines/triangle shape understated (style).
 Current 20-set swept: 4 fixes landed (legend-style, dropped-series, swatch-side,
 axis-extreme markers); remainder faithful or out-of-scope. Rotating to a fresh 20.
+
+### QA pass 2026-06-15 (set5) — detail fidelity: TEXT ORIENTATION
+- **2006.14257_p10c1 — diagonal labels rendered horizontal (FIXED).** 5 curve
+  labels ("r_tL = 20%"...) drawn diagonally (~24°) along each curve were re-drawn
+  HORIZONTAL. Text rotation was never captured/rendered. Now recover the baseline
+  angle from span `dir` (`_text_rotation`, PDF-y negated; near-horizontal->0,
+  diagonal/vertical preserved) and apply `rotation` in the renderer.
+  Tests: test_text_rotation_* in test_restyle_prototype.py.
+  (User detail-fidelity targets: text orientation ✓; legend placement/size,
+  color/linewidth/transparency = continuing focus.)

@@ -16,6 +16,7 @@ longer does any).
 """
 from __future__ import annotations
 
+import math
 import re
 
 import fitz
@@ -599,6 +600,18 @@ def _label_runs(group):
     return runs
 
 
+def _text_rotation(dxy):
+    """Baseline orientation of a text span as matplotlib degrees (CCW, y-up).
+
+    A label drawn DIAGONALLY (e.g. tilted along a curve, 2006.14257_p10c1) or
+    vertically has a non-axis-aligned baseline ``dir``. PDF y points DOWN, so we
+    negate dy for matplotlib's CCW-up convention. Near-horizontal snaps to 0 so
+    ordinary labels are unaffected; diagonal and vertical (~90) are preserved."""
+    dx, dy = dxy or (1.0, 0.0)
+    rot = math.degrees(math.atan2(-dy, dx))
+    return round(rot, 1) if abs(rot) > 3.0 else 0
+
+
 def _group_color(group):
     """Dominant color of a group, weighted by character count."""
     counts = {}
@@ -924,6 +937,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
             "text": text, "x": round(fx, 3), "y": round(fy, 3),
             "size": round(msz * scale, 2) if msz else None,
             "color": _group_color(grp),
+            "rotation": _text_rotation(grp[0].get("dir")),
             "bold": bold_reliable and all(_is_bold(s) for s in grp)})
 
     tick_spans = [s for s in spans if _norm(s["text"]) in tickset]
