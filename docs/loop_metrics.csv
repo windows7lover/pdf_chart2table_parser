@@ -21,3 +21,4 @@ iteration,timestamp,n_charts,mean_explained,total_residual,total_missed,charts_f
 20,2026-06-15 10:38,20,0.9794,71,0,12,"legend: drop scattered numeric-token entries when no box (2107.04956; corpus, shared-20 unchanged)"
 21,2026-06-15 10:47,20,0.9794,71,0,12,"legend: reject subplot panel tags (a)/(b) (2001.00255_p20c1; corpus, shared-20 unchanged)"
 22,2026-06-15 11:02,20,0.9794,71,0,12,"legend: glyph-path leading-symbol recovery wired (2506.23737 mu=; corpus, shared-20 unchanged)"
+23,2026-06-15 12:12,20,0.9794,71,0,12,"legend: re-absorb cy-bin-orphaned leading char (2111.05667 kappa/tau; corpus, shared-20 unchanged)"
