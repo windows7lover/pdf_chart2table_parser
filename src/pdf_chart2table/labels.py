@@ -35,6 +35,11 @@ _CAPTION_RE = re.compile(r"^\s*(figure|fig\.?)\s*\d", re.IGNORECASE)
 # label text. These are the matplotlib marker codes that appear verbatim when the
 # PDF uses glyph-path rendering for legend text (e.g. circle -> 'o').
 _MARKER_PROXIES: frozenset[str] = frozenset({"o", "s", "^", "v", "D", "*", "+", "x"})
+# Subplot PANEL tag: a single letter wrapped in / followed by a paren ("(a)",
+# "(b)", "b)"). These sit in a plot corner and can pick up a nearby marker swatch,
+# becoming a bogus 1-entry legend (2001.00255_p20c1: lone '(b)'). The required
+# trailing ")" distinguishes them from real single-letter labels (W, T, L, H).
+_PANEL_TAG = re.compile(r"^\(?[a-zA-Z]\)$")
 
 # How far above the top edge to look for the plot title (points).
 _TITLE_ABOVE = 30.0
@@ -213,6 +218,10 @@ def _is_proxy_label(label: str) -> bool:
     """
     stripped = label.strip()
     if stripped in _MARKER_PROXIES:
+        return True
+    # A subplot panel tag ("(a)", "(b)", "b)") is a figure identifier, not a
+    # series label, even when it incidentally pairs with a corner swatch.
+    if _PANEL_TAG.match(stripped):
         return True
     # No alphanumeric at all -> punctuation/box/arrow glyph artifact.
     if not re.search(r"[a-zA-Z0-9]", stripped):
