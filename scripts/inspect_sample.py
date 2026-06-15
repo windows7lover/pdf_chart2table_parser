@@ -1,7 +1,10 @@
-"""Sample N random charts from the FULL corpus, fresh-extract + render to a scratch
-dir for judging. This is the loop's BUG-FINDING sampler -- it draws from the whole
-eligible pool (keep / line_scatter in filter_verdicts.csv), NOT the 20 shared-folder
-bundles (those are a fixed visualization + metric set for the user).
+"""Sample N random charts from the FULL ~19k-chart corpus, fresh-extract + render
+to a scratch dir for judging. This is the loop's BUG-FINDING sampler -- it draws
+from ALL detected charts (figures_index.csv, ~19k), NOT the 20 shared-folder
+bundles (a fixed visualization + metric set) and NOT only the 1020 line_scatter
+charts (that filter-classified subset is the METRIC set). Most "unknown"-verdict
+charts were never filter-run but are line/scatter; judge them and skip any that
+turn out to be an out-of-scope type (bar/heatmap/contour/multi-panel).
 
 Each chart is re-extracted with the CURRENT parser (only its own page) and rendered
 to ``<scratch>/<cid>/<cid>.png`` so the judge sees up-to-date behaviour.
@@ -31,16 +34,16 @@ def main():
     ap.add_argument("--outdir", default="/tmp/inspect_bundles")
     args = ap.parse_args()
 
-    keep = set()
-    with open(os.path.join(ROOT, "filter_verdicts.csv")) as f:
-        for r in csv.DictReader(f):
-            if r["verdict"] == "keep" and r["type"] == "line_scatter":
-                keep.add(r["chart_id"])
+    # Draw from ALL detected charts (~19k), not the 1020 line_scatter metric set.
+    # Require >=1 extracted series so we skip empty / non-data figures.
     rows = {}
     with open(os.path.join(ROOT, "figures_index.csv")) as f:
         for r in csv.DictReader(f):
-            if r["chart_id"] in keep:
-                rows[r["chart_id"]] = r
+            try:
+                if int(r.get("n_series") or 0) >= 1:
+                    rows[r["chart_id"]] = r
+            except ValueError:
+                continue
 
     rng = random.Random(args.seed)
     picked = rng.sample(sorted(rows), min(args.n, len(rows)))
