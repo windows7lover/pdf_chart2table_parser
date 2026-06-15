@@ -162,6 +162,15 @@ _OVERLAP_FRAC = 0.5
 _FILL_BAND_MIN_WIDTH_FRAC = 0.4
 # Same for height: a fill must be non-trivially tall to count as a band.
 _FILL_BAND_MIN_HEIGHT_FRAC = 0.04
+# ...AND the filled polygon must ENCLOSE a meaningful fraction of its bbox: a real
+# shaded band (DOS envelope / confidence region) fills most of its box, whereas a
+# thin data CURVE that merely carries a fill attribute (its outline tracing out
+# and back along nearly the same path) encloses ~zero area despite a wide bbox.
+# Without this, such a curve poisons its colour as a "band colour" and the real
+# stroked curve of the same colour is wrongly dropped as a band outline
+# (2505.16060_p10c2: a purple data curve lost because its own filled outline had a
+# 136x9 bbox but zero enclosed area).
+_BAND_MIN_FILL_FRAC = 0.15
 # Two same-colour curves of different dash form are the SAME path drawn twice
 # (so dedup to one) when, over their shared x range, their y values agree within
 # this fraction of the combined y-extent; beyond it they are distinct curves.
@@ -356,11 +365,29 @@ def _fill_band_colors(paths: list[Path], region: Region) -> set[tuple]:
             continue
         bw = p.bbox[2] - p.bbox[0]
         bh = p.bbox[3] - p.bbox[1]
-        if bw >= min_bw and bh >= min_bh:
+        if bw >= min_bw and bh >= min_bh and _enclosed_area_frac(p) >= _BAND_MIN_FILL_FRAC:
             c = _round_color(p.fill)
             if c is not None:
                 colors.add(c)
     return colors
+
+
+def _enclosed_area_frac(p: Path) -> float:
+    """Shoelace polygon area of the path divided by its bbox area.
+
+    A solid shaded band fills most of its box (ratio near 0.5-1.0); a thin curve
+    whose outline traces out-and-back encloses ~zero area (ratio ~0)."""
+    pts = p.points
+    if len(pts) < 3:
+        return 0.0
+    a = 0.0
+    for i in range(len(pts)):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % len(pts)]
+        a += x1 * y2 - x2 * y1
+    area = abs(a) / 2.0
+    bbox_area = (p.bbox[2] - p.bbox[0]) * (p.bbox[3] - p.bbox[1])
+    return area / bbox_area if bbox_area > 0 else 0.0
 
 
 def _near_legend(cx: float, cy: float, texts: list[TextSpan]) -> bool:
