@@ -100,3 +100,38 @@ def test_single_whisker_not_dropped():
     ]
     drop = detect_error_bars(_region(len(paths)), paths)
     assert drop == set()
+
+
+def test_recover_error_bars_returns_whisker_geometry():
+    # recover_error_bars returns the whisker (cx, top, bottom) so the caller can
+    # attach a per-point y_err and the renderer can redraw the bars.
+    from pdf_chart2table.error_bars import recover_error_bars
+    marker_xs = [130.0, 180.0, 230.0]
+    marker_ys = [250.0, 200.0, 160.0]
+    paths = []
+    for cx, cy in zip(marker_xs, marker_ys):
+        paths.append(_square(cx, cy, fill=NAVY))
+    for cx, cy in zip(marker_xs, marker_ys):
+        paths.append(_vseg(cx, cy - 15, cy + 15, stroke=NAVY))
+        paths.append(_hseg(cx - 4, cx + 4, cy - 15, stroke=NAVY))
+        paths.append(_hseg(cx - 4, cx + 4, cy + 15, stroke=NAVY))
+    idx, whiskers = recover_error_bars(_region(len(paths)), paths)
+    assert idx  # decoration to remove
+    assert len(whiskers) == 3
+    for (cx, top, bot), mx in zip(sorted(whiskers), marker_xs):
+        assert abs(cx - mx) < 1.0
+        assert abs((bot - top) - 30.0) < 1.0  # whisker spans cy-15..cy+15
+
+
+def test_attach_error_bars_sets_y_err():
+    # _attach_error_bars maps a whisker to the marker point at its x and sets a
+    # symmetric y_err = half the whisker height in DATA units (identity calib).
+    from pdf_chart2table.cli import _attach_error_bars
+    from pdf_chart2table.model import Axis, Series
+    cal = {"scale": "linear", "a": 1.0, "b": 0.0, "r2": 1.0}
+    y = Axis(scale="linear", pixel_range=(0.0, 100.0), data_range=(0.0, 100.0),
+             calibration=cal)
+    s = Series(label=None, marker="o", color=(0, 0, 0),
+               points=[{"x": 130.0, "y": 250.0, "x_px": 130.0, "y_px": 250.0}])
+    _attach_error_bars([s], [(130.0, 235.0, 265.0)], y)  # whisker height 30 -> err 15
+    assert abs(s.points[0]["y_err"] - 15.0) < 1e-6

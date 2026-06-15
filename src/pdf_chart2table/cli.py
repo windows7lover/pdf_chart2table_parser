@@ -28,7 +28,7 @@ from . import io_store, ocr_backfill as _ocr_backfill, pdf_vector, style as _sty
 from . import tick_ocr as _tick_ocr
 from .arrows import detect_arrows
 from .calibrate import calibrate_panels
-from .error_bars import detect_error_bars
+from .error_bars import detect_error_bars, recover_error_bars
 from .grid import detect_grid
 from .plot_region import detect_regions
 
@@ -99,6 +99,33 @@ def _region_series(page, region, x_axis, y_axis, source, legend_bbox=None):
     if table is None:
         return []
     return list(getattr(table, "series", []) or [])
+
+
+def _attach_error_bars(series, whiskers, y_axis):
+    """Attach a per-point ``y_err`` (data units) from recovered error-bar whiskers.
+
+    Each whisker is ``(cx, y_top_px, y_bottom_px)``. We find the marker point
+    whose x coincides with the whisker and whose y lies within the whisker's
+    vertical span (the datum the bar belongs to), and set its symmetric
+    ``y_err`` = half the whisker's height in data units.
+    """
+    from .calibrate import to_data as _to_data
+    cal = y_axis.calibration
+    for cx, top, bot in whiskers:
+        yerr = abs(_to_data(cal, top) - _to_data(cal, bot)) / 2.0
+        if yerr <= 0:
+            continue
+        lo, hi = min(top, bot), max(top, bot)
+        best, best_dx = None, 3.0
+        for s in series:
+            for p in getattr(s, "points", []) or []:
+                xp, yp = p.get("x_px"), p.get("y_px")
+                if xp is None or yp is None:
+                    continue
+                if lo - 2.0 <= yp <= hi + 2.0 and abs(xp - cx) <= best_dx:
+                    best, best_dx = p, abs(xp - cx)
+        if best is not None:
+            best["y_err"] = round(float(yerr), 6)
 
 
 def _region_labels(page, region, glyph_recognize=None):
@@ -465,7 +492,7 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
             # Error-bar whiskers + caps are decoration anchored to the markers,
             # not a data series; drop their paths so they are not traced as a
             # jagged marker-less polyline through the data points.
-            errbar_idx = detect_error_bars(region, page.paths)
+            errbar_idx, errbar_whiskers = recover_error_bars(region, page.paths)
             if errbar_idx:
                 region.path_indices = [i for i in region.path_indices
                                        if i not in errbar_idx]
@@ -501,6 +528,11 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
                 rows.append(io_store.write_skip(
                     "no series extracted", source, outdir, page_no, k))
                 continue
+            # Recovered error bars: attach a per-point y_err (data units) to the
+            # series point whose x coincides with each whisker, so the renderer can
+            # re-draw the uncertainty bars instead of dropping them.
+            if errbar_whiskers and y_axis.calibration is not None:
+                _attach_error_bars(series, errbar_whiskers, y_axis)
             title, caption, _x_title, _y_title, _ = rl[:5]
             # In stacked multi-panel figures the title detector can grab the
             # neighbouring panel's axis LABEL (which sits just above this panel).

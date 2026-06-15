@@ -391,6 +391,14 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
         else:
             ax.plot(xs, ys, color=col, alpha=alpha, label=lab,
                     linewidth=(st.get("linewidth") or 1.2) * font_scale, linestyle=ls)
+        # Recovered per-point error bars (vertical whiskers): draw the bars only
+        # (fmt="none"), on top of the markers/line already drawn above.
+        yerr = [p.get("y_err") for p in pts]
+        if any(e is not None for e in yerr):
+            ax.errorbar(xs, ys, yerr=[e or 0.0 for e in yerr], fmt="none",
+                        ecolor=col, alpha=alpha, zorder=1.5,
+                        elinewidth=0.8 * font_scale, capsize=2.0 * font_scale,
+                        capthick=0.8 * font_scale)
 
     xa, ya = _axis_view(record, style, "x"), _axis_view(record, style, "y")
     x_scale = _effective_scale(xa)

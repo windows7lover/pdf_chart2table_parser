@@ -112,3 +112,30 @@ def detect_error_bars(region: Region, paths: list[Path]) -> set[int]:
     if len(whiskers) < _MIN_WHISKERS:
         return set()
     return whiskers | caps
+
+
+def recover_error_bars(
+    region: Region, paths: list[Path]
+) -> tuple[set[int], list[tuple[float, float, float]]]:
+    """Like :func:`detect_error_bars`, but also return each WHISKER's geometry so
+    the recovered error bars can be re-drawn on the reconstruction.
+
+    Returns ``(idx_to_remove, whiskers)`` where ``idx_to_remove`` is the whisker+
+    cap path-index set (decoration to strip before extraction) and ``whiskers``
+    is ``[(cx, y_top_px, y_bottom_px), ...]`` -- the x-centre and vertical pixel
+    extent of each whisker, used to attach a per-point ``y_err`` to the series.
+    Empty (``set(), []``) when no error bars are found.
+    """
+    idx = detect_error_bars(region, paths)
+    if not idx:
+        return set(), []
+    diag = _bmax(region.bbox) or 1.0
+    max_len = 0.6 * diag
+    whiskers: list[tuple[float, float, float]] = []
+    for i in idx:
+        p = paths[i]
+        b = p.bbox
+        bw, bh = b[2] - b[0], b[3] - b[1]
+        if len(p.points) <= 3 and bw <= _THIN_PX and _THIN_PX < bh <= max_len:
+            whiskers.append(((b[0] + b[2]) / 2.0, b[1], b[3]))  # (cx, top, bottom)
+    return idx, whiskers
