@@ -189,6 +189,15 @@ def _is_numeric(text: str) -> bool:
     return bool(_NUMERIC.match(s))
 
 
+def _all_numeric_tokens(text: str) -> bool:
+    """True when every whitespace-separated token is numeric (e.g. '2 0.6',
+    '-2.6 -4.2'). Such a label is two+ tick/annotation numbers assembled into one
+    string, never a real legend entry. A real numeric-and-unit label ('10 nm',
+    '300 K') has a non-numeric token, so it is not matched."""
+    toks = text.strip().split()
+    return bool(toks) and all(_is_numeric(t) for t in toks)
+
+
 def _is_proxy_label(label: str) -> bool:
     """True when ``label`` is a Type3/glyph-path artifact, not a real legend text.
 
@@ -729,7 +738,19 @@ def _detect_legend(
                     col_swatches.remove(p)
                     added = True
 
-    return out, _legend_box(entry_boxes, region, paths)
+    box = _legend_box(entry_boxes, region, paths)
+    # A real legend's rows cluster into a compact box (that is exactly what
+    # _legend_box detects). When NO box forms, the "entries" are scattered, not
+    # stacked rows — and scattered PURELY-NUMERIC entries are axis / colorbar tick
+    # labels (or data-point value annotations) that merely happened to have a
+    # marker swatch beside them, not legend rows (2107.04956_p3c1 leaked '3' and
+    # '2 0.6'; 2301.02282_p12c11 leaked a whole '0.00'…'0.2' colorbar ladder).
+    # Drop the numeric ones; keep any genuine (non-numeric) labels. A clustered
+    # numeric legend (years "2016"/"2020", temps) still forms a box, so box is
+    # not None there and its numeric entries are preserved.
+    if box is None:
+        out = [e for e in out if not _all_numeric_tokens(e[2])]
+    return out, box
 
 
 def _color_dist(a: Color, b: Color) -> float:
