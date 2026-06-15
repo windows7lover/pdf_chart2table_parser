@@ -382,3 +382,13 @@ hardening pass is the next high-value lever (distinct from per-chart fixes).
   group. A real colormap is point-per-colour (~1 mark/group); these are dense
   discrete series. Added a sparsity guard (median marks-per-group ≤ 2). Now 5
   series with correct colours. Test: test_colormap_merge_guard.py.
+
+### QA pass 2026-06-15 (corpus) — DETAIL: triangle marker orientation (FIXED)
+- **2504.02903_p11c3** — CdTe down-triangles (▽) rendered as up (△); _marker_shape
+  returned '^' for ALL triangles. Now distinguish via centroid position (filled △
+  centroid in lower half -> '^'; ▽ -> 'v'). CdTe now 'v', CZT stays '^'.
+  Test: test_triangle_orientation_up_vs_down. (Same chart: GaAs circles ● mis-read
+  as 'x' -- separate shape_of bug, logged.)
+- Corpus pass also saw: 2209.00927_p8c1 faithful (6 colored curves); 2509.11037 fit/
+  ref lines dropped (by-design, user decision pending); 2302.04967 red series split
+  ^/o + connector dropped (deep marker-consistency, logged).

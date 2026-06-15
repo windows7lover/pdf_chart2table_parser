@@ -119,6 +119,15 @@ def _marker_shape(p):
     if shp == "plus":
         return "+"
     if shp == "triangle":
+        # Distinguish up (△ '^') from down (▽ 'v') by where the glyph's mass sits:
+        # a filled up-triangle is widest at the BOTTOM so its centroid is in the
+        # lower half (larger PDF y, which points down); a down-triangle's centroid
+        # sits in the upper half (2504.02903_p11c3: CdTe '▽' was rendered '△').
+        ys = [y for _, y in pts]
+        ylo, yhi = min(ys), max(ys)
+        yc = sum(ys) / len(ys)
+        if yhi > ylo and (yc - ylo) / (yhi - ylo) < 0.5:
+            return "v"      # mass toward the top -> apex points DOWN
         return "^"          # 3-corner glyph: was falling through to 's' (square)
     if shp == "diamond":
         return "D"          # 45°-rotated square

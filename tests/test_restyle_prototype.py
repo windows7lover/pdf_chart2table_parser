@@ -40,6 +40,16 @@ def _circle_points(n=33, r=5.0, cx=0.0, cy=0.0):
              cy + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
 
 
+def test_triangle_orientation_up_vs_down():
+    # 2504.02903_p11c3: a down-triangle (▽) marker was rendered as up (△). PDF y
+    # points DOWN. Up-triangle: apex at top (small y), base at bottom -> mass/
+    # centroid in the lower half -> '^'. Down-triangle: apex at bottom -> '▽' -> 'v'.
+    up = _path([(5.0, 0.0), (0.0, 10.0), (10.0, 10.0)], fill=(0, 0, 1))
+    down = _path([(0.0, 0.0), (10.0, 0.0), (5.0, 10.0)], fill=(0, 0, 1))
+    assert _marker_shape(up) == "^"
+    assert _marker_shape(down) == "v"
+
+
 def _doubled_noisy_circle(n=33, r=5.0, cx=0.0, cy=0.0, noise=0.06):
     # Two overlapping loops with small per-vertex radial jitter -> high cv (~0.33)
     # but no regular spikes; reproduces 2102.11637's 66-vertex filled circles.
