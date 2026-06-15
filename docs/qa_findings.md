@@ -485,3 +485,18 @@ parser at a high-fidelity PLATEAU on line/scatter. Remaining levers: (1) glyph-P
 math-symbol label recovery (ℓ/α/bra-kets as Type3 outlines -> needs glyph-OCR; deep,
 broadly applicable to physics labels) = the highest-value remaining work; (2) OOS
 types (dual-axis, phase diagrams, heatmaps, categorical scatter, multi-panel).
+
+### Glyph-path label recovery — FEASIBILITY (task #50, 2026-06-15)
+Investigated 2107.11117_p13c1 (legend "ℓ_x=10 nm, α=1" -> "=10 nm, =1"). The ℓ/α
+symbols are drawn as FILLED VECTOR PATHS (226/171 pts), NOT font glyphs:
+- get_text/rawdict/get_texttrace show NO char at those positions (only a stray
+  space) -> NO font/char code -> deterministic font_recovery is IMPOSSIBLE.
+- RapidOCR (4x crop) is UNRELIABLE on these Computer-Modern math glyphs: missed
+  'ℓ' entirely, read 'α' as 'C' / inconsistently, hallucinated a spurious 'C'.
+  Using it would CORRUPT labels (violates precision-over-recall).
+Conclusion: the naive glyph-OCR approach can't do precision-safe recovery here.
+Only reliable path = SHAPE-MATCH the path outline against the embedded CM font's
+glyphs (render the font's chars, match) -> deterministic but a LARGE CV/font build
+with narrow payoff (path-rendered-math-symbol charts only). RECOMMEND a user
+decision before investing. Meanwhile labels render their text part faithfully and
+the missing symbol is just absent (not wrong) -- safe degradation.
