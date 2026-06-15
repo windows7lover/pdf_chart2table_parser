@@ -36,11 +36,17 @@ def main():
 
     # Draw from ALL detected charts (~19k), not the 1020 line_scatter metric set.
     # Require >=1 extracted series so we skip empty / non-data figures.
+    # Cheap pre-filter on the index (no extraction): a line/scatter chart has a
+    # series AND enough extracted points (>= _MIN_PTS). This keeps the validity
+    # hit-rate high so we don't extract dozens of bars/degenerate figures to find
+    # a few valid ones (extraction is the cost).
+    _MIN_PTS = 12
     rows = {}
     with open(os.path.join(ROOT, "figures_index.csv")) as f:
         for r in csv.DictReader(f):
             try:
-                if int(r.get("n_series") or 0) >= 1:
+                if int(r.get("n_series") or 0) >= 1 and \
+                        int(r.get("n_points") or 0) >= _MIN_PTS:
                     rows[r["chart_id"]] = r
             except ValueError:
                 continue
@@ -60,11 +66,14 @@ def main():
     # bar/heatmap/degenerate figure.
     candidates = rng.sample(sorted(rows), len(rows))
     kept = 0
+    attempts = 0
+    max_attempts = args.n * 5  # bound extraction cost even if validity is rare
     for cid in candidates:
-        if kept >= args.n:
+        if kept >= args.n or attempts >= max_attempts:
             break
         if cid in bad_type:
             continue
+        attempts += 1
         r = rows[cid]
         pdf = os.path.join(ROOT, "pdfs", f"{r['arxiv_id']}.pdf")
         jp = os.path.join(extract_out, r["arxiv_id"],
