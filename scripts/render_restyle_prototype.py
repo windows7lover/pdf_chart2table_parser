@@ -108,9 +108,16 @@ def _math_italic(text):
     symbols map to their math command (already italic). Used to compose mixed
     italic/roman labels token by token (e.g. the 'τ' of 'τ (s)')."""
     inner = []
-    for ch in text:
+    for idx, ch in enumerate(text):
         if ch in _UNI2TEX:
-            inner.append(_UNI2TEX[ch])
+            cmd = _UNI2TEX[ch]
+            # A TeX control WORD (\delta) run straight into a following letter/digit
+            # forms an unknown command (\deltaV) and crashes mathtext -- terminate
+            # it with a space (2003.13177_p25c1: 'δV' -> '\delta V').
+            nxt = text[idx + 1] if idx + 1 < len(text) else ""
+            if cmd[-1].isalpha() and nxt.isalnum():
+                cmd += " "
+            inner.append(cmd)
         elif ch == " ":
             inner.append(r"\ ")
         else:

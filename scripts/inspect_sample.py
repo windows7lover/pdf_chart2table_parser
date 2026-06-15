@@ -44,23 +44,57 @@ def main():
                     rows[r["chart_id"]] = r
             except ValueError:
                 continue
-
-    rng = random.Random(args.seed)
-    picked = rng.sample(sorted(rows), min(args.n, len(rows)))
+    # Known non-line/scatter types from the filter -> never sample.
+    nonls = {"histogram", "contour", "colormap", "bar_chart", "stem_bar"}
+    bad_type = set()
+    with open(os.path.join(ROOT, "filter_verdicts.csv")) as f:
+        for r in csv.DictReader(f):
+            if r.get("type") in nonls:
+                bad_type.add(r["chart_id"])
 
     extract_out = os.path.join(args.outdir, "_extract")
     os.makedirs(extract_out, exist_ok=True)
-    for cid in picked:
+    rng = random.Random(args.seed)
+    # Oversample: extract candidates and keep only VALID line/scatter charts (>=1
+    # series, >=6 points spanning BOTH axes) so the judge never wastes a slot on a
+    # bar/heatmap/degenerate figure.
+    candidates = rng.sample(sorted(rows), len(rows))
+    kept = 0
+    for cid in candidates:
+        if kept >= args.n:
+            break
+        if cid in bad_type:
+            continue
         r = rows[cid]
         pdf = os.path.join(ROOT, "pdfs", f"{r['arxiv_id']}.pdf")
+        jp = os.path.join(extract_out, r["arxiv_id"],
+                          f"page{r['page']}_chart{r['chart']}.json")
         try:
             parse_pdf(pdf, extract_out, str(r["page"]))  # only this chart's page
-        except Exception as e:
-            print(f"  EXTRACT-ERR {cid}: {e}", flush=True)
+            d = json.load(open(jp))
+        except Exception:
+            continue
+        if not _looks_line_scatter(d):
             continue
         _cid, msg = _render_one((r, extract_out, args.outdir))
         png = os.path.join(args.outdir, cid, f"{cid}.png")
-        print(png if os.path.exists(png) else f"{cid}: {msg}", flush=True)
+        if os.path.exists(png):
+            print(png, flush=True)
+            kept += 1
+        else:
+            print(f"  skip {cid}: {msg}", flush=True)
+
+
+def _looks_line_scatter(d):
+    """A valid line/scatter chart: >=1 series whose points span BOTH axes with
+    enough vertices (a curve/scatter), not a bar/heatmap/degenerate extraction."""
+    xs, ys = [], []
+    for s in d.get("series") or []:
+        for p in s.get("points", []):
+            if p.get("x") is not None and p.get("y") is not None:
+                xs.append(p["x"])
+                ys.append(p["y"])
+    return len(xs) >= 6 and (max(xs) - min(xs)) > 0 and (max(ys) - min(ys)) > 0
 
 
 if __name__ == "__main__":

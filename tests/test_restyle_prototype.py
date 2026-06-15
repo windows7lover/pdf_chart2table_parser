@@ -160,6 +160,23 @@ def test_math_italic_keeps_latin_in_math_and_maps_unicode():
     assert _math_italic("ε") == r"$\epsilon$"  # greek -> math command
 
 
+def test_math_italic_terminates_command_before_letter():
+    # 2003.13177_p25c1: 'δV' must NOT become '$\deltaV$' (unknown command ->
+    # mathtext ParseFatalException that crashes the whole render). Terminate the
+    # control word with a space when a letter/digit follows.
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    assert _math_italic("δV") == r"$\delta V$"
+    assert _math_italic("μm") == r"$\mu m$"
+    assert _math_italic("δ(s)") == r"$\delta(s)$"   # no space needed before '('
+    # and it actually draws without raising
+    fig, ax = plt.subplots()
+    ax.set_ylabel(_math_italic("δV"))
+    fig.canvas.draw()
+    plt.close(fig)
+
+
 # --- font_scale magnifies recovered point sizes (PNG panel proportion fix) ------
 def _mini_record_style():
     record = {"series": [{"points": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]}],
