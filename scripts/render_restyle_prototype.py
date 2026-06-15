@@ -595,6 +595,21 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
                 kw["loc"] = _anchor_loc(a)
             if leg.get("bold"):
                 kw["prop"] = {"weight": "bold", "size": kw.pop("fontsize")}
+            # Present entries in the ORIGINAL legend's top-to-bottom order (not the
+            # series-extraction order): reorder the auto-collected handles/labels to
+            # match leg["order"] (2202.11909_p25c1 had PTE/aI swapped).
+            if leg.get("order"):
+                _h, _lab = ax.get_legend_handles_labels()
+                _want = [L(o) for o in leg["order"]]
+                _used, _idx = set(), []
+                for w in _want:
+                    for j, ll in enumerate(_lab):
+                        if j not in _used and ll == w:
+                            _used.add(j); _idx.append(j); break
+                _idx += [j for j in range(len(_lab)) if j not in _used]
+                if len(_idx) == len(_lab) and _idx != list(range(len(_lab))):
+                    kw["handles"] = [_h[j] for j in _idx]
+                    kw["labels"] = [_lab[j] for j in _idx]
         legend_obj = ax.legend(**kw)
         # FIT the legend size to the original: measure the rendered legend width
         # in axes fraction and rescale the font toward the recovered extent.

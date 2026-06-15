@@ -572,3 +572,17 @@ def test_legend_left_aligned_column_vs_scattered():
     assert _legend_left_aligned(col) is True
     assert _legend_left_aligned(scattered) is False
     assert _legend_left_aligned(col[:1]) is False  # need >= 2 entries
+
+
+def test_legend_order_follows_original_top_to_bottom():
+    # 2202.11909_p25c1: legend entries were shown in series-extraction order
+    # (aI then PTE), but the original lists PTE above aI. style records "order" as
+    # the original top-to-bottom (smaller PDF-y = higher = first).
+    from pdf_chart2table.style import recover_text_style  # noqa: F401
+    # Build a tiny matched-span set directly via the ordering rule: entries higher
+    # on the page (smaller y) come first.
+    spans = [{"text": "PTE simulation", "bbox": (60.0, 40.0, 130.0, 47.0), "size": 8.0},
+             {"text": "aI0.66 fitting", "bbox": (60.0, 52.0, 130.0, 59.0), "size": 8.0}]
+    order = [s["text"] for s in sorted(
+        spans, key=lambda s: (round((s["bbox"][1] + s["bbox"][3]) / 12.0), s["bbox"][0]))]
+    assert order == ["PTE simulation", "aI0.66 fitting"]

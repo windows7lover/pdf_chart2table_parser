@@ -853,8 +853,9 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     # match scattered tick spans ('300', '0.3') and blow the legend bbox up across
     # the whole plot (2009.07658 bug); the real legend entry matches exactly.
     labset = [_norm(l) for l in (series_labels or []) if l]
-    matched, used = [], set()
-    for lk in labset:
+    orig_labels = [l for l in (series_labels or []) if l]  # parallel to labset
+    matched, matched_labels, used = [], [], set()
+    for lk, ol in zip(labset, orig_labels):
         exact = [(i, s) for i, s in enumerate(spans)
                  if i not in used and _norm(s["text"]) == lk]
         # FRAGMENT: a multi-glyph label ('θ =3°' -> norm 'θ3') is drawn as several
@@ -871,6 +872,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
                                        (loose[0] if loose else None))
         if pick:
             matched.append(pick[1])
+            matched_labels.append(ol)
             used.add(pick[0])
     # The legend is only present on THIS panel if at least half its entry labels
     # are found as text inside the region; otherwise it lives on another panel
@@ -911,6 +913,14 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         if not horizontal and wfrac > 0.6 and not _legend_left_aligned(matched):
             legend = None
         else:
+            # Entry order as drawn in the ORIGINAL legend: top-to-bottom (then
+            # left-to-right) by the matched label's position, so the renderer can
+            # present entries in that order instead of the series-extraction order
+            # (2202.11909_p25c1: 'PTE simulation'/'aI fitting' were swapped).
+            order = [matched_labels[i] for i in sorted(
+                range(len(matched)),
+                key=lambda i: (round((matched[i]["bbox"][1] + matched[i]["bbox"][3]) / 12.0),
+                               matched[i]["bbox"][0]))]
             legend = {
                 "orientation": "horizontal" if horizontal else "vertical",
                 "ncol": int(ncol),
@@ -919,6 +929,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
                              if matched[0].get("size") else base),
                 "bold": bold_reliable and any(_is_bold(s) for s in matched),
                 "w_frac": round(wfrac, 4), "h_frac": round(hfrac, 4),
+                "order": order,
             }
 
     # In-graph text ANNOTATIONS: spans inside the plot box that are not ticks,
