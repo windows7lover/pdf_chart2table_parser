@@ -355,3 +355,14 @@ axis-extreme markers); remainder faithful or out-of-scope. Rotating to a fresh 2
   and the LA/TA series stayed unlabeled -> text fell through to annotations. Root
   cause = MULTI-PANEL contamination -> OUT OF SCOPE ([[no-multipanel]]), not a
   simple legend bug. (Lesson: triage legend/label diffs for multi-panel first.)
+
+- **2002.05277_p21c2** — single panel (aspect 1.28); a spurious BLACK 74-pt scatter
+  series sits in a compact top-left cluster (38%x29%) where the legend is = legend
+  glyph-text captured as data (undetected legend -> text leaks in; cf. commit
+  0018f44). TARGET: legend-region detection/exclusion here. Also all 9 series are
+  render_as=scatter+connect (some are dense lines) -> possible scatter/line
+  misclass. Deeper legend-recovery work; logged, not force-fixed.
+
+NOTE (recurring): several set5 "legend/label" diffs trace to legend DETECTION
+(missed legend -> unlabeled series + glyph text leaks). A focused legend-detection
+hardening pass is the next high-value lever (distinct from per-chart fixes).
