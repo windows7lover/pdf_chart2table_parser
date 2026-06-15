@@ -288,3 +288,15 @@ why one of three symmetric colors is dropped.
   the detector assumed left, dropping Np/Ac and mis-colouring Tc/Pc. Now the
   swatch side is chosen by which side pairs more labels (default left). All 4
   entries recovered with correct colours. Test: test_legend_swatch_side.py.
+
+### QA pass 2026-06-15 (cont. 2)
+
+- **2002.04278_p15c1** — Main spectrum captured; top-right INSET contamination
+  (out of scope, [[no-multipanel]]).
+- **2005.13306_p22c2** — DUAL Y-AXIS (left 0–1, right −1…1); both curves captured
+  & fully explained but rendered on ONE axis, so the secondary-axis series may be
+  mis-scaled. Known un-implemented feature (dual-axis), larger effort. Not forced.
+
+Pass verdict: only out-of-scope / known-feature items -> logged clean, no commit.
+Open larger targets seen this loop: dual-axis (2005.13306, 2006.04979 top axis),
+inset isolation, and the 2001.07029 dense-page (~29k pts) parse cost (~200s).
