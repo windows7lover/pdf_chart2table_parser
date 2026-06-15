@@ -101,13 +101,17 @@ def _region_series(page, region, x_axis, y_axis, source, legend_bbox=None):
     return list(getattr(table, "series", []) or [])
 
 
-def _region_labels(page, region):
+def _region_labels(page, region, glyph_recognize=None):
     """Best-effort labels via the optional ``labels`` module.
 
     Uses ``labels.detect_labels(region, paths, texts, page) -> Labels`` and
     returns ``(title, caption, x_title, y_title, legend, legend_bbox)`` (any
     may be None; legend is a list of ``(shape, color, label)`` or empty;
     legend_bbox is a ``(x0, y0, x1, y1)`` tuple or None). Never raises.
+
+    ``glyph_recognize`` is an optional ``bbox -> (latex, unicode, conf) | None``
+    callback passed through to recover leading math-symbol glyph-paths on legend
+    labels (font-less Greek/symbol characters dropped from the text stream).
     """
     if _labels is None:
         return None, None, None, None, [], None
@@ -115,7 +119,7 @@ def _region_labels(page, region):
     if not callable(fn):
         return None, None, None, None, [], None
     try:
-        res = fn(region, page.paths, page.texts)
+        res = fn(region, page.paths, page.texts, glyph_recognize=glyph_recognize)
     except Exception:
         return None, None, None, None, [], None
     return (getattr(res, "title", None), getattr(res, "caption", None),
@@ -405,9 +409,23 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
         if not regions:
             continue
         axes = calibrate_panels(regions, page.paths, page.texts)
+        # Recover leading math-symbol glyph-paths on legend labels by matching
+        # them against Computer-Modern mathtext templates (font-less Greek/symbol
+        # characters that the text stream drops). Bound to this page's fitz page;
+        # a no-op unless such a glyph-path abuts a legend label.
+        _fitz_page = fitz_doc[page.page_index]
+
+        def _glyph_recognize(bbox, _fp=_fitz_page):
+            try:
+                from . import glyph_match
+                return glyph_match.recognize_region(_fp, bbox)
+            except Exception:
+                return None
+
         # Labels per region, then propagate a shared legend to split panels that
         # have none of their own (one-legend multi-panel figures).
-        region_labels = [_region_labels(page, r) for r in regions]
+        region_labels = [_region_labels(page, r, _glyph_recognize)
+                         for r in regions]
         legends = _resolve_legends([rl[4] for rl in region_labels], regions,
                                    paths=page.paths)
         page_no = page.page_index + 1  # 1-based in output names

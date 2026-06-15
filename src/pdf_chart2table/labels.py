@@ -591,8 +591,74 @@ def _legend_box(
     return box
 
 
+# --- leading glyph-path recovery -----------------------------------------
+# Some legend labels begin with a math symbol (Greek letter, ℓ, ℏ …) that the
+# PDF renders as a font-less filled GLYPH PATH, not selectable text. Text
+# extraction then yields a truncated label like "=0.83" (the leading "μ"/"λ" is
+# gone). When a recognizer is supplied (glyph_match), we detect such a leading
+# glyph-path immediately left of the label's first text span and prepend the
+# recovered unicode -> "μ=0.83". Precision-safe: fires only when an unaccounted
+# char-sized COMPLEX-outline filled path abuts the label, and only prepends a
+# CONFIDENT recognition (the recognizer returns None otherwise).
+_GLYPH_LEAD_MAXSIDE = 14.0   # a label-character glyph is small (points)
+_GLYPH_LEAD_MINSIDE = 0.8
+_GLYPH_LEAD_GAP = 6.0        # max gap between glyph right edge and the next span
+_GLYPH_MIN_POINTS = 20       # a real glyph outline is complex (markers are ~4-8)
+_GLYPH_LEAD_MAX_CHAIN = 3    # at most this many leading glyphs (e.g. a 2-letter prefix)
+
+
+def _recover_leading_glyphs(anchor, paths, exclude, glyph_recognize):
+    """Return a unicode prefix recovered from glyph-path character(s) sitting
+    immediately left of ``anchor`` (a TextSpan), or "" when none/unrecognised.
+
+    ``exclude`` is a set of bbox tuples to ignore (the paired swatch etc.).
+    Chains leftward over contiguous glyphs so a 2-letter prefix is recovered in
+    reading order."""
+    if glyph_recognize is None:
+        return ""
+    ax0 = anchor.bbox[0]
+    ay0, ay1 = anchor.bbox[1], anchor.bbox[3]
+    ah = max(ay1 - ay0, 1.0)
+    found: list[str] = []
+    left_edge = ax0
+    for _ in range(_GLYPH_LEAD_MAX_CHAIN):
+        best = None
+        for p in paths:
+            if tuple(p.bbox) in exclude:
+                continue
+            if p.fill is None or len(p.points) < _GLYPH_MIN_POINTS:
+                continue
+            bx0, by0, bx1, by1 = p.bbox
+            w, h = bx1 - bx0, by1 - by0
+            if not (_GLYPH_LEAD_MINSIDE < w <= _GLYPH_LEAD_MAXSIDE
+                    and _GLYPH_LEAD_MINSIDE < h <= _GLYPH_LEAD_MAXSIDE):
+                continue
+            # Right edge just left of the current left edge (touching/small gap).
+            if not (left_edge - (_GLYPH_LEAD_MAXSIDE + _GLYPH_LEAD_GAP)
+                    <= bx1 <= left_edge + 1.5):
+                continue
+            # Vertical overlap with the label row (a same-row character).
+            lo, hi = max(by0, ay0), min(by1, ay1)
+            if hi - lo < 0.4 * ah:
+                continue
+            # Closest to the current left edge wins (the adjacent character).
+            d = left_edge - bx1
+            if best is None or d < best[0]:
+                best = (d, p)
+        if best is None:
+            break
+        hit = glyph_recognize(best[1].bbox)
+        if not hit:
+            break  # unconfident -> stop (never prepend a guess)
+        found.append(hit[1])  # unicode
+        exclude = exclude | {tuple(best[1].bbox)}
+        left_edge = best[1].bbox[0]
+    return "".join(reversed(found))
+
+
 def _detect_legend(
-    region: Region, paths: list[Path], texts: list[TextSpan]
+    region: Region, paths: list[Path], texts: list[TextSpan],
+    glyph_recognize=None,
 ) -> tuple[list[tuple[str, Color | None, str]], BBox | None]:
     """Pair each legend label with the swatch immediately to its left.
 
@@ -691,6 +757,15 @@ def _detect_legend(
         pick = min(row, key=lambda p: (abs(_cy(p.bbox) - ty),
                                        0 if _swatch_style(p) == "marker" else 1))
         color = pick.stroke if pick.stroke is not None else pick.fill
+        # Recover a leading math-symbol glyph-path (font-less, dropped from text)
+        # sitting immediately left of the label's first span, e.g. "=0.83" ->
+        # "μ=0.83". No-op unless a recognizer is supplied and a confident glyph
+        # abuts the label. Exclude the picked swatch so it is never re-read as a
+        # character (a char-sized glyph-path can otherwise look like a marker).
+        prefix = _recover_leading_glyphs(t, paths, {tuple(pick.bbox)},
+                                         glyph_recognize)
+        if prefix:
+            label = prefix + label
         out.append((_swatch_style(pick), color, label))
         used |= consumed
         # Merge this entry's swatch + consumed text spans into one row box.
@@ -1040,13 +1115,18 @@ def detect_labels(
     paths: list[Path],
     texts: list[TextSpan],
     page=None,
+    glyph_recognize=None,
 ) -> Labels:
     """Extract the chart's textual context around ``region``.
 
     ``page`` is accepted for API symmetry with the rest of the pipeline but is
     unused (all geometry comes from ``region``, ``paths`` and ``texts``).
+    ``glyph_recognize`` is an optional ``bbox -> (latex, unicode, conf) | None``
+    callback used to recover a leading math-symbol glyph-path on a legend label
+    (e.g. "=0.83" -> "μ=0.83"); when None the recovery is a no-op.
     """
-    legend_entries, legend_bbox = _detect_legend(region, paths, texts)
+    legend_entries, legend_bbox = _detect_legend(region, paths, texts,
+                                                 glyph_recognize)
     # Fallback: if the swatch-based detector found nothing, try the inline
     # colored-text strategy (series names written directly on the curves).
     if not legend_entries:
