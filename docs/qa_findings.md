@@ -416,3 +416,13 @@ No clean tractable parser fix -> parser is healthy on typical line/scatter.
 ADDED sampler guard: reject heatmap/colormap lattices (>12 series & mean <6 pts/series)
 so they stop slipping the valid-line/scatter filter (2309.12776). Logged target:
 2203.00695 same-colour legend entries differing by linestyle.
+
+### QA pass 2026-06-15 (corpus) — DETAIL: math-alphanumeric unicode labels (FIXED)
+- **2202.11139_p39c1** (+ recurring): annotation '2D−𝑅$_{ℎ}$$^{𝑋}$' uses Mathematical
+  Alphanumeric unicode (𝑅 U+1D445, 𝑋 U+1D44B, ℎ U+210E) that matplotlib can't render
+  -> dummy boxes (the earlier 'U+1d43b' warnings). Extraction was CORRECT (sub/super
+  captured); the renderer now NFKC-normalizes the U+1D400–1D7FF math blocks +
+  letterlike chars to plain letters (render italic in $...$). Fixes V_DS, R_h^X, etc.
+  across many physics charts. Test: test_demath_alnum_normalizes_math_unicode.
+- Draw also: 2104.08998 / 2501.06936 / 2202.11139(data) faithful; 2008.09881 inset;
+  2005.00735 LaTeX bra-ket mangle + spurious dots (deep).

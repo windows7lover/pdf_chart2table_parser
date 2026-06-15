@@ -37,6 +37,7 @@ import random
 import re
 import shutil
 import tempfile
+import unicodedata
 
 import fitz
 import matplotlib
@@ -79,10 +80,30 @@ _SPECIAL = {"_": r"\_", "%": r"\%", "&": r"\&", "#": r"\#", "$": r"\$",
             "|": r"$|$", "<": r"$<$", ">": r"$>$"}
 
 
+def _demath_alnum(s):
+    """Map Mathematical Alphanumeric Symbols (𝑅 𝑋 𝐻 𝔹 𝛼 ...) and letterlike math
+    chars (ℎ) to their plain base via NFKC. matplotlib's default + math fonts lack
+    the U+1D400–U+1D7FF block, so those glyphs render as dummy boxes (2202.11139:
+    '2D−𝑅$_{ℎ}$$^{𝑋}$'). NFKC collapses each to a plain letter/digit (or a Greek
+    letter that _UNI2TEX then maps), which renders correctly -- italic inside $...$.
+    Only chars in those math blocks are touched, so ordinary text is unchanged."""
+    if not s:
+        return s
+    out = []
+    for ch in s:
+        o = ord(ch)
+        if 0x1D400 <= o <= 0x1D7FF or ch in "ℎℏℬℰℱℋℐℒℳℜℛℕℙℚℝℤℂ℘":
+            out.append(unicodedata.normalize("NFKC", ch) or ch)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def _latexify(s):
     """Make a (possibly unicode/mangled) label safe + nice for usetex."""
     if not s:
         return s
+    s = _demath_alnum(s)
     # Already-formatted inline mathtext (our sub/superscript markup '$^{..}$' /
     # '$_{..}$') is valid in usetex as-is; escaping its '$', '_', '{' would break
     # it. Pass such strings through untouched.
@@ -107,6 +128,7 @@ def _math_italic(text):
     """Render a run as math-italic: letters/digits slant in math mode, unicode
     symbols map to their math command (already italic). Used to compose mixed
     italic/roman labels token by token (e.g. the 'τ' of 'τ (s)')."""
+    text = _demath_alnum(text)
     inner = []
     for idx, ch in enumerate(text):
         if ch in _UNI2TEX:

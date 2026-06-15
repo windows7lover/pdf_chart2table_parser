@@ -165,6 +165,19 @@ def test_compose_runs_builds_mixed_mathtext():
     assert out == r"$\tau$ (s)"
 
 
+def test_demath_alnum_normalizes_math_unicode():
+    # 2202.11139: '2D−𝑅$_{ℎ}$$^{𝑋}$' uses Mathematical Alphanumeric unicode that
+    # matplotlib can't render (dummy boxes). NFKC -> plain letters that render.
+    from render_restyle_prototype import _demath_alnum, _latexify
+    assert _demath_alnum("𝑅") == "R"      # U+1D445 math italic R
+    assert _demath_alnum("ℎ") == "h"      # U+210E letterlike h
+    assert _demath_alnum("𝑋") == "X"      # U+1D44B math italic X
+    assert _demath_alnum("𝔹") == "B"      # double-struck
+    assert _demath_alnum("ABC xyz 0.5") == "ABC xyz 0.5"   # plain text untouched
+    # _latexify normalizes even when the string already carries $...$ markup
+    assert _latexify("2D−𝑅$_{ℎ}$$^{𝑋}$") == "2D−R$_{h}$$^{X}$"
+
+
 def test_math_italic_keeps_latin_in_math_and_maps_unicode():
     assert _math_italic("E") == "$E$"          # latin -> math italic
     assert _math_italic("ε") == r"$\epsilon$"  # greek -> math command
