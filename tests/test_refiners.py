@@ -175,3 +175,44 @@ def test_dropped_curve_out_of_range_rejected():
     curve = [(10 + i, 50 + 20 * math.sin(i / 8.0)) for i in range(40)]
     out, reasons = refine_dropped_curve([], [_path(curve)], _region(), (x, y))
     assert out == [] and reasons == [], "out-of-range residual must not be promoted"
+
+
+# --- safety-net guards: band-colour / light-grey / vertical (missed-curve track) ---
+from pdf_chart2table.primitives import round_color as _rc  # noqa: E402
+
+
+def test_band_colour_curve_not_promoted():
+    # A curve whose colour matches a real shaded-band colour is the band's edge
+    # outline, not a data series -> never promote (even if otherwise valid).
+    import math
+    curve = [(10 + i, 50 + 20 * math.sin(i / 8.0)) for i in range(40)]
+    p = _path(curve, stroke=(0.2, 0.4, 0.9))
+    out, reasons = refine_dropped_curve(
+        [], [p], _region(), _axes(), band_colors=frozenset({_rc((0.2, 0.4, 0.9))}))
+    assert out == [] and reasons == []
+
+
+def test_light_grey_curve_not_promoted():
+    # A light-grey horizontal path is a guide / reference / band edge, not data.
+    import math
+    curve = [(10 + i, 50 + 8 * math.sin(i / 8.0)) for i in range(40)]
+    p = _path(curve, stroke=(0.8, 0.8, 0.8))
+    out, _ = refine_dropped_curve([], [p], _region(), _axes())
+    assert out == []
+
+
+def test_vertical_guide_not_promoted():
+    # A near-constant-x path is a vertical reference/threshold line, not y=f(x).
+    vert = [(50.0, 10.0 + i) for i in range(40)]
+    p = _path(vert, stroke=(0.9, 0.2, 0.2))
+    out, _ = refine_dropped_curve([], [p], _region(), _axes())
+    assert out == []
+
+
+def test_black_curve_still_promoted():
+    # Black is a common DATA colour: a valid black curve is still recovered.
+    import math
+    curve = [(10 + i, 50 + 20 * math.sin(i / 8.0)) for i in range(40)]
+    p = _path(curve, stroke=(0.0, 0.0, 0.0))
+    out, _ = refine_dropped_curve([], [p], _region(), _axes())
+    assert len(out) == 1

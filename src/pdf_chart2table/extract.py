@@ -331,8 +331,21 @@ def extract_region(
     # on charts with no dropped curve (residual all decoration).
     residual_paths = [paths[i] for i in region.path_indices
                       if i not in region_roles.roles]
+    # Safety-net: also reconsider paths the curve classifier RECOGNISED as a
+    # data_curve (role) but did NOT emit as a series -- e.g. a curve dropped by an
+    # overlap/band/connector heuristic. These carry a role, so they are excluded
+    # from `residual_paths` above and would otherwise be lost to recovery. The
+    # refiner's own guards (dedup against emitted series, in-box, decoration,
+    # in-range calibration) plus a band-colour guard keep this precision-safe; an
+    # already-emitted curve is deduped, a genuine band outline is skipped.
+    from .roles import DATA_CURVE as _DATA_CURVE
+    from .lines import _fill_band_colors
+    data_curve_paths = [paths[i] for i in region.path_indices
+                        if region_roles.roles.get(i) == _DATA_CURVE]
+    band_colors = frozenset(_fill_band_colors(paths, region))
     series, _promoted = refine_dropped_curve(
-        series, residual_paths, region, (x_axis, y_axis)
+        series, residual_paths + data_curve_paths, region, (x_axis, y_axis),
+        band_colors=band_colors,
     )
 
     table = ChartTable(

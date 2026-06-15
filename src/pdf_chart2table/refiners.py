@@ -9,6 +9,7 @@ line+marker data series are never touched.
 from __future__ import annotations
 
 from .model import Axis, Path, Series
+from .primitives import round_color as _round_color
 
 # --- residual step-2 refiner thresholds ------------------------------------
 # A residual path is a candidate dropped curve only if it is LONG (spans this
@@ -16,6 +17,9 @@ from .model import Axis, Path, Series
 # ``missed`` criterion: span > 0.3*diag and npts >= 6, residual_audit.py).
 _MISSED_SPAN_FRAC = 0.3
 _MISSED_MIN_NPTS = 6
+# A recovered curve must span at least this fraction of the plot WIDTH in x: a
+# near-zero x-extent path is a vertical guide/threshold line, not data.
+_MISSED_MIN_XSPAN_FRAC = 0.05
 # ...AND at least this fraction of its vertices lie inside the calibrated plot
 # box. A residual polyline overlapping the loose region_bbox but sitting mostly
 # outside the plot box belongs to a neighbouring subplot/inset (overcapture) and
@@ -251,6 +255,7 @@ def refine_dropped_curve(
     residual_paths: list[Path],
     region,
     axes: tuple[Axis, Axis],
+    band_colors: frozenset | None = None,
 ) -> tuple[list[Series], list[str]]:
     """Promote a residual polyline to a NEW data series, conservatively.
 
@@ -285,10 +290,22 @@ def refine_dropped_curve(
 
     promoted: list[Series] = []
     reasons: list[str] = []
+    band_colors = band_colors or frozenset()
     for path in residual_paths:
         # A dropped data curve is an OPEN polyline; a closed path is a filled
         # glyph / shape / frame, never a recovered curve -> never promote.
         if path.closed:
+            continue
+        # Never resurrect a genuine shaded-band boundary outline: a stroke whose
+        # colour matches a real fill band is the band's edge, not a data series.
+        col = path.stroke or path.fill
+        if col is not None and _round_color(col) in band_colors:
+            continue
+        # A LIGHT-GREY path is overwhelmingly a guide / reference / confidence-band
+        # edge, not a data series (audit of missed-curve flags). Skip achromatic
+        # light greys (near-equal RGB, bright); keep black/dark-grey, common data
+        # colours.
+        if col is not None and (max(col) - min(col)) < 0.10 and 0.55 < sum(col) / 3:
             continue
         pts = path.points
         if len(pts) < _MISSED_MIN_NPTS:
@@ -298,6 +315,13 @@ def refine_dropped_curve(
         span = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2) ** 0.5
         if span < _MISSED_SPAN_FRAC * diag:
             continue
+        # A data curve y=f(x) spans a non-trivial x-range; a path with ~zero
+        # x-extent is a VERTICAL reference / threshold / errorbar line (e.g. a
+        # grey guide at constant x), not a series -- never promote it.
+        if plot_box is not None:
+            pw = abs(plot_box[2] - plot_box[0]) or 1.0
+            if (max(xs) - min(xs)) < _MISSED_MIN_XSPAN_FRAC * pw:
+                continue
         if refine_region_overcapture(pts, plot_box):
             continue
         if _overlaps_existing(pts, existing_pixels):
