@@ -633,9 +633,13 @@ def _detect_legend(
         label, consumed = _assemble_label(ti, ty, texts, used)
         if not label or _is_numeric(label) or _is_proxy_label(label):
             continue
-        # Prefer a marker swatch (its glyph), else the line sample's style.
-        markers = [p for p in row if _swatch_style(p) == "marker"]
-        pick = markers[0] if markers else row[0]
+        # Pick the swatch CLOSEST in row to this label (tie-break: prefer a marker
+        # glyph). Tightly-stacked legends (row pitch < _ROW_TOL) put several swatch
+        # rows inside the tolerance band, so taking the first would grab an adjacent
+        # row's colour (2502.18732_p6c3: H=30/60/70 each took the swatch one row up,
+        # mis-colouring every entry). Closest-cy pairs each label with its own row.
+        pick = min(row, key=lambda p: (abs(_cy(p.bbox) - ty),
+                                       0 if _swatch_style(p) == "marker" else 1))
         color = pick.stroke if pick.stroke is not None else pick.fill
         out.append((_swatch_style(pick), color, label))
         used |= consumed

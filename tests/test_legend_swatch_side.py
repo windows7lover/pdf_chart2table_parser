@@ -49,6 +49,21 @@ def test_swatch_abutting_or_overlapping_label_still_pairs():
     assert got == {"298K": RED, "77K": BLUE}
 
 
+def test_tight_rows_pair_with_closest_swatch():
+    # 2502.18732_p6c3: 4 legend rows stacked ~5.6pt apart (< _ROW_TOL=6), so each
+    # label's tolerance band overlaps several swatch rows. Taking the first swatch
+    # grabbed the row above (H=30->black, H=60->red, ...). Closest-cy pairing fixes
+    # it: each label gets its OWN-row colour.
+    cys = [70.0, 75.6, 81.2, 86.8]
+    cols = [BLACK, RED, GREEN, BLUE]
+    names = ["H10", "H30", "H60", "H70"]
+    texts = [_lab(n, 240, cy) for n, cy in zip(names, cys)]
+    paths = [_line(222, 238, cy, c) for c, cy in zip(cols, cys)]
+    entries, _ = _detect_legend(REGION, paths, texts)
+    got = {label: tuple(round(c, 2) for c in color) for _, color, label in entries}
+    assert got == {"H10": BLACK, "H30": RED, "H60": GREEN, "H70": BLUE}
+
+
 def test_swatch_on_left_still_default():
     # [green] Tc   [blue] Pc  (the common case: swatch to the LEFT) -> unchanged.
     texts = [_lab("Tc", 227, 74), _lab("Pc", 227, 83)]

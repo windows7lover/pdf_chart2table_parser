@@ -426,3 +426,12 @@ so they stop slipping the valid-line/scatter filter (2309.12776). Logged target:
   across many physics charts. Test: test_demath_alnum_normalizes_math_unicode.
 - Draw also: 2104.08998 / 2501.06936 / 2202.11139(data) faithful; 2008.09881 inset;
   2005.00735 LaTeX bra-ket mangle + spurious dots (deep).
+
+### QA pass 2026-06-15 (corpus) — DETAIL: tight-stacked legend mis-pairing (FIXED)
+- **2502.18732_p6c3** — 4 ADMR curves; legend rows stacked ~5.6pt apart (< _ROW_TOL
+  6). Each label matched 3 swatch rows; pick=row[0] grabbed the row ABOVE, so
+  H=30->black, H=60->red, H=70->green (every entry mis-coloured; H=10/H=70 series
+  also lost labels). Fix: pair each label with the CLOSEST-cy swatch (marker
+  tie-break). Now black->H=10, red->H=30, green->H=60, blue->H=70. Test:
+  test_tight_rows_pair_with_closest_swatch.
+- Draw also: (others pending view) — this was the tractable fix.
