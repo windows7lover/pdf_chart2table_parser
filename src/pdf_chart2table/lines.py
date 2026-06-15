@@ -169,8 +169,12 @@ _FILL_BAND_MIN_HEIGHT_FRAC = 0.04
 # Without this, such a curve poisons its colour as a "band colour" and the real
 # stroked curve of the same colour is wrongly dropped as a band outline
 # (2505.16060_p10c2: a purple data curve lost because its own filled outline had a
-# 136x9 bbox but zero enclosed area).
-_BAND_MIN_FILL_FRAC = 0.15
+# 136x9 bbox but zero enclosed area). Kept LOW: a thin fill-curve's out-and-back
+# outline collapses to ~0.00 enclosed area, whereas a genuine (even thin) stacked
+# band fills >= ~0.12 of its bbox -- so 0.05 separates them with margin and does
+# not exclude the slim bottom band of a multi-band/stacked chart (2308.02111_p17c4,
+# whose all-bands-are-data logic broke when its 0.127-fill band was excluded).
+_BAND_MIN_FILL_FRAC = 0.05
 # Two same-colour curves of different dash form are the SAME path drawn twice
 # (so dedup to one) when, over their shared x range, their y values agree within
 # this fraction of the combined y-extent; beyond it they are distinct curves.

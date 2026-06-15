@@ -9,7 +9,15 @@ A true band encloses a meaningful fraction of its bbox; a thin curve does not.
 from __future__ import annotations
 
 from pdf_chart2table.model import Path, Region
-from pdf_chart2table.lines import _fill_band_colors, _enclosed_area_frac
+from pdf_chart2table.lines import (_fill_band_colors, _enclosed_area_frac,
+                                    _BAND_MIN_FILL_FRAC)
+
+
+def test_threshold_keeps_thin_stacked_bands():
+    # The bottom band of a multi-band/stacked chart can be a slim wiggly strip
+    # that fills only ~0.12 of its (tall) bbox (2308.02111_p17c4). The guard must
+    # stay below that, or the all-bands-are-data logic collapses the chart.
+    assert _BAND_MIN_FILL_FRAC <= 0.1
 
 REGION = Region(bbox=(0.0, 0.0, 200.0, 200.0))
 PURPLE = (0.56, 0.4, 0.88)
