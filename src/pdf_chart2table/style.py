@@ -202,6 +202,30 @@ def recover_tick_style(paths, region_bbox):
             "minor": len(bottom) > 8 or len(left) > 8}
 
 
+def _box_like(p):
+    """Whether path ``p`` traces a rectangle OUTLINE (a legend frame / box), and
+    if so whether its corners are rounded. Returns ``True`` (rounded), ``False``
+    (sharp), or ``None`` when ``p`` is not box-like (e.g. a data curve that fills
+    the bbox interior). A rectangle's vertices hug the bbox perimeter; a sharp box
+    flattens to ~4-6 points, while a rounded (fancybox) frame draws its corner
+    arcs as many points that still sit within a thin perimeter band -- so the
+    point COUNT (not the geometry) distinguishes rounded from square."""
+    pts = p.points
+    if len(pts) < 4:
+        return None
+    bx0, by0, bx1, by1 = p.bbox
+    bw, bh = bx1 - bx0, by1 - by0
+    if bw < 8.0 or bh < 8.0:
+        return None
+    tol = max(2.5, 0.12 * min(bw, bh))
+    near = sum(1 for x, y in pts
+               if min(abs(x - bx0), abs(x - bx1)) < tol
+               or min(abs(y - by0), abs(y - by1)) < tol)
+    if near < 0.85 * len(pts):
+        return None
+    return len(pts) > 8
+
+
 def match_series_styles(paths, region_bbox, series):
     """Per-series width/linestyle/marker, matched by GEOMETRY (not just colour).
 
@@ -331,23 +355,28 @@ def match_series_styles(paths, region_bbox, series):
         # frame) is recovered.
         if max(modal) - min(modal) > 0.12:
             axis_color = list(modal)
-    # Legend frame: a stroked rectangle NARROWER than the full plot frame, with a
-    # white-ish background -- either on the SAME path, OR on a COINCIDENT sibling
-    # rectangle (papers commonly draw the legend as a white FILL rect plus a
-    # separate BORDER-stroke rect, so neither single path has both -- the
-    # 2009.07658 miss). The white background is the discriminator vs gridlines.
-    def _rectish(p):
-        return len(p.points) <= 8
-    white_bgs = [p.bbox for p in inreg
-                 if p.fill is not None and min(p.fill) >= 0.85 and _rectish(p)]
+    # Legend frame: a box-like rectangle (sharp OR rounded corners) NARROWER than
+    # the full plot frame, with a white-ish background -- either on the SAME path,
+    # OR on a COINCIDENT sibling rectangle (papers commonly draw the legend as a
+    # white FILL rect plus a separate BORDER-stroke rect, so neither single path
+    # has both -- the 2009.07658 miss). The white background is the discriminator
+    # vs gridlines. We recover the frame's STYLE (border colour/width, fill colour
+    # and rounded-vs-square corners) so the renderer reproduces it instead of
+    # drawing matplotlib's default light-grey fancybox.
+    white_bgs = [p for p in inreg
+                 if p.fill is not None and min(p.fill) >= 0.85
+                 and _box_like(p) is not None]
 
-    def _has_white_bg(b):
-        return any(abs(f[0]-b[0]) < 3 and abs(f[1]-b[1]) < 3
-                   and abs(f[2]-b[2]) < 3 and abs(f[3]-b[3]) < 3 for f in white_bgs)
+    def _white_bg_for(b):
+        for q in white_bgs:
+            if all(abs(q.bbox[i] - b[i]) < 3.0 for i in range(4)):
+                return q
+        return None
 
-    legend_box = False
+    legend_frame = None
     for p in inreg:
-        if p.stroke is None or max(p.stroke) > 0.9 or not _rectish(p):
+        rounded = _box_like(p)
+        if rounded is None or p.stroke is None:
             continue
         bw, bh = p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]
         # narrower than the full frame (excludes the plot frame), not a sliver
@@ -355,13 +384,22 @@ def match_series_styles(paths, region_bbox, series):
                 and 0.05 * (y1 - y0) < bh < 0.95 * (y1 - y0)):
             continue
         same_white = p.fill is not None and min(p.fill) >= 0.85
-        if same_white or _has_white_bg(p.bbox):
-            legend_box = True
-            break
+        bg = None if same_white else _white_bg_for(p.bbox)
+        if not (same_white or bg is not None):
+            continue
+        face = p.fill if same_white else (bg.fill if bg else None)
+        legend_frame = {
+            "edge_color": [round(v, 3) for v in p.stroke],
+            "face_color": [round(v, 3) for v in face] if face else None,
+            "linewidth": round(p.width, 3) if p.width else None,
+            "rounded": bool(rounded),
+        }
+        break
     meta = {"axis_linewidth": _median(spine_w),
             "axis_color": axis_color,
             "ticks": recover_tick_style(inreg, region_bbox),
-            "legend_box": legend_box}
+            "legend_box": legend_frame is not None,
+            "legend_frame": legend_frame}
     return out, meta
 
 
@@ -1071,5 +1109,6 @@ def build_chart_style(d: dict, page, fitz_page) -> dict:
         style["axis_linewidth"] = round(min(3.0, max(0.2, alw)), 2)
     style["ticks_style"] = meta.get("ticks")
     style["legend_box"] = meta.get("legend_box", False)
+    style["legend_frame"] = meta.get("legend_frame")  # border/fill/corner style
     style["axis_color"] = meta.get("axis_color")  # coloured axes/frame (None=black)
     return style

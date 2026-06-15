@@ -223,6 +223,53 @@ def test_font_scale_multiplies_recovered_label_size():
     plt.close(fig)
 
 
+def _legend_record_style(legend_frame):
+    # two labelled series so a legend is drawn, plus the recovered frame style.
+    record = {"series": [{"points": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]},
+                         {"points": [{"x": 0.0, "y": 1.0}, {"x": 1.0, "y": 0.0}]}],
+              "x_axis": {"data_range": [0.0, 1.0]},
+              "y_axis": {"data_range": [0.0, 1.0]}, "xticks": [], "yticks": []}
+    style = {"series": [{"color": [0.0, 0.0, 0.0], "label": "A"},
+                        {"color": [0.8, 0.1, 0.1], "label": "B"}],
+             "x_axis": {"title": "X", "ticks": []},
+             "y_axis": {"title": "Y", "ticks": []},
+             "legend_box": True, "legend_frame": legend_frame,
+             "text": {"base_font_size": 10.0, "show_legend": True,
+                      "legend": {"fontsize": 8.0}}}
+    return record, style
+
+
+def test_legend_frame_style_applied_to_renderer():
+    # 2005.09264_p27c1: a thin dark-grey SQUARE box with white fill must render
+    # with that edge colour / linewidth / sharp corners, NOT matplotlib's default
+    # light-grey rounded fancybox.
+    from render_restyle_prototype import _replot, plt
+    frame = {"edge_color": [0.149, 0.149, 0.149], "face_color": [1.0, 1.0, 1.0],
+             "linewidth": 0.432, "rounded": False}
+    record, style = _legend_record_style(frame)
+    fig, ax = plt.subplots()
+    _replot(ax, record, style)
+    leg = ax.get_legend()
+    assert leg is not None
+    fr = leg.get_frame()
+    ec = fr.get_edgecolor()
+    assert all(abs(ec[i] - 0.149) < 1e-3 for i in range(3))
+    assert abs(fr.get_linewidth() - 0.432) < 1e-3
+    assert type(fr.get_boxstyle()).__name__ == "Square"
+    plt.close(fig)
+
+
+def test_legend_frame_rounded_uses_round_boxstyle():
+    from render_restyle_prototype import _replot, plt
+    frame = {"edge_color": [0.5, 0.5, 0.5], "face_color": [1.0, 1.0, 1.0],
+             "linewidth": 0.8, "rounded": True}
+    record, style = _legend_record_style(frame)
+    fig, ax = plt.subplots()
+    _replot(ax, record, style)
+    assert type(ax.get_legend().get_frame().get_boxstyle()).__name__ == "Round"
+    plt.close(fig)
+
+
 # --- Bug A: filled circle drawn as a noisy/doubled loop must NOT be a star -----
 def test_noisy_doubled_circle_is_disk_not_star():
     # 2102.11637_p6c5: half the data markers are filled circles encoded as a

@@ -529,6 +529,19 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
               "frameon": bool(style.get("legend_box")),
               "borderpad": 0.3, "labelspacing": 0.3, "handlelength": 1.4,
               "handletextpad": 0.4, "columnspacing": 1.0, "borderaxespad": 0.3}
+        # Recovered legend-box style: border colour/width, fill, and square vs
+        # rounded corners -- so the frame matches the original instead of
+        # matplotlib's default light-grey fancybox. linewidth is applied to the
+        # frame patch after the legend is (re)created below.
+        frame = style.get("legend_frame")
+        if frame:
+            kw["frameon"] = True
+            kw["fancybox"] = bool(frame.get("rounded"))
+            if frame.get("edge_color") is not None:
+                kw["edgecolor"] = tuple(frame["edge_color"])
+            if frame.get("face_color") is not None:
+                kw["facecolor"] = tuple(frame["face_color"])
+                kw["framealpha"] = 1.0  # opaque white fill, as in the original
         if leg:
             kw["ncol"] = leg.get("ncol", 1)
             a = leg.get("anchor")
@@ -557,7 +570,10 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
                     else:
                         kw["fontsize"] = (kw.get("fontsize") or 8) * r
                     legend_obj.remove()
-                    ax.legend(**kw)
+                    legend_obj = ax.legend(**kw)
+        # Apply the recovered border width to whichever legend frame is final.
+        if frame and legend_obj is not None and frame.get("linewidth"):
+            legend_obj.get_frame().set_linewidth(frame["linewidth"])
 
 
 def _original_image(record):
