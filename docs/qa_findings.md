@@ -392,3 +392,8 @@ hardening pass is the next high-value lever (distinct from per-chart fixes).
 - Corpus pass also saw: 2209.00927_p8c1 faithful (6 colored curves); 2509.11037 fit/
   ref lines dropped (by-design, user decision pending); 2302.04967 red series split
   ^/o + connector dropped (deep marker-consistency, logged).
+
+- **2504.02903_p11c3 GaAs ●->x (DEEP, logged):** the red GaAs glyphs near the
+  markers are 2-point vertical segments classified shape_of='cross' (error-bar /
+  stroke fragments), so the series picks 'x' not 'o'. Not a simple circle-misread;
+  needs disentangling the circle glyph from red stroke fragments. Logged, not forced.
