@@ -838,68 +838,6 @@ def _y_title(texts: list[TextSpan], region: Region) -> str | None:
 # Public entry
 # --------------------------------------------------------------------------
 
-def detect_secondary_y_axis(
-    region: Region,
-    paths: list[Path],
-    texts: list[TextSpan],
-) -> Axis | None:
-    """Detect a RIGHT (twin) y-axis on a dual-y chart: numeric labels sitting
-    just RIGHT of the right spine, forming their own tick set.
-
-    Mirrors the primary (left) y-label gather at the right spine. Returns an
-    UNCALIBRATED ``Axis`` carrying the right-side ticks (the caller fits it), or
-    None when fewer than three numeric labels are present (not a real second
-    axis). Title is the vertically-written text just right of the right spine.
-    """
-    x0, y0, x1, y1 = region.bbox
-    spans = [
-        t for t in texts
-        if x1 < _center(t.bbox)[0] <= x1 + _YLABEL_BAND
-        and y0 - _ALIGN_TOL <= _center(t.bbox)[1] <= y1 + _ALIGN_TOL
-    ]
-    groups = _group_labels(spans, "y")
-    ticks: list[Tick] = []
-    for g in groups:
-        pixel = sum(_center(t.bbox)[1] for t in g) / len(g)
-        label = "".join(t.text for t in sorted(g, key=lambda t: t.bbox[0]))
-        ticks.append(Tick(pixel=pixel, value=_group_value(g, paths), label=label))
-    if sum(1 for t in ticks if t.value is not None) < 3:
-        return None
-    return Axis(
-        title=_y_title_right(texts, region),
-        pixel_range=(y0, y1),
-        ticks=ticks,
-    )
-
-
-def _y_title_right(texts: list[TextSpan], region: Region) -> str | None:
-    """Rotated y-axis title just to the RIGHT of the right spine (mirror of
-    ``_y_title``); the title of the secondary (twin) axis."""
-    x0, y0, x1, y1 = region.bbox
-    h = y1 - y0
-    max_right = max(0.5 * (x1 - x0), 55.0)
-    cands = []
-    for t in texts:
-        if abs(t.dir[1]) < 0.7:  # vertical text only
-            continue
-        cx, cy = _center(t.bbox)
-        if not (x1 < cx <= x1 + max_right):
-            continue
-        if cy < y0 - 0.1 * h or cy > y1 + 0.1 * h:
-            continue
-        if _is_subcaption(t.text) or _is_numeric_span(t.text.replace(" ", "")):
-            continue
-        cands.append((cx, cy, t.dir[1], t.text))
-    if not cands:
-        return None
-    # innermost column (closest to the right spine) = this panel's right title
-    inner_cx = min(c[0] for c in cands)
-    col = [c for c in cands if abs(c[0] - inner_cx) <= 6.0]
-    col.sort(key=lambda c: c[1], reverse=(col[0][2] < 0))
-    title = " ".join(" ".join(c[3].split()) for c in col)
-    return " ".join(title.split()) or None
-
-
 def detect_axes(
     region: Region,
     paths: list[Path],
