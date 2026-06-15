@@ -248,3 +248,33 @@ residual it keeps a lighter backdrop + bolder leftover ink.
 **Next tractable levers (by frequency):** (1) marker-shape classifier (≥4 charts);
 (2) inset detection+isolation / mis-bounded multi-panel calibration (≥3 charts,
 the big one); (3) legend-region masking from data extraction (2 charts).
+
+---
+
+## QA pass 2026-06-15 (fresh 20-chart set; restyle-judge loop)
+
+Set: 20 NEW random charts (`restyle_cids_set3.txt` = prior list; new list in
+`restyle_cids.txt`). Judged 3 (verified against chart.json / raw PDF, not the PNG).
+
+- **2002.01952_p4c1** — Faithful main plot (5 temp curves 110–150 °C, y 0–0.20
+  correct). Spurious black series (npts 34/99) are the **top-right INSET scatter**
+  captured as data → inset contamination (out of scope, [[no-multipanel]]).
+- **2006.04979_p31c1** — 3 spectra captured well; calibration correct. Gaps:
+  (a) the **secondary top x-axis** "Photon energy / eV" is not reconstructed
+  (dual-axis feature); (b) annotation `X⁻` lost its superscript minus (`X`).
+- **2004.08077_p7c2 — DROPPED SERIES (high-value target).** Original has 3 curves
+  (14.4 / 19.2 / 24.0 µW/cm²); only 2 extracted (magenta 19.2, teal 24.0). The
+  **blue (0,0,1) = 14.4 series is dropped entirely.** Diagnostic: all THREE colors
+  are present and assigned to the region symmetrically (blue/magenta/teal each = 7
+  paths, ~3850 pts), so the drop happens DOWNSTREAM of region assignment (marks /
+  series assembly / a refiner), not at detection. The asymmetry (why blue and not
+  the other two identical-looking colors) is the open question — NOT force-fixed
+  this pass (a wrong recovery would violate precision-over-recall). This is a
+  concrete [[stage1-peeling-targets]] reproduction: re-extract `2004.08077` page 7
+  chart 2 and assert 3 series.
+
+**Improvement committed this loop:** legend-box style recovery (edge/fill/linewidth/
+rounded), verified on 2005.09264_p27c1 + regression tests; shared folder regenerated.
+
+**Next target:** trace the blue-series drop in 2004.08077_p7c2 (marks/refiners) —
+why one of three symmetric colors is dropped.
