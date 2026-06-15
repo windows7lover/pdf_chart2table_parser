@@ -336,16 +336,20 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
         if st.get("render_as") == "scatter":
             mk = st.get("marker_shape") or st.get("marker") or "o"  # geometry wins
             md = st.get("markersize")  # recovered glyph diameter in points
+            # font_scale magnifies the PNG review panel; scale linear style dims
+            # (marker diameter, line/edge widths) by it too so markers/lines keep
+            # their proportion to the (also-scaled) text. Deliverables use 1.0.
             if md:
-                sz = max(2.0, min(300.0, md * md))  # scatter s = (diameter)^2
+                sz = max(2.0, min(2500.0, (md * font_scale) ** 2))  # s = diameter^2
             else:
-                sz = {"*": 14, "^": 12, "x": 10}.get(mk, 9)
+                sz = {"*": 14, "^": 12, "x": 10}.get(mk, 9) * font_scale ** 2
             # line+marker series: draw the connecting line first, then the markers.
             # Points are emitted in TRUE draw order, so plot as-is (do NOT re-sort
             # by x -- that scrambles sideways/folded curves).
             if st.get("connect"):
                 ax.plot(xs, ys, color=col, alpha=alpha,
-                        linewidth=st.get("linewidth") or 0.8, linestyle=ls, zorder=1)
+                        linewidth=(st.get("linewidth") or 0.8) * font_scale,
+                        linestyle=ls, zorder=1)
             # FACE / EDGE colour + EDGE width are recovered independently. A None
             # face = open marker (no fill). Fall back to the series colour.
             face = _color(st.get("marker_face"))
@@ -354,10 +358,10 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
             ax.scatter(xs, ys, s=sz, marker=mk, label=lab, zorder=2, alpha=alpha,
                        facecolors=(face if face is not None else "none"),
                        edgecolors=edge,
-                       linewidths=(ew if ew else None))
+                       linewidths=(ew * font_scale if ew else None))
         else:
-            ax.plot(xs, ys, color=col, alpha=alpha,
-                    label=lab, linewidth=st.get("linewidth") or 1.2, linestyle=ls)
+            ax.plot(xs, ys, color=col, alpha=alpha, label=lab,
+                    linewidth=(st.get("linewidth") or 1.2) * font_scale, linestyle=ls)
 
     xa, ya = _axis_view(record, style, "x"), _axis_view(record, style, "y")
     x_scale = _effective_scale(xa)

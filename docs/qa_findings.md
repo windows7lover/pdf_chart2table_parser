@@ -327,3 +327,15 @@ axis-extreme markers); remainder faithful or out-of-scope. Rotating to a fresh 2
   Tests: test_text_rotation_* in test_restyle_prototype.py.
   (User detail-fidelity targets: text orientation ✓; legend placement/size,
   color/linewidth/transparency = continuing focus.)
+
+### QA pass 2026-06-15 (set5 cont.) — DETAIL: marker/line proportion in PNG
+- **2002.02623_p25c2** — markers rendered as tiny dots vs original's large spheres.
+  Cause: the magnified QA-PNG scales fonts by font_scale but NOT markersize /
+  linewidths, so they look disproportionately small (deliverables at font_scale=1.0
+  are correct). Fix: scale marker diameter + line/edge widths by font_scale in the
+  PNG path. Also FLAGGED (per "don't dismiss"): the red linear FIT LINE is dropped
+  by drop_spurious_lines — intentional, but the user may want fit lines kept; needs
+  a decision.
+- Backlog from "investigate minor diffs" (set5): 2003.07592 legend swatch-handles
+  faint; 2004.06773 inline curve labels became a legend box; 2001.11728 connecting
+  lines/triangle markers understated.
