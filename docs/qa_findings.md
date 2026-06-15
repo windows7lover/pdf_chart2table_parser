@@ -454,3 +454,13 @@ NEW logged target: 2101.01714_p11c1 — CATEGORICAL scatter (markers styled by a
 COLOUR × polymer SHAPE, dual legends); most points dropped (residual 27) because each
 (colour,shape) group has <_MIN_MARKS_PER_SERIES marks. Hard: the per-series model
 doesn't fit per-point styling. Logged.
+
+### QA pass 2026-06-15 (corpus) — DETAIL: numeric (year) legend labels (FIXED)
+- **2203.00695_p24c1** — legend entries '2016'/'2020' (years) were dropped: the emit
+  loop's `_is_numeric(label)` filter treated them as ticks, so only '2020 open'
+  (non-numeric) survived. Now a numeric label WITH a swatch is admitted, but a LONE
+  numeric entry is dropped post-hoc (a tick that picked up a swatch). Year/numeric
+  legends with >=2 entries are recovered. Tests: test_multi_row_numeric_legend_admitted
+  (+ existing test_pure_numeric_anchor_still_filtered still green).
+- Draw also faithful: 2406.05032 log-scatter+fit, 2311.09347 (solid->dashed branch
+  nuance), 2305.00719 curve family. Parser healthy on line/scatter.

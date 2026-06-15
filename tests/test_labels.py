@@ -465,6 +465,27 @@ def test_pure_numeric_anchor_still_filtered():
     assert lbs.legend == [], f"numeric-only entry should be filtered; got {lbs.legend}"
 
 
+def test_multi_row_numeric_legend_admitted():
+    """Numeric labels in a MULTI-row legend are real entries (year legends
+    '2016'/'2020', 2203.00695_p24c1) -- only a LONE numeric is filtered.
+    """
+    from pdf_chart2table.model import Path, Region
+
+    RED, BLUE = (1.0, 0.0, 0.0), (0.0, 0.0, 1.0)
+
+    def _sw(y, color):
+        return Path(points=[(60.0, y), (80.0, y)], stroke=color, fill=None,
+                    width=1.0, dashes=None, closed=False, bbox=(60.0, y, 80.0, y))
+
+    region = Region(bbox=(50.0, 40.0, 300.0, 200.0))
+    swatches = [_sw(50.0, RED), _sw(62.0, BLUE)]
+    texts = [TextSpan(text='2016', bbox=(84.0, 44.0, 104.0, 56.0), size=8.0, dir=(1.0, 0.0)),
+             TextSpan(text='2020', bbox=(84.0, 56.0, 104.0, 68.0), size=8.0, dir=(1.0, 0.0))]
+    lbs = detect_labels(region, swatches, texts)
+    got = {lab: tuple(round(c, 2) for c in col) for _, col, lab in lbs.legend}
+    assert got == {'2016': RED, '2020': BLUE}, got
+
+
 # --------------------------------------------------------------------------
 
 def test_detect_labels_returns_legend_bbox():

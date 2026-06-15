@@ -631,7 +631,13 @@ def _detect_legend(
         if not row:
             continue
         label, consumed = _assemble_label(ti, ty, texts, used)
-        if not label or _is_numeric(label) or _is_proxy_label(label):
+        # A purely-numeric label IS a real legend entry when it has a genuine
+        # swatch beside it (years "2016"/"2020", a current "5", a temperature
+        # "300"): 2203.00695_p24c1 lost its "2016"/"2020" year entries. The `row`
+        # requirement (checked above) already guards against bare axis ticks, which
+        # almost never have a _swatch_style sample next to them, so the numeric
+        # label is admitted here.
+        if not label or _is_proxy_label(label):
             continue
         # Pick the swatch CLOSEST in row to this label (tie-break: prefer a marker
         # glyph). Tightly-stacked legends (row pitch < _ROW_TOL) put several swatch
@@ -648,6 +654,14 @@ def _detect_legend(
         eb = _union(boxes)
         entry_boxes.append(eb)
         pick_cols.append((eb[0], eb[2]))  # full entry x-range (swatch + label)
+
+    # A LONE numeric entry is almost always a tick that incidentally picked up a
+    # swatch, not a legend (test_pure_numeric_anchor_still_filtered). But numeric
+    # entries inside a MULTI-row legend are real (year legends "2016"/"2020",
+    # 2203.00695_p24c1). So drop a single numeric entry; keep numerics when the
+    # legend has >= 2 entries (a genuine stacked cluster).
+    if len(out) == 1 and _is_numeric(out[0][2]):
+        out, entry_boxes, pick_cols = [], [], []
 
     # Entries whose LABEL is mangled (e.g. LaTeX math: tildes/subscripts rendered
     # as glyph paths) emit no row, so their swatches would leak into the data as
