@@ -397,3 +397,12 @@ hardening pass is the next high-value lever (distinct from per-chart fixes).
   markers are 2-point vertical segments classified shape_of='cross' (error-bar /
   stroke fragments), so the series picks 'x' not 'o'. Not a simple circle-misread;
   needs disentangling the circle glyph from red stroke fragments. Logged, not forced.
+
+### QA pass 2026-06-15 (corpus) — DETAIL: open-marker edge colour (FIXED)
+- **2505.19730_p6c2** — blue OPEN markers (white-fill blob + separate blue-edge
+  outline, same positions) rendered WHITE/invisible: _coalesce_duplicate kept the
+  white-fill group's colour. Now the kept white/open group adopts the duplicate's
+  visible edge stroke -> series colour blue. Test: test_open_marker_edge_color.py.
+- Corpus draw also: 2107.08282 faithful (curve+ZBD/ZBP segments; bottom highlight
+  axvspan bands not reproduced = niche); 2111.09242 / 2211.04130 / 2512.00603
+  faithful; 2210.14881 / 2506.22329 inset (out of scope).

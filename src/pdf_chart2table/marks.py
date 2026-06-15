@@ -567,6 +567,16 @@ def _coalesce_duplicate(kept: SeriesMarks, dup: SeriesMarks) -> None:
     _BLOB_SHAPES = {"circle", "marker"}
     if kept.shape in _BLOB_SHAPES and dup.shape not in _BLOB_SHAPES:
         kept.shape = dup.shape
+    # An OPEN marker is a white-fill blob plus a separate COLOURED-EDGE outline at
+    # the same spot. If the kept group is that white fill with no stroke, the series
+    # colour would be white (invisible); adopt the duplicate's visible edge stroke
+    # so the series takes the real (edge) colour (2505.19730_p6c2: blue open markers
+    # rendered white). Only when kept has no colour identity and dup's stroke shows.
+    def _visible(c):
+        return c is not None and min(c) <= 0.9
+    if (kept.stroke is None and _visible(dup.stroke)
+            and (kept.fill is None or min(kept.fill) > 0.9)):
+        kept.stroke = dup.stroke
 
 
 def _merge_duplicate_series(groups: list[SeriesMarks]) -> list[SeriesMarks]:
