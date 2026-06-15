@@ -347,3 +347,11 @@ axis-extreme markers); remainder faithful or out-of-scope. Rotating to a fresh 2
   size from glyph paths only (those with a detected `_marker_shape`). Now 4.86pt.
   Test: test_markersize_glyph.py. (This is the "don't dismiss minor diffs" win —
   the tiny-marker look was a real recovery bug, not just PNG scaling.)
+
+### QA pass 2026-06-15 (set5 cont. 2) — backlog triage
+- **2003.07592_p12c1** — investigated the "LA/TA legend missing / faint handles":
+  the region spans TWO panels (right panel has "Free-standing NW", "1D ph [Eq.(26)]"
+  on the same rows as LA/TA). The legend detector picked the right panel's "1D 3D"
+  and the LA/TA series stayed unlabeled -> text fell through to annotations. Root
+  cause = MULTI-PANEL contamination -> OUT OF SCOPE ([[no-multipanel]]), not a
+  simple legend bug. (Lesson: triage legend/label diffs for multi-panel first.)
