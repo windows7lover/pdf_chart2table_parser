@@ -589,7 +589,12 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
                 kw["prop"] = {"weight": "bold", "size": kw.pop("fontsize")}
         legend_obj = ax.legend(**kw)
         # FIT the legend size to the original: measure the rendered legend width
-        # in axes fraction and rescale the font so it matches the recovered extent.
+        # in axes fraction and rescale the font toward the recovered extent.
+        # The recovered FONT SIZE is measured directly from the PDF and is
+        # accurate; the recovered WIDTH (w_frac) over-estimates the handle (it adds
+        # a 3.2*fontsize swatch allowance), so it must never GROW the font (that
+        # inflated legends 1.4-1.6x: 2002.02623 9.3->13.6). Only allow SHRINK (cap
+        # at 1.0) when the rendered legend genuinely overflows the recovered width.
         tw = (leg or {}).get("w_frac")
         if legend_obj is not None and tw and tw > 0:
             ax.figure.canvas.draw()
@@ -598,7 +603,7 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
             (p0x, _), (p1x, _) = inv.transform((bb.x0, bb.y0)), inv.transform((bb.x1, bb.y1))
             cur_w = abs(p1x - p0x)
             if cur_w > 1e-3:
-                r = max(0.55, min(1.6, tw / cur_w))
+                r = max(0.55, min(1.0, tw / cur_w))
                 if abs(r - 1.0) > 0.08:  # re-create at fitted size
                     if "prop" in kw:
                         kw["prop"] = dict(kw["prop"], size=kw["prop"]["size"] * r)

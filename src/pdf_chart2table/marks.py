@@ -81,9 +81,12 @@ _MAX_ASPECT = 3.0
 # never returns) is a dense CURVE SEGMENT drawn open, not a glyph. Reject such
 # paths as marks so a wiggly curve drawn as many small dense segments is not
 # mistaken for a scatter series (lines.py collects them into the real curve).
-# Only applied to many-vertex paths (>= the "circle" vertex threshold); few-vertex
-# glyphs (squares/triangles/crosses) are genuinely open and untouched.
-_GLYPH_VERTS = 40           # matches primitives.shape_of "circle" threshold
+# Applied to ROUND-glyph-range paths (>= 9 vertices = shape_of's circle/star
+# range, which MUST be closed loops); few-vertex polygons (square=5, triangle=4,
+# cross=4) are traced once and legitimately open, so they stay below this and are
+# untouched. (Was 40, which let short open curve segments of a finely-segmented
+# curve — 10-36 vertices — pass as phantom circle markers: 2001.06496_p18c2.)
+_GLYPH_VERTS = 9            # shape_of classifies n>=9 round glyphs as circle/star
 _MAX_GLYPH_ENDPOINT_GAP = 0.5  # gap (start->end) as a fraction of the longer bbox side
 # A mark whose centroid sits within this of the region border is on a
 # spine/frame edge (tick marks live there), not off-axis data.

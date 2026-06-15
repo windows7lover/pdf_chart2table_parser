@@ -1026,3 +1026,52 @@ def test_marker_shape_render_classifies_cross_and_plus():
     # A triangle must classify as '^', not 's' (the old code had no triangle case
     # so it fell through to square -- 2003.07592 Isotropic rendered as squares).
     assert rrp._marker_shape(_filled_triangle(200, 200)) == "^"
+
+
+def _open_arc(cx, cy, n=20, w=3.0, h=7.0):
+    # an OPEN curve segment (steep arc): many vertices, endpoints far apart, in
+    # the 9-39 vertex range that shape_of would call "circle".
+    import math
+    pts = [(cx + 0.5 * w * math.sin(math.pi * i / (n - 1)),
+            cy - 0.5 * h + h * i / (n - 1)) for i in range(n)]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=(0.0, 0.6, 0.2), fill=None, width=1.0,
+                 dashes=None, closed=False, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def _closed_circle(cx, cy, r=3.0, n=24):
+    import math
+    pts = [(cx + r * math.cos(2 * math.pi * i / n),
+            cy + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
+    pts.append(pts[0])  # close (start == end)
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    return VPath(points=pts, stroke=(0.0, 0.6, 0.2), fill=None, width=1.0,
+                 dashes=None, closed=False, bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def test_short_open_curve_segments_not_circle_markers():
+    # A finely-segmented curve's short steep pieces (2001.06496_p18c2) must NOT
+    # become phantom circle markers: they are open (endpoints far apart).
+    from pdf_chart2table.marks import _is_open_curve_segment
+    seg = _open_arc(200, 220)
+    assert _is_open_curve_segment(seg) is True
+    # a genuine closed circle marker (endpoints coincide) is still a marker
+    assert _is_open_curve_segment(_closed_circle(200, 220)) is False
+
+
+def test_open_arcs_make_no_marker_series():
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(5)), text_indices=[])
+    plot_box = (100.0, 100.0, 300.0, 300.0)
+    paths = [_open_arc(150 + 20 * i, 200 + 5 * i) for i in range(5)]
+    series = classify_marks(region, paths, [], plot_box=plot_box)
+    assert sum(len(s.marks) for s in series) == 0
+
+
+def test_closed_circles_still_a_marker_series():
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(5)), text_indices=[])
+    plot_box = (100.0, 100.0, 300.0, 300.0)
+    paths = [_closed_circle(150 + 20 * i, 200 + 5 * i) for i in range(5)]
+    series = classify_marks(region, paths, [], plot_box=plot_box)
+    assert sum(len(s.marks) for s in series) == 5
