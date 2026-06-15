@@ -310,3 +310,10 @@ inset isolation, and the 2001.07029 dense-page (~29k pts) parse cost (~200s).
   x=±0.2 sit on the spine; `_is_data_mark` dropped on-border marks as ticks.
   Recognised 2-D marker glyphs at the axis extreme are now kept (ticks are 1-D,
   still rejected). Series now spans the full ±0.2. Test: test_marker_on_axis_extreme.py.
+
+### QA pass 2026-06-15 (cont. 4) — 5-chart batch
+- 2004.06765_p9c4, 2005.03851_p3c2 — FAITHFUL (both series captured, explained).
+- 2003.13327_p3c3 — MULTI-PANEL crop (J_H panel bleeds into (d) panel); out of scope.
+- 2001.11728_p5c2 — faithful points; minor: connecting lines/triangle shape understated (style).
+Current 20-set swept: 4 fixes landed (legend-style, dropped-series, swatch-side,
+axis-extreme markers); remainder faithful or out-of-scope. Rotating to a fresh 20.
