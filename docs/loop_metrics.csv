@@ -30,3 +30,4 @@ iteration,timestamp,n_charts,mean_explained,total_residual,total_missed,charts_f
 29,2026-06-15 18:44,20,0.9799,49,0,13,"error bars: recover per-point y_err + re-draw (2409.10845_p11c3); additive, shared-20 unchanged"
 30,2026-06-15 18:55,20,0.9799,49,0,13,"legend entry order = original top-to-bottom (2202.11909 PTE/aI un-swapped); cosmetic, shared-20 unchanged"
 31,2026-06-15 19:11,20,0.9799,49,0,13,
+32,2026-06-15 19:21,20,0.9799,49,0,13,dash recovery: solid-curve-in-pieces not dashed (2001.06496 blue/orange now solid+complete); shared regen
