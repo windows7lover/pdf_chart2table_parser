@@ -8,3 +8,4 @@ iteration,timestamp,n_charts,mean_explained,total_residual,total_missed,charts_f
 7,2026-06-15 01:36,20,0.9648,88,1,9,set5 iter2: text orientation (2006.14257 diagonal labels)
 8,2026-06-15 01:44,20,0.9648,88,1,9,set5 iter3: PNG marker/line proportional scaling
 9,2026-06-15 01:50,20,0.9648,88,1,9,set5 iter4: markersize from glyphs (2002.02623 4.86pt)
+10,2026-06-15 02:15,20,0.967,96,1,9,set5 iter5: legend abutting-swatch pairing (2002.02623_p23 4 labels)
