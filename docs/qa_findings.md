@@ -444,3 +444,13 @@ so they stop slipping the valid-line/scatter filter (2309.12776). Logged target:
   Added _parse_pi (π, 2π, π/2, 3π/2, 0.5π, -π) wired into _is_numeric_span +
   _parse_plain; _label_value already joins the spans. x now calibrates 0..2π.
   Test: test_pi_ticks.py.
+
+### QA pass 2026-06-15 (corpus, 2 draws) — clean; new logged targets
+10 corpus charts: faithful (2211.05763 ECT, 2108.00345 density-scatter, 2506.19640,
+2512.10786, 2407.01134 [×10⁻³ y is CORRECT — misread cut crop], 2202.11139 data),
+out-of-scope (2404.10293 DUAL-X-AXIS μrad+μm merged ticks/title; 2506.18139 complex
+multi-series residual 14). No clean in-scope fix -> parser healthy on line/scatter.
+NEW logged target: 2101.01714_p11c1 — CATEGORICAL scatter (markers styled by anion
+COLOUR × polymer SHAPE, dual legends); most points dropped (residual 27) because each
+(colour,shape) group has <_MIN_MARKS_PER_SERIES marks. Hard: the per-series model
+doesn't fit per-point styling. Logged.
