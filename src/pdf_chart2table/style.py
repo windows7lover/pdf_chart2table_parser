@@ -26,6 +26,23 @@ from .font_recovery import FontDecoder, is_broken_text
 
 _STYLE_NOTE = ("STYLE ONLY -- rendering attributes used to redraw the extracted "
                "data in the original chart's style; NOT extracted measurements.")
+# Legend entries stacked in one column share a left edge to within this many
+# points (real legends align to <1pt; allow slack). A larger spread means the
+# matched spans are scattered (a false vertical-legend match), not a column.
+_LEGEND_COL_TOL = 6.0
+
+
+def _legend_left_aligned(matched: list) -> bool:
+    """True when the matched legend spans share a left edge (one stacked column).
+
+    A genuine vertical legend stacks its entries left-aligned; a sprawling false
+    match (short labels catching scattered ticks across the plot) has left edges
+    spread far apart. Used to exempt a real narrow-panel legend from the
+    width-plausibility gate."""
+    if len(matched) < 2:
+        return False
+    lefts = [s["bbox"][0] for s in matched]
+    return (max(lefts) - min(lefts)) <= _LEGEND_COL_TOL
 
 
 # --------------------------------------------------------------------------
@@ -883,7 +900,15 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         # default-size legend. Height is NOT gated: a many-entry legend is
         # legitimately tall in a short panel. A genuinely horizontal legend is
         # wide by design, so it is exempt.
-        if not horizontal and wfrac > 0.6:
+        #
+        # EXCEPTION: a genuine vertical legend stacks its entries in one LEFT-
+        # ALIGNED column (their left edges share an x), whereas a sprawling false
+        # match catches ticks at scattered x. So when the matched entries are
+        # left-aligned, keep the layout even past the width cap -- otherwise a
+        # real legend in a NARROW/tall panel (wide labels vs a small plot width,
+        # e.g. 2005.05829_p13c1 "1S/2S exciton" at wfrac 0.87) is wrongly dropped,
+        # leaving the renderer to fall back to an oversized default-font legend.
+        if not horizontal and wfrac > 0.6 and not _legend_left_aligned(matched):
             legend = None
         else:
             legend = {

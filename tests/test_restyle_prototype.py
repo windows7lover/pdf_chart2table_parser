@@ -559,3 +559,16 @@ def test_residual_nonempty_draws_ink_over_light_backdrop():
     assert ax.images[0].get_alpha() < 0.2
     assert len(ax.lines) == 1            # the residual stroke drawn on top
     plt.close(fig)
+
+
+def test_legend_left_aligned_column_vs_scattered():
+    # A real vertical legend stacks left-aligned entries (same x0) -> True, so the
+    # width gate is bypassed and a narrow-panel legend (2005.05829) keeps its
+    # recovered layout instead of falling back to an oversized default font. A
+    # scattered false match (caught ticks at different x) -> False (stays gated).
+    from pdf_chart2table.style import _legend_left_aligned
+    col = [{"bbox": (60.0, 40.0, 95.0, 47.0)}, {"bbox": (60.5, 52.0, 95.0, 59.0)}]
+    scattered = [{"bbox": (20.0, 40.0, 28.0, 47.0)}, {"bbox": (180.0, 120.0, 188.0, 127.0)}]
+    assert _legend_left_aligned(col) is True
+    assert _legend_left_aligned(scattered) is False
+    assert _legend_left_aligned(col[:1]) is False  # need >= 2 entries
