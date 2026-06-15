@@ -48,17 +48,30 @@ priority-recovery-over-detection, data-style-separation, verify-extraction-vs-re
    uv run pytest -q          # must stay green
    ```
 
-6. **Regenerate the shared folder** after the improvement (REQUIRED each pass):
+6. **Regenerate the shared folder** after the improvement (REQUIRED each pass),
+   using the MONITORED launcher (detached + bounded poll, never hangs; ~5 min,
+   extraction-dominated):
    ```bash
-   export PDFCHART_OCR=1 OMP_NUM_THREADS=1 UV_LINK_MODE=copy
-   ROOT=/network/projects/sail/chart2table/arxiv_semicond
-   rm -rf "$ROOT/restyle_prototype"/*       # the regen does not clear stale bundles
-   bash "$ROOT/_regen_restyle.sh"           # re-extract (32-way) → render (parallel) → audit → rsync
+   bash scripts/run_regen.sh "iterN: <one-line label>"
    ```
-   Confirm the tail shows `EXTRACT_DONE`, `DONE: N/N rendered`, `axis style-bleed
-   count: 0`, `has _original.pdf: True`.
+   It launches `_regen_restyle.sh` (re-extract 32-way w/ per-paper progress →
+   render parallel → audit → metrics → rsync), polls `scripts/jobstat.sh` until
+   `DONE` / `STALLED` / `CRASHED`, and prints the final state + metrics table.
+   Do NOT use the harness `run_in_background` (it has been throwing internal
+   errors); the detached `nohup` + `jobstat` poll is the reliable path. To check a
+   running regen at any time: `bash scripts/jobstat.sh
+   /network/projects/sail/chart2table/arxiv_semicond/regen.log <pid>`
+   (exit 0 done / 2 running / 3 crashed / 4 stalled).
 
-7. **Commit** the fix + test (the loop commits each verified improvement). Push
+7. **Show performance evolution.** The regen records one aggregate row per pass via
+   `scripts/loop_metrics.py` (mean explained%, total residual/missed, charts fully
+   explained). Each loop, DISPLAY the table — always iteration 1 plus the last 10 —
+   so the trend is visible:
+   ```bash
+   uv run python scripts/loop_metrics.py --show
+   ```
+
+8. **Commit** the fix + test (the loop commits each verified improvement). Push
    only when asked.
 
 ## Notes
