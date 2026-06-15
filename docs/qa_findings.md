@@ -435,3 +435,12 @@ so they stop slipping the valid-line/scatter filter (2309.12776). Logged target:
   tie-break). Now black->H=10, red->H=30, green->H=60, blue->H=70. Test:
   test_tight_rows_pair_with_closest_swatch.
 - Draw also: (others pending view) — this was the tractable fix.
+
+### QA pass 2026-06-15 (corpus) — DATA: π-axis tick calibration (FIXED)
+- **2405.15494_p38c5** — a sinusoid on a 0..2π axis (ticks '0','π','2π') was
+  miscalibrated to 0..2 -> points plotted over the wrong x-range (looked scattered).
+  The π glyph (U+03C0) survives extraction but _is_numeric_span filtered it and
+  _parse_plain couldn't read it, so 'π'->no tick and '2π' ('2'+'π' spans)->'2'.
+  Added _parse_pi (π, 2π, π/2, 3π/2, 0.5π, -π) wired into _is_numeric_span +
+  _parse_plain; _label_value already joins the spans. x now calibrates 0..2π.
+  Test: test_pi_ticks.py.

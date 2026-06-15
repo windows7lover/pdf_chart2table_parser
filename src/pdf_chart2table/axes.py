@@ -22,9 +22,33 @@ Public API:
 
 from __future__ import annotations
 
+import math
 import re as _re
 
 from .model import Axis, Path, Region, Tick, TextSpan
+
+# π-axis tick labels: "π", "2π", "-π", "π/2", "3π/2", "0.5π" -> a numeric value.
+# (The π glyph U+03C0 survives extraction; "2π" arrives as separate "2"+"π" spans
+# that _label_value joins before parsing.)
+_PI_RE = _re.compile(r"^([+-]?\d*\.?\d*)π(?:/(\d+\.?\d*))?$")
+
+
+def _parse_pi(s: str) -> float | None:
+    m = _PI_RE.match(s.strip().replace("−", "-").replace(" ", ""))
+    if not m:
+        return None
+    coeff_s, denom_s = m.group(1), m.group(2)
+    coeff = 1.0 if coeff_s in ("", "+") else (-1.0 if coeff_s == "-" else None)
+    if coeff is None:
+        try:
+            coeff = float(coeff_s)
+        except ValueError:
+            return None
+    try:
+        denom = float(denom_s) if denom_s else 1.0
+    except ValueError:
+        return None
+    return coeff * math.pi / denom if denom else None
 from .primitives import bbox_center as _center
 
 # Geometry tolerances (PDF points).
@@ -128,6 +152,8 @@ def _is_numeric_span(text: str) -> bool:
     s = text.strip().replace("−", "-")
     if not s:
         return False
+    if _parse_pi(s) is not None:
+        return True  # π / 2π / π/2 ... : a numeric π-axis tick span
     core, _ = _split_unit(s)
     if not core:
         return False
@@ -143,6 +169,9 @@ def _parse_plain(text: str) -> float | None:
     s = text.strip().replace("−", "-").replace("×", "x")
     if not s:
         return None
+    pv = _parse_pi(s)
+    if pv is not None:
+        return pv
     core, mult = _split_unit(s)
     try:
         return float(core) * mult
