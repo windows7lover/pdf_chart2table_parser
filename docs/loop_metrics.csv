@@ -12,3 +12,4 @@ iteration,timestamp,n_charts,mean_explained,total_residual,total_missed,charts_f
 11,2026-06-15 02:23,20,0.967,96,1,9,set5 iter6: discrete multi-colour series not merged as colormap (2001.01769 5 series)
 12,2026-06-15 03:12,20,0.967,96,1,9,set5 iter7: triangle marker orientation v vs ^ (2504.02903)
 13,2026-06-15 03:32,20,0.967,96,1,9,set5 iter8: open-marker edge colour (2505.19730 blue not white)
+14,2026-06-15 03:58,20,0.967,96,1,9,set5 iter9: NFKC math-alphanumeric unicode labels (2202.11139)
