@@ -475,3 +475,13 @@ doesn't fit per-point styling. Logged.
   markersize). Test: test_open_marker_majority_stays_open.
 - Draw also: 2207.03135 / 2107.11117(data) faithful; 2107.11117 legend ℓx/α are
   glyph-PATH math symbols (deep glyph-OCR); 2509.11041 phase-diagram (OOS).
+
+### QA pass 2026-06-15 (corpus) — clean (plateau)
+5 corpus charts all faithful/minor/OOS: 2012.04985 (W-curve+labeled markers),
+2107.06826 (double-peak solid+dotted), 2312.07600 (4 colour marker series, residual
+14 minor), 2509.13246 (2 series; one model line dropped, residual 1), 2404.01379
+(histogram, OOS). No clean in-scope fix. SIGNAL: many consecutive faithful draws ->
+parser at a high-fidelity PLATEAU on line/scatter. Remaining levers: (1) glyph-PATH
+math-symbol label recovery (ℓ/α/bra-kets as Type3 outlines -> needs glyph-OCR; deep,
+broadly applicable to physics labels) = the highest-value remaining work; (2) OOS
+types (dual-axis, phase diagrams, heatmaps, categorical scatter, multi-panel).
