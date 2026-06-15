@@ -502,9 +502,13 @@ def _is_data_mark(
     if short > 0 and long / short > max_aspect:
         return False
 
-    # A mark centred on the frame edge is a tick, not off-axis data.
+    # A mark centred on the frame edge is a tick, not off-axis data -- UNLESS it
+    # is a recognised 2D marker glyph. A data point at the axis EXTREME (x=xmin or
+    # xmax, y=ymin or ymax) legitimately sits on the spine (2005.11717_p17c2: the
+    # ±0.2 endpoint markers); ticks are 1-D and already rejected above, so a
+    # recognised closed glyph here is genuine edge data, not a tick.
     cx, cy = _centroid(p.points)
-    if _on_border(cx, cy, region):
+    if not known_closed and _on_border(cx, cy, region):
         return False
 
     # Fix 1: reject paths whose centroid is interior to a large filled region.

@@ -300,3 +300,13 @@ why one of three symmetric colors is dropped.
 Pass verdict: only out-of-scope / known-feature items -> logged clean, no commit.
 Open larger targets seen this loop: dual-axis (2005.13306, 2006.04979 top axis),
 inset isolation, and the 2001.07029 dense-page (~29k pts) parse cost (~200s).
+
+### QA pass 2026-06-15 (cont. 3)
+
+- **2002.00630_p26c2** — convergence curves; top-right DOS INSET contamination (out of scope).
+- **2001.06104_p6c3** — main decay curve + FPI-transmission inset both drawn; inset (out of scope) + minor green tail spike.
+- **2003.13245_p11c1** — FAITHFUL (3 temp series, markers + lines, data exact).
+- **2005.11717_p17c2 — endpoint markers dropped (FIXED).** First/last points at
+  x=±0.2 sit on the spine; `_is_data_mark` dropped on-border marks as ticks.
+  Recognised 2-D marker glyphs at the axis extreme are now kept (ticks are 1-D,
+  still rejected). Series now spans the full ±0.2. Test: test_marker_on_axis_extreme.py.
