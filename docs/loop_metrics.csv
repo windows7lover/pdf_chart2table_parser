@@ -17,3 +17,4 @@ iteration,timestamp,n_charts,mean_explained,total_residual,total_missed,charts_f
 16,2026-06-15 04:22,20,0.967,96,1,9,set5 iter11: parse pi-axis ticks (2405.15494 0..2pi)
 17,2026-06-15 04:46,20,0.9719,76,1,10,set5 iter12: numeric/year legend labels (2203.00695)
 18,2026-06-15 05:01,20,0.9719,76,1,10,set5 iter13: open-marker majority face vote (2503.07760)
+19,2026-06-15 10:04,20,0.9794,71,0,12,legend: drop axis-tick numbers as legend entries (2006.03681_p4c3)
