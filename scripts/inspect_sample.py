@@ -98,8 +98,16 @@ def main():
 def _looks_line_scatter(d):
     """A valid line/scatter chart: >=1 series whose points span BOTH axes with
     enough vertices (a curve/scatter), not a bar/heatmap/degenerate extraction."""
+    series = d.get("series") or []
+    # Heatmap / colormap lattice: extracted as MANY tiny series (a fragmented grid
+    # of cells), each only a few points. A real multi-line chart (waterfall, line
+    # family) has many series but each is a CURVE (many points). 2309.12776_p19c5.
+    if len(series) > 12:
+        mean_pts = sum(len(s.get("points", [])) for s in series) / len(series)
+        if mean_pts < 6:
+            return False
     xs, ys = [], []
-    for s in d.get("series") or []:
+    for s in series:
         for p in s.get("points", []):
             if p.get("x") is not None and p.get("y") is not None:
                 xs.append(p["x"])

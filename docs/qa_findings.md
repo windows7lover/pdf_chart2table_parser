@@ -406,3 +406,13 @@ hardening pass is the next high-value lever (distinct from per-chart fixes).
 - Corpus draw also: 2107.08282 faithful (curve+ZBD/ZBP segments; bottom highlight
   axvspan bands not reproduced = niche); 2111.09242 / 2211.04130 / 2512.00603
   faithful; 2210.14881 / 2506.22329 inset (out of scope).
+
+### QA pass 2026-06-15 (corpus, 2 draws) — mostly faithful; sampler guard added
+10 corpus charts judged: faithful (2003.07825 hysteresis loops, 2202.10860 scatter+
+exp-fit, 2506.01464 / 2010.09299 / 2405.09792 / 2111.09242 / 2211.04130 / 2512.00603),
+out-of-scope (2106.12703 inset, 2306.08643 cluttered multi-peak, 2404.01379 HISTOGRAM,
+2309.12776 HEATMAP), nuanced (2203.00695 same-colour 2020/2020-open legend split).
+No clean tractable parser fix -> parser is healthy on typical line/scatter.
+ADDED sampler guard: reject heatmap/colormap lattices (>12 series & mean <6 pts/series)
+so they stop slipping the valid-line/scatter filter (2309.12776). Logged target:
+2203.00695 same-colour legend entries differing by linestyle.
