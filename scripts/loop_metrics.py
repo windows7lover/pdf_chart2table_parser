@@ -56,8 +56,8 @@ def _print_table(hist):
     if not hist:
         print("(no loop metrics recorded yet)")
         return
-    # always the first row, then up to the last 10 (dedup if overlapping)
-    shown = [hist[0]] + [r for r in hist[-10:] if r is not hist[0]]
+    # always the first row, then up to the last 5 (dedup if overlapping)
+    shown = [hist[0]] + [r for r in hist[-5:] if r is not hist[0]]
     cols = ["iteration", "timestamp", "n_charts", "mean_explained",
             "total_residual", "total_missed", "charts_full", "label"]
     widths = {c: max(len(c), max(len(str(r.get(c, ""))) for r in shown)) for c in cols}
@@ -66,7 +66,7 @@ def _print_table(hist):
     print("  ".join("-" * widths[c] for c in cols))
     prev = None
     for i, r in enumerate(shown):
-        if i == 1 and len(hist) > 11:
+        if i == 1 and len(hist) > 6:
             print("  ".join(("...").ljust(widths[c]) for c in cols))
         print("  ".join(str(r.get(c, "")).ljust(widths[c]) for c in cols))
         prev = r
@@ -95,7 +95,7 @@ def main():
                 w.writeheader()
             w.writerow(row)
         hist.append({k: str(v) for k, v in row.items()})
-    print(f"\n=== reconstruction performance on the image set (iter 1 + last 10) ===")
+    print(f"\n=== reconstruction performance on the image set (iter 1 + last 5) ===")
     _print_table(hist)
 
 
