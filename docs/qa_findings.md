@@ -500,3 +500,17 @@ glyphs (render the font's chars, match) -> deterministic but a LARGE CV/font bui
 with narrow payoff (path-rendered-math-symbol charts only). RECOMMEND a user
 decision before investing. Meanwhile labels render their text part faithfully and
 the missing symbol is just absent (not wrong) -- safe degradation.
+
+### Glyph-path label recovery — pix2tex (math-OCR) tried (task #50, 2026-06-15)
+Per user choice, installed pix2tex (LaTeX-OCR) in an ISOLATED temp venv (not the
+project env) and tested on the 2107.11117 "ℓ_x=10 nm, α=1" crop:
+- Tight crop -> 'x=10 nn, α=1': recovered α + the subscript + structure (much better
+  than RapidOCR's hallucinated 'C'), BUT missed ℓ and read nm->nn.
+- Wider crop -> GARBAGE ('\hat{G}_x \longrightarrow 10 nnn, Q...').
+Verdict: pix2tex is better than RapidOCR for math but CROP-SENSITIVE and ERROR-PRONE
+on tiny mixed text+math labels (nm->nn/nnn, ℓ->x/Ĝ, =->→, α->Q). A corroboration
+gate (accept only if it matches the reliable text) would REJECT most cases (OCR
+errors break the match) -> near-zero precision-safe payoff. NOT integrated (would
+corrupt labels; precision-over-recall). Only deterministic option remains embedded-
+font glyph-shape matching (large). Current safe degradation kept: text renders, the
+path-glyph symbol is absent (not wrong). Temp venv /tmp/p2t removed.
