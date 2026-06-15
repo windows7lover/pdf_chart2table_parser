@@ -27,3 +27,4 @@ iteration,timestamp,n_charts,mean_explained,total_residual,total_missed,charts_f
 26,2026-06-15 17:06,20,0.9794,71,0,12,verify regen: text-label legend leak resolved (2004.04890 clean); glyph-path legend (2002.05277) still leaks
 27,2026-06-15 17:54,20,0.9799,49,0,13,"legend fixes #2 font-fit no-grow + #4 phantom-circle drop + #3 spine-not-swatch (2006.04478 leak->fully explained); residual 71->49, full 12->13"
 28,2026-06-15 18:03,20,0.9799,49,0,13,"legend #1: keep left-aligned vertical legend past width gate (2005.05829 font 13.83->10.76, no longer oversized)"
+29,2026-06-15 18:44,20,0.9799,49,0,13,"error bars: recover per-point y_err + re-draw (2409.10845_p11c3); additive, shared-20 unchanged"
