@@ -1,2 +1,6 @@
 iteration,timestamp,n_charts,mean_explained,total_residual,total_missed,charts_full,label
 1,2026-06-15 00:18,20,0.9596,52,1,8,"baseline: 20 new set (legend-style, pre off_chart fix)"
+2,2026-06-15 00:36,20,0.962,50,1,8,iter2: recover dense curve segment near legend (2004.08077 3 series)
+3,2026-06-15 00:51,20,0.9644,46,1,8,iter3: legend swatch-side detection (2006.03604 4 labels)
+4,2026-06-15 00:57,20,0.9644,46,1,8,iter4: per-page extraction (perf: parse only chart's page) + monitor hardening
+5,2026-06-15 01:20,20,0.9677,40,1,9,iter5: keep axis-extreme markers (2005.11717 endpoints)
