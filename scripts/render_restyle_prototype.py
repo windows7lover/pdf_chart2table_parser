@@ -834,6 +834,39 @@ def _select(root: str, n: int, exclude=frozenset(), seed=None):
     return picked
 
 
+def _render_one(task):
+    """Render a single bundle (top-level so it is picklable for a process Pool)."""
+    r, extract_out, outdir = task
+    cid, aid = r["chart_id"], r["arxiv_id"]
+    jp = os.path.join(extract_out, aid, f"page{r['page']}_chart{r['chart']}.json")
+    try:
+        d = json.load(open(jp))
+        # Style is now written by the EXTRACTOR into the chart JSON; the renderer
+        # is a pure replayer and never re-parses the PDF for style.
+        style = d["style"]
+        bundle = os.path.join(outdir, cid)
+        os.makedirs(bundle, exist_ok=True)
+        with open(os.path.join(bundle, "chart.json"), "w") as f:
+            json.dump(d, f, indent=2)
+        crop_pdf = jp[:-5] + ".pdf"  # vector region crop alongside the json
+        render_bundle(d, style, crop_pdf,
+                      os.path.join(bundle, f"{cid}.png"),
+                      os.path.join(bundle, f"{cid}_reconstruction.eps"),
+                      os.path.join(bundle, f"{cid}_reconstruction.pdf"),
+                      chart_json=jp)
+        # Include the ORIGINAL lossless vector crop for reference (PDF + SVG).
+        # No PDF->EPS converter is installed, so no .eps for the original; add
+        # one here if a converter (pdftops/gs/mutool/inkscape) becomes available.
+        if os.path.exists(crop_pdf):
+            shutil.copy(crop_pdf, os.path.join(bundle, f"{cid}_original.pdf"))
+        crop_svg = crop_pdf[:-4] + ".svg"
+        if os.path.exists(crop_svg):
+            shutil.copy(crop_svg, os.path.join(bundle, f"{cid}_original.svg"))
+        return (cid, f"ok {cid} (nser={r['n_series']} npts={r['n_points']})")
+    except Exception as e:
+        return (None, f"ERR {cid}: {e}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", required=True)
@@ -845,6 +878,8 @@ def main():
                     help="comma-separated chart_ids to skip (their papers too)")
     ap.add_argument("--only", default="",
                     help="comma-separated chart_ids to render exactly (re-render)")
+    ap.add_argument("--jobs", type=int, default=len(os.sched_getaffinity(0)),
+                    help="parallel render workers (default: all available CPUs)")
     args = ap.parse_args()
     extract_out = os.path.join(args.root, "extract_out")
     outdir = args.outdir or os.path.join(args.root, "restyle_prototype")
@@ -867,42 +902,31 @@ def main():
         picked = _select(args.root, args.n * 3, exclude=exclude, seed=args.seed)
         print(f"selected {len(picked)} candidates (excluded {len(exclude)}) -> {outdir}",
               flush=True)
+    # Render bundles in parallel: each chart is independent (reads its own JSON +
+    # crop, writes its own bundle dir). The per-chart cost is dominated by the
+    # residual panel's re-parse + mathtext, so spreading charts across cores is a
+    # near-linear speedup. We oversample candidates (non-only mode), so render all
+    # then keep the first n successes in the original pool order.
+    tasks = [(r, extract_out, outdir) for r in picked]
+    jobs = max(1, min(args.jobs, len(tasks)))
     ok = 0
-    for r in picked:
-        if ok >= args.n:
-            break
-        cid, aid = r["chart_id"], r["arxiv_id"]
-        jp = os.path.join(extract_out, aid,
-                          f"page{r['page']}_chart{r['chart']}.json")
-        try:
-            d = json.load(open(jp))
-            # Style is now written by the EXTRACTOR into the chart JSON; the
-            # renderer is a pure replayer and never re-parses the PDF for style.
-            style = d["style"]
-            bundle = os.path.join(outdir, cid)
-            os.makedirs(bundle, exist_ok=True)
-            with open(os.path.join(bundle, "chart.json"), "w") as f:
-                json.dump(d, f, indent=2)
-            crop_pdf = jp[:-5] + ".pdf"  # vector region crop alongside the json
-            render_bundle(d, style, crop_pdf,
-                          os.path.join(bundle, f"{cid}.png"),
-                          os.path.join(bundle, f"{cid}_reconstruction.eps"),
-                          os.path.join(bundle, f"{cid}_reconstruction.pdf"),
-                          chart_json=jp)
-            # Include the ORIGINAL lossless vector crop for reference (PDF + SVG).
-            # No PDF->EPS converter is installed, so no .eps for the original; add
-            # one here if a converter (pdftops/gs/mutool/inkscape) becomes available.
-            if os.path.exists(crop_pdf):
-                shutil.copy(crop_pdf, os.path.join(bundle, f"{cid}_original.pdf"))
-            crop_svg = crop_pdf[:-4] + ".svg"
-            if os.path.exists(crop_svg):
-                shutil.copy(crop_svg, os.path.join(bundle, f"{cid}_original.svg"))
-            ok += 1
-            print(f"  ok {cid} (nser={r['n_series']} npts={r['n_points']})",
-                  flush=True)
-        except Exception as e:
-            print(f"  ERR {cid}: {e}", flush=True)
-    print(f"\nDONE: {ok}/{len(picked)} rendered -> {outdir}")
+    if jobs == 1:
+        results = [_render_one(t) for t in tasks]
+    else:
+        from multiprocessing import Pool
+        with Pool(jobs) as pool:
+            results = pool.map(_render_one, tasks)
+    succeeded = []
+    for cid_ok, msg in results:
+        if cid_ok is not None:
+            succeeded.append(cid_ok)
+        print(f"  {msg}", flush=True)
+    # Oversampling (non-only mode) can yield more than n successes; keep the first
+    # n in pool order and drop the surplus bundle dirs so the output is exactly n.
+    for extra in succeeded[args.n:]:
+        shutil.rmtree(os.path.join(outdir, extra), ignore_errors=True)
+    ok = min(len(succeeded), args.n)
+    print(f"\nDONE: {ok}/{len(picked)} rendered -> {outdir} (jobs={jobs})")
 
 
 if __name__ == "__main__":
