@@ -416,6 +416,46 @@ def _assemble_label(
     return label, set(picked)
 
 
+# Max gap (relative to font size, + a small absolute) between a left-orphan span's
+# right edge and the anchor's left edge for the orphan to belong to the same label.
+_ORPHAN_GAP_FRAC = 0.25
+
+
+def _extend_anchor_left(start: int, texts: list[TextSpan], used: set[int]) -> int:
+    """Return the true leftmost span index of the visual row beginning at ``start``.
+
+    The legend anchor is the leftmost span in its coarse cy-BIN. A label's first
+    character whose centre-y sits a hair across a bin boundary (e.g. a Greek 'κ'
+    drawn ~1.5pt lower than its '=') lands in a different bin and is orphaned —
+    the anchor becomes the '=' and assembly (which only extends rightward) drops
+    the 'κ', yielding "= 25 ns" instead of "κ = 25 ns" (2111.05667_p5). Walk left
+    over unconsumed, horizontally-touching, vertically-overlapping spans so the
+    real first character anchors the label. Tight gap + overlap guards keep a
+    separate left column / swatch from being absorbed."""
+    cur = start
+    for _ in range(4):
+        c = texts[cur]
+        ch = (c.bbox[3] - c.bbox[1]) or 1.0
+        best = None
+        for i, t in enumerate(texts):
+            if i == cur or i in used or not _horizontal(t) or not t.text.strip():
+                continue
+            gap = c.bbox[0] - t.bbox[2]  # >0 when t is to the left with a gap
+            if not (-1.5 <= gap <= _ORPHAN_GAP_FRAC * _eff_size(c) + 1.0):
+                continue
+            lo, hi = max(t.bbox[1], c.bbox[1]), min(t.bbox[3], c.bbox[3])
+            h_min = min(t.bbox[3] - t.bbox[1], ch) or 1.0
+            if hi - lo < 0.4 * h_min:
+                continue
+            # Closest on the left (largest right edge) wins.
+            if best is None or t.bbox[2] > texts[best].bbox[2]:
+                best = i
+        if best is None:
+            return cur
+        cur = best
+    return cur
+
+
 def _union(boxes: list[BBox]) -> BBox:
     return (min(b[0] for b in boxes), min(b[1] for b in boxes),
             max(b[2] for b in boxes), max(b[3] for b in boxes))
@@ -740,7 +780,11 @@ def _detect_legend(
             continue
         if not row:
             continue
-        label, consumed = _assemble_label(ti, ty, texts, used)
+        # The bin-based anchor may have orphaned a left-adjacent first character
+        # (a Greek letter drawn a hair across the cy-bin boundary); re-anchor to
+        # the true leftmost span of the visual row before assembling.
+        start = _extend_anchor_left(ti, texts, used)
+        label, consumed = _assemble_label(start, _cy(texts[start].bbox), texts, used)
         # A purely-numeric label IS a real legend entry when it has a genuine
         # swatch beside it (years "2016"/"2020", a current "5", a temperature
         # "300"): 2203.00695_p24c1 lost its "2016"/"2020" year entries. The `row`
@@ -762,7 +806,7 @@ def _detect_legend(
         # "μ=0.83". No-op unless a recognizer is supplied and a confident glyph
         # abuts the label. Exclude the picked swatch so it is never re-read as a
         # character (a char-sized glyph-path can otherwise look like a marker).
-        prefix = _recover_leading_glyphs(t, paths, {tuple(pick.bbox)},
+        prefix = _recover_leading_glyphs(texts[start], paths, {tuple(pick.bbox)},
                                          glyph_recognize)
         if prefix:
             label = prefix + label
