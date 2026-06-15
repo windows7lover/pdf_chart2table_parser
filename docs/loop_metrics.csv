@@ -29,3 +29,4 @@ iteration,timestamp,n_charts,mean_explained,total_residual,total_missed,charts_f
 28,2026-06-15 18:03,20,0.9799,49,0,13,"legend #1: keep left-aligned vertical legend past width gate (2005.05829 font 13.83->10.76, no longer oversized)"
 29,2026-06-15 18:44,20,0.9799,49,0,13,"error bars: recover per-point y_err + re-draw (2409.10845_p11c3); additive, shared-20 unchanged"
 30,2026-06-15 18:55,20,0.9799,49,0,13,"legend entry order = original top-to-bottom (2202.11909 PTE/aI un-swapped); cosmetic, shared-20 unchanged"
+31,2026-06-15 19:11,20,0.9799,49,0,13,

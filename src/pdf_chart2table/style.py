@@ -253,6 +253,32 @@ def _box_like(p):
     return len(pts) > 8
 
 
+# A solid curve drawn in pieces tiles ~its whole x-span; a real dashed line's
+# fragments cover only this fraction of the span (on/off). Below it -> dashed.
+_DASH_FRAG_MAX_COVERAGE = 0.8
+
+
+def _frag_x_coverage(paths) -> float:
+    """Fraction of the fragments' total x-span actually covered by their bboxes
+    (interval union / span). ~1.0 for contiguous solid pieces; ~0.5-0.6 for a
+    dashed line's on/off fragments."""
+    ivs = sorted((p.bbox[0], p.bbox[2]) for p in paths)
+    if not ivs:
+        return 1.0
+    span = max(b for _, b in ivs) - min(a for a, _ in ivs)
+    if span <= 0:
+        return 1.0
+    covered, cur_a, cur_b = 0.0, ivs[0][0], ivs[0][1]
+    for a, b in ivs[1:]:
+        if a <= cur_b:
+            cur_b = max(cur_b, b)
+        else:
+            covered += cur_b - cur_a
+            cur_a, cur_b = a, b
+    covered += cur_b - cur_a
+    return covered / span
+
+
 def match_series_styles(paths, region_bbox, series):
     """Per-series width/linestyle/marker, matched by GEOMETRY (not just colour).
 
@@ -307,9 +333,13 @@ def match_series_styles(paths, region_bbox, series):
         longest = max((max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) for p in big),
                       default=0.0)
         ls = _parse_dashes(best.dashes)
-        # only infer dashed from fragmentation when NO single path spans the curve
-        # (a continuous solid line has one long path -> must stay solid).
-        if ls == "-" and len(big) >= 5 and frag >= 5 and longest < 0.55 * diag:
+        # Infer dashed from fragmentation ONLY when (a) no single path spans the
+        # curve AND (b) the fragments leave GAPS -- a real dashed line covers only
+        # part of its x-span (on/off), whereas a SOLID curve merely drawn in many
+        # contiguous pieces tiles ~the whole span and must stay solid
+        # (2001.06496_p18c2: solid blue/orange curves in 14 pieces were dashed).
+        if (ls == "-" and len(big) >= 5 and frag >= 5 and longest < 0.55 * diag
+                and _frag_x_coverage(big) < _DASH_FRAG_MAX_COVERAGE):
             ls = (0.0, (3.0, 2.0))
         small_paths = [p for p in cands
                        if 0.2 < max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) <= 12.0]

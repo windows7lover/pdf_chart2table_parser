@@ -586,3 +586,18 @@ def test_legend_order_follows_original_top_to_bottom():
     order = [s["text"] for s in sorted(
         spans, key=lambda s: (round((s["bbox"][1] + s["bbox"][3]) / 12.0), s["bbox"][0]))]
     assert order == ["PTE simulation", "aI0.66 fitting"]
+
+
+def test_frag_x_coverage_solid_vs_dashed():
+    # A SOLID curve drawn in contiguous pieces tiles ~its whole x-span (coverage
+    # ~1.0); a real DASHED line's fragments leave on/off gaps (coverage ~0.5).
+    # 2001.06496_p18c2: solid blue/orange in 14 pieces were wrongly dashed.
+    from pdf_chart2table.style import _frag_x_coverage
+    from pdf_chart2table.model import Path as VP
+    def seg(x0, x1):
+        return VP(points=[(x0, 0.0), (x1, 0.0)], stroke=(0, 0, 1), fill=None,
+                  width=1.0, dashes=None, closed=False, bbox=(x0, 0.0, x1, 1.0))
+    contiguous = [seg(i * 10.0, i * 10.0 + 10.0) for i in range(8)]   # tiles 0..80
+    dashed = [seg(i * 10.0, i * 10.0 + 4.0) for i in range(8)]        # 4-on / 6-off
+    assert _frag_x_coverage(contiguous) > 0.95
+    assert _frag_x_coverage(dashed) < 0.7
