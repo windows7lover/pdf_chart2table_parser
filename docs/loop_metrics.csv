@@ -1,0 +1,2 @@
+iteration,timestamp,n_charts,mean_explained,total_residual,total_missed,charts_full,label
+1,2026-06-15 00:18,20,0.9596,52,1,8,"baseline: 20 new set (legend-style, pre off_chart fix)"

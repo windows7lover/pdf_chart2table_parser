@@ -400,7 +400,13 @@ def _off_chart(p: Path, region: Region, texts: list[TextSpan]) -> bool:
     rw = rx1 - rx0
     cx, cy = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
     small = (b[2] - b[0]) < _MIN_SPAN_FRAC * rw
-    return small and _near_legend(cx, cy, texts)
+    # A legend swatch is SPARSE (a short line or a marker glyph). A dense path
+    # (>= the "denser than a glyph" segment threshold) that happens to be narrow
+    # and near the legend is a curve SEGMENT passing under/beside the legend, not
+    # a swatch -- excluding it drops a real series (2004.08077_p7c2: the top curve
+    # tiles narrow x-windows past the top-right legend).
+    sparse = len(p.points) < _MIN_SEGMENT_VERTS
+    return small and sparse and _near_legend(cx, cy, texts)
 
 
 def _is_long_curve(p: Path, region: Region, texts: list[TextSpan]) -> bool:
