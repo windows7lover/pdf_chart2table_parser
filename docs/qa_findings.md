@@ -278,3 +278,13 @@ rounded), verified on 2005.09264_p27c1 + regression tests; shared folder regener
 
 **Next target:** trace the blue-series drop in 2004.08077_p7c2 (marks/refiners) —
 why one of three symmetric colors is dropped.
+
+### QA pass 2026-06-15 (cont.)
+
+- **2002.01912_p12c1** — Fully explained, data exact (double-peak resonance).
+  Only cosmetic: the 4 QA-PNG panel titles overlap (wide/short figure). Skip.
+- **2006.03604_p4c1 — legend swatch on the RIGHT (FIXED).** 2-column legend
+  `Np [—] Tc [—]` / `Ac [—] Pc [—]` draws the sample to the right of each label;
+  the detector assumed left, dropping Np/Ac and mis-colouring Tc/Pc. Now the
+  swatch side is chosen by which side pairs more labels (default left). All 4
+  entries recovered with correct colours. Test: test_legend_swatch_side.py.

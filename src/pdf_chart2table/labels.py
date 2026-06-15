@@ -586,6 +586,27 @@ def _detect_legend(
     # ensuring the leftmost span on a row is always the anchor.
     order = sorted(range(len(texts)),
                    key=lambda i: (round(_cy(texts[i].bbox) / _ROW_BIN), texts[i].bbox[0]))
+
+    # Which side do swatches sit on? Most legends draw the sample to the LEFT of
+    # the label; some draw it to the RIGHT (2006.03604: "Np [—] Tc [—]"). Picking
+    # the wrong side drops labels AND mis-colours the ones it does pair (it grabs
+    # the neighbouring column's swatch). Choose the side that pairs MORE labels,
+    # defaulting to LEFT on a tie (the common case, behaviour-preserving).
+    def _row_for(t, side):
+        ty = _cy(t.bbox)
+        if side == "left":
+            return [p for p in swatches if abs(_cy(p.bbox) - ty) <= _ROW_TOL
+                    and 0 <= t.bbox[0] - p.bbox[2] <= _SWATCH_GAP]
+        return [p for p in swatches if abs(_cy(p.bbox) - ty) <= _ROW_TOL
+                and 0 <= p.bbox[0] - t.bbox[2] <= _SWATCH_GAP]
+
+    _cand = [texts[i] for i in order
+             if i not in used and _horizontal(texts[i]) and texts[i].text.strip()
+             and _inside(texts[i].bbox, region, _LEGEND_MARGIN)]
+    _left_n = sum(1 for t in _cand if _row_for(t, "left"))
+    _right_n = sum(1 for t in _cand if _row_for(t, "right"))
+    swatch_side = "right" if _right_n > _left_n else "left"
+
     for ti in order:
         t = texts[ti]
         if ti in used or not _horizontal(t) or not t.text.strip():
@@ -599,11 +620,8 @@ def _detect_legend(
         # assembled-label non-numeric check below then guards against bare
         # tick labels that accidentally pick up a swatch.
         ty = _cy(t.bbox)
-        lx = t.bbox[0]
-        # Swatches on this row ending just left of the label.
-        row = [p for p in swatches
-               if abs(_cy(p.bbox) - ty) <= _ROW_TOL
-               and 0 <= lx - p.bbox[2] <= _SWATCH_GAP]
+        # Swatches on this row, on the detected side (left for most legends).
+        row = _row_for(t, swatch_side)
         if _is_numeric(t.text) and not row:
             continue
         if not row:
