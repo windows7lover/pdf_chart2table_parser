@@ -25,3 +25,4 @@ iteration,timestamp,n_charts,mean_explained,total_residual,total_missed,charts_f
 24,2026-06-15 12:52,20,0.9794,71,0,12,"missed-curve: thin fill-curve not a band (2505.16060 recovers purple; corpus, shared-20 unchanged)"
 25,2026-06-15 13:42,20,0.9794,71,0,12,"missed-curve: recover dropped data_curve-roled paths (+grey/band/vertical guards); corpus +28 series/-9 missed over 373, shared-20 unchanged"
 26,2026-06-15 17:06,20,0.9794,71,0,12,verify regen: text-label legend leak resolved (2004.04890 clean); glyph-path legend (2002.05277) still leaks
+27,2026-06-15 17:54,20,0.9799,49,0,13,"legend fixes #2 font-fit no-grow + #4 phantom-circle drop + #3 spine-not-swatch (2006.04478 leak->fully explained); residual 71->49, full 12->13"
