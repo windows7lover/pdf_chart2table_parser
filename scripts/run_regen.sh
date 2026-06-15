@@ -9,7 +9,7 @@ set -u
 ROOT=/network/projects/sail/chart2table/arxiv_semicond
 REPO=/network/projects/sail/damien/github/pdf_chart2table_parser
 log="$ROOT/regen.log"
-label="${1:-}"; maxmin="${2:-10}"; stall="${3:-180}"
+label="${1:-}"; maxmin="${2:-12}"; stall="${3:-360}"
 cd "$REPO"
 export PDFCHART_OCR=1 OMP_NUM_THREADS=1 UV_LINK_MODE=copy LOOP_LABEL="$label"
 
@@ -25,7 +25,10 @@ for i in $(seq 1 $(( maxmin * 2 )) ); do
     bash "$REPO/scripts/jobstat.sh" "$log" "$pid" "$stall" > /tmp/regen_stat 2>&1
     rc=$?
     head -1 /tmp/regen_stat
-    [[ $rc -ne 2 ]] && break          # 0 done / 3 crashed / 4 stalled -> stop polling
+    case $rc in
+        0|3) break ;;                 # DONE / CRASHED -> terminal
+        4) kill -0 "$pid" 2>/dev/null || { echo "(pid gone -> crashed)"; break; } ;;
+    esac                              # STALLED but pid alive (slow big-PDF parse) -> keep waiting
 done
 
 echo "=== final regen status ==="
