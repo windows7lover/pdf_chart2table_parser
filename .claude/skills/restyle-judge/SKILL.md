@@ -17,14 +17,21 @@ priority-recovery-over-detection, data-style-separation, verify-extraction-vs-re
 
 ## One pass
 
-1. **Sample** a couple of bundles (fresh random each call):
+1. **Sample for BUG-FINDING from the FULL ~19k corpus** (NOT the 20 shared-folder
+   bundles — those are a fixed visualization + metric set for the user):
    ```bash
-   export UV_LINK_MODE=copy
-   uv run python scripts/qa_sample.py --n 2   # prints the 3-panel PNG paths
+   export UV_LINK_MODE=copy PDFCHART_OCR=1 OMP_NUM_THREADS=1
+   uv run python scripts/inspect_sample.py --n 5   # fresh-extract+render to /tmp/inspect_bundles
    ```
-   The shared-folder copy is `~/shared_folder/semiconductor_restyle_prototype/<cid>/`;
-   the working copy is `<root>/restyle_prototype/<cid>/`. The PNG is
-   `original | reconstruction | residual`.
+   It draws random charts from `figures_index.csv` (~19k), keeps only VALID
+   line/scatter (>=1 series, >=6 pts spanning both axes; excludes bar/heatmap/
+   contour/histogram), fresh-extracts each with the CURRENT parser, and renders a
+   3-panel PNG. (`qa_sample.py` samples the fixed 20 shared bundles — use it only to
+   re-check the metric set.) Bundle PNGs often exceed the 2000px image-read limit;
+   downscale before Read:
+   ```bash
+   uv run python -c "from PIL import Image,os; ..."  # resize width<=1900 to <cid>_view.png
+   ```
 
 2. **Judge each.** Read the PNG, then CONFIRM every suspected defect against the
    ground truth before acting — read `<cid>/chart.json` and/or inspect the raw
