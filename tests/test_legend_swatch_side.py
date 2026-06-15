@@ -38,6 +38,17 @@ def test_swatch_on_right_two_column_legend():
     assert got == {"Np": GREEN, "Tc": BLUE, "Ac": RED, "Pc": BLACK}
 
 
+def test_swatch_abutting_or_overlapping_label_still_pairs():
+    # 2002.02623_p23c1: the colored swatch line ends right at (or a hair past) the
+    # label's space-padded left edge -> gap ~ -0.001..-1. The strict 0<=gap test
+    # missed it (legend lost, series unlabeled). A small overlap tolerance pairs it.
+    texts = [_lab("298K", 252, 79), _lab("77K", 252, 90)]
+    paths = [_line(230, 253, 79, RED), _line(230, 253, 90, BLUE)]  # end 1pt PAST label
+    entries, _ = _detect_legend(REGION, paths, texts)
+    got = {label: tuple(round(c, 2) for c in color) for _, color, label in entries}
+    assert got == {"298K": RED, "77K": BLUE}
+
+
 def test_swatch_on_left_still_default():
     # [green] Tc   [blue] Pc  (the common case: swatch to the LEFT) -> unchanged.
     texts = [_lab("Tc", 227, 74), _lab("Pc", 227, 83)]

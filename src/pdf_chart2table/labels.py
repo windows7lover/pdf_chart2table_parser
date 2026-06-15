@@ -51,6 +51,10 @@ _VERTICAL_DIR = 0.7
 _SWATCH_MAX = 30.0
 # Max horizontal gap between a swatch group and the label text to its right.
 _SWATCH_GAP = 18.0
+# A swatch line/marker often abuts or slightly overlaps the label's (space-padded)
+# bbox; allow this much overlap so a swatch ending exactly at the label start
+# (gap ~ -0.001) still pairs, instead of being missed and flipping the swatch-side.
+_SWATCH_OVERLAP = 2.5
 # Vertical overlap tolerance for pairing a swatch with its label row.
 _ROW_TOL = 6.0
 # Tighter vertical tolerance for matching a continuation span to a label's row;
@@ -596,9 +600,9 @@ def _detect_legend(
         ty = _cy(t.bbox)
         if side == "left":
             return [p for p in swatches if abs(_cy(p.bbox) - ty) <= _ROW_TOL
-                    and 0 <= t.bbox[0] - p.bbox[2] <= _SWATCH_GAP]
+                    and -_SWATCH_OVERLAP <= t.bbox[0] - p.bbox[2] <= _SWATCH_GAP]
         return [p for p in swatches if abs(_cy(p.bbox) - ty) <= _ROW_TOL
-                and 0 <= p.bbox[0] - t.bbox[2] <= _SWATCH_GAP]
+                and -_SWATCH_OVERLAP <= p.bbox[0] - t.bbox[2] <= _SWATCH_GAP]
 
     _cand = [texts[i] for i in order
              if i not in used and _horizontal(texts[i]) and texts[i].text.strip()

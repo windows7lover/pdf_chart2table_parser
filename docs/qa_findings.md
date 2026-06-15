@@ -366,3 +366,11 @@ axis-extreme markers); remainder faithful or out-of-scope. Rotating to a fresh 2
 NOTE (recurring): several set5 "legend/label" diffs trace to legend DETECTION
 (missed legend -> unlabeled series + glyph text leaks). A focused legend-detection
 hardening pass is the next high-value lever (distinct from per-chart fixes).
+
+### QA pass 2026-06-15 (set5) — DETAIL: abutting swatch legend missed (FIXED)
+- **2002.02623_p23c1** — clean single-panel swatch legend (colored lines + "298 K"
+  ..."77 K") was NOT detected: each swatch ends right at the label's left edge
+  (gap ~ -0.001), so the strict 0<=gap row test failed -> swatch-side flipped to
+  "right" -> 0 entries, series unlabeled, labels fell through to black annotations.
+  Fix: allow a small swatch/label overlap (_SWATCH_OVERLAP=2.5). Now all 4 series
+  labeled; legend renders with colored handles. Test: test_legend_swatch_side.py.
