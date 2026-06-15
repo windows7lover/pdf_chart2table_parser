@@ -514,3 +514,16 @@ errors break the match) -> near-zero precision-safe payoff. NOT integrated (woul
 corrupt labels; precision-over-recall). Only deterministic option remains embedded-
 font glyph-shape matching (large). Current safe degradation kept: text renders, the
 path-glyph symbol is absent (not wrong). Temp venv /tmp/p2t removed.
+
+### Glyph-path label recovery — targeted single-glyph OCR tried (task #50, 2026-06-15)
+Per user idea (detect spurious black glyph-paths, OCR only that area), tested
+pix2tex on ISOLATED single-glyph crops from 2107.11117:
+  α (clean) -> '{\mathcal{Q}}' (read as Q);  ℓ_x -> '{}^{\nu}x' (ℓ as ν);  ℓ -> '{\mathcal{Q}}^{*}'.
+Single-glyph OCR is WORSE than whole-label: pix2tex needs equation context and
+hallucinates on isolated symbols. DETECTION of the glyph-paths is reliable
+(geometry), but RECOGNITION (OCR) fails at any crop scale. CONCLUSION (all 3 OCR
+variants exhausted: RapidOCR, pix2tex whole-label, pix2tex single-glyph): OCR cannot
+do precision-safe recovery of these path-rendered CM math glyphs. Only reliable
+route = deterministic embedded-font glyph-shape matching (large build, narrow
+payoff). RECOMMEND accepting the limitation (safe degradation: label text renders,
+path-glyph symbol absent-not-wrong) unless this label class is a priority.
