@@ -339,3 +339,11 @@ axis-extreme markers); remainder faithful or out-of-scope. Rotating to a fresh 2
 - Backlog from "investigate minor diffs" (set5): 2003.07592 legend swatch-handles
   faint; 2004.06773 inline curve labels became a legend box; 2001.11728 connecting
   lines/triangle markers understated.
+
+### QA pass 2026-06-15 (set5) — DETAIL: markersize under-recovery (FIXED)
+- **2002.02623_p25c2** — circle markers 4.85pt recovered as 2.03pt (2.4x small).
+  Cause: markersize = median of ALL small same-colour paths, which included stray
+  2-point black segments (fit-line dashes / caps / ticks). Fix: measure marker
+  size from glyph paths only (those with a detected `_marker_shape`). Now 4.86pt.
+  Test: test_markersize_glyph.py. (This is the "don't dismiss minor diffs" win —
+  the tiny-marker look was a real recovery bug, not just PNG scaling.)

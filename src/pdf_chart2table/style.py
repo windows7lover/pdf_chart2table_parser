@@ -290,6 +290,13 @@ def match_series_styles(paths, region_bbox, series):
         smalls = [max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) for p in small_paths]
         shapes = [s for s in (_marker_shape(p) for p in small_paths) if s]
         mshape = max(set(shapes), key=shapes.count) if shapes else None
+        # Marker SIZE from the actual glyph paths only. Small 2-point segments in
+        # the series colour (fit-line dashes, error-bar caps, ticks) are NOT
+        # markers and otherwise drag the median size down (2002.02623_p25c2: 4.85pt
+        # circles were recovered as 2.03pt because of stray 1-2pt black segments).
+        glyph_szs = [max(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1])
+                     for p in small_paths if _marker_shape(p)]
+        msize = _median(glyph_szs) if glyph_szs else _median(smalls)
         # CONNECT only on EVIDENCE that the original drew a line THROUGH the
         # markers. A marker series is joined iff some same-colour "big" path
         # actually THREADS the points -- i.e. (most of) the series' marker points
@@ -298,7 +305,7 @@ def match_series_styles(paths, region_bbox, series):
         # while leaving pure scatter unconnected, where the only same-colour long
         # path is a separate fit/curve that MISSES the markers (2205, 2410: 0
         # threaded) or a model curve that grazes just a few (2102: 3/9).
-        tol = max(4.0, 1.5 * (_median(smalls) or 0.0))
+        tol = max(4.0, 1.5 * (msize or 0.0))
         connect = _threads_markers(big, pts, tol)
         # Transparency: the traced path's stroke alpha (fall back to a same-colour
         # marker's fill alpha). None when fully opaque -> renderer leaves it solid.
@@ -318,7 +325,7 @@ def match_series_styles(paths, region_bbox, series):
         if m_face is not None and min(m_face) > 0.9:
             m_face = None  # white fill -> OPEN marker (renderer uses facecolor none)
         out.append({"width": best.width, "linestyle": ls,
-                    "markersize": _median(smalls), "marker_shape": mshape,
+                    "markersize": msize, "marker_shape": mshape,
                     "connect": connect, "alpha": alpha,
                     "marker_face": m_face, "marker_edge": m_edge,
                     "marker_edge_width": m_ew})
