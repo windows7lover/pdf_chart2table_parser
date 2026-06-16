@@ -659,14 +659,18 @@ def _label_runs(group):
         return None
     if "$" in _join_group(group):
         return None
-    ordered = sorted(real, key=lambda s: _reading_pos(s)[0])
+    # Assemble from ALL spans (symbol-font chars like 'µ', '°', '±' are real label
+    # text, e.g. '[µm]'); only the ITALIC VOTE excludes them. Dropping them here
+    # lost the 'µ' and merged the gap into a spurious space (2004.12366 '[µm]' ->
+    # '[ m]'). Symbol-font spans render roman.
+    ordered = sorted(group, key=lambda s: _reading_pos(s)[0])
     runs, prev_end, prev_ital = [], None, None
     for s in ordered:
         a0, a1, _ = _reading_pos(s)
         t = s["text"]
         if prev_end is not None and (a0 - prev_end) > 0.18 * max(s.get("size") or 8, 1):
             t = " " + t                       # restore inter-token space
-        it = _is_italic(s)
+        it = _is_italic(s) and not _is_symbol_font(s)
         if runs and it == prev_ital:
             runs[-1][0] += t                  # merge same-style adjacent spans
         else:

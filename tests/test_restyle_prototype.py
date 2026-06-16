@@ -143,6 +143,21 @@ def test_label_runs_splits_mixed_italic_and_roman():
     assert runs == [["τ", True], [" (s)", False]]
 
 
+def test_label_runs_keeps_symbol_font_char_as_roman():
+    # 2004.12366: 'pixel depth (z) [µm]' -- the 'µ' is a Symbol-font span. It must
+    # stay in the assembled text (rendered roman); excluding it dropped the 'µ' and
+    # merged the gap into a spurious space ('[ m]'). The italic vote still ignores it.
+    spans = [_tspan("depth (", 0.0, False, font="Helvetica"),
+             _tspan("z", 40.0, True, font="Helvetica-Oblique"),
+             _tspan(") [", 46.0, False, font="Helvetica"),
+             _tspan("µ", 54.0, True, font="Symbol"),  # symbol carries italic flag
+             _tspan("m]", 58.0, False, font="Helvetica")]
+    runs = _label_runs(spans)
+    assert "".join(t for t, _ in runs) == "depth (z) [µm]", runs
+    # 'µ' is rendered roman (merged with the surrounding roman run), not italic.
+    assert ["µ" in t and not it for t, it in runs if "µ" in t] == [True]
+
+
 def test_label_runs_none_when_uniform():
     # all-italic (or all-roman) -> the whole-label boolean suffices, no runs.
     allit = [_tspan("a", 0.0, True, font="CMMI10"),
