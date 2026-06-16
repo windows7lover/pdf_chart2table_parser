@@ -520,13 +520,17 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
                    top=bool(ts.get("top")), **common)
     ax.tick_params(axis="y", direction=(y_dir or "out"),
                    right=bool(ts.get("right")), **common)
-    # tick LENGTH (points): majors at recovered length, minors a bit shorter
+    # tick LENGTH (points): majors at recovered length, minors a bit shorter.
+    # Floor to ~2.5pt: inward ticks measured at ~1-2pt are barely visible, so a
+    # faithfully-tiny length reads as "missing/too small" -- nudge to a legible
+    # minimum (2006.09651, 2006.10101, 2003.01158).
+    _tmin = 2.5
     if x_len:
-        ax.tick_params(axis="x", which="major", length=round(x_len, 2))
-        ax.tick_params(axis="x", which="minor", length=round(0.6 * x_len, 2))
+        ax.tick_params(axis="x", which="major", length=round(max(x_len, _tmin), 2))
+        ax.tick_params(axis="x", which="minor", length=round(0.6 * max(x_len, _tmin), 2))
     if y_len:
-        ax.tick_params(axis="y", which="major", length=round(y_len, 2))
-        ax.tick_params(axis="y", which="minor", length=round(0.6 * y_len, 2))
+        ax.tick_params(axis="y", which="major", length=round(max(y_len, _tmin), 2))
+        ax.tick_params(axis="y", which="minor", length=round(0.6 * max(y_len, _tmin), 2))
     if txt.get("tick_bold"):
         for lb in ax.get_xticklabels() + ax.get_yticklabels():
             lb.set_fontweight("bold")
