@@ -348,6 +348,21 @@ def match_series_styles(paths, region_bbox, series):
         small_paths = [p for p in cands
                        if 0.2 < max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) <= 12.0]
         smalls = [max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) for p in small_paths]
+        # Restrict the shape/size/face/edge vote to THIS series' OWN marker glyphs:
+        # a glyph whose centre sits on one of the series' points. Same-colour paths
+        # gathered above pool BOTH a filled and an open marker series of that colour
+        # (2006.09651: 13 filled + 19 open blue circles are two datasets), so a
+        # colour-wide modal vote collapsed both to 'open'. Voting with each series'
+        # own glyphs gives the filled series a face and the open one none. Also drops
+        # stray same-colour glyphs (legend samples) that sit off the data points.
+        _ntol = max(5.0, (sorted(smalls)[len(smalls) // 2] if smalls else 0.0))
+        _own = [p for p in small_paths
+                if any((0.5 * (p.bbox[0] + p.bbox[2]) - px) ** 2
+                       + (0.5 * (p.bbox[1] + p.bbox[3]) - py) ** 2 <= _ntol ** 2
+                       for px, py in pts)]
+        if _own:
+            small_paths = _own
+            smalls = [max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) for p in small_paths]
         shapes = [s for s in (_marker_shape(p) for p in small_paths) if s]
         mshape = max(set(shapes), key=shapes.count) if shapes else None
         # Use the actual marker GLYPH paths (recognised shapes) for size AND
