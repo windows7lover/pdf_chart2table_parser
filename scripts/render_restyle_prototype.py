@@ -447,6 +447,35 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
         # faithfully renders the value (keeps "1" not "1.0", "500" not "5x10^2"),
         # else plain integers/decimals (no scientific/offset text).
         if scale == "log":
+            # Use the ORIGINAL label strings on a log axis too, when they faithfully
+            # render the value: a source that printed plain decades (1000, 100, ..,
+            # 0.1) must NOT be re-rendered as matplotlib's default 10^n (2001.01801).
+            # Ticks without a faithful recovered label fall back to 10^n, so a source
+            # that genuinely used 10^n (its labels won't parse as plain decimals) is
+            # unchanged.
+            llut = {}
+            for t in (ticks or []):
+                v = t.get("value")
+                if v is None:
+                    continue
+                txt = _faithful_tick_label(v, t.get("label"))
+                if txt is not None:
+                    llut[round(v, 9)] = txt
+            if not llut:
+                return  # nothing faithfully recovered -> matplotlib's decade format
+            import math as _m
+            from matplotlib.ticker import FuncFormatter as _FF
+
+            def _logfmt(x, pos=None):
+                s = llut.get(round(x, 9))
+                if s is not None:
+                    return s
+                if x > 0:
+                    e = _m.log10(x)
+                    if abs(e - round(e)) < 1e-6:
+                        return r"$10^{%d}$" % int(round(e))
+                return _plain_num(x)
+            axis_obj.set_major_formatter(_FF(_logfmt))
             return
         vals = [t.get("value") for t in (ticks or []) if t.get("value") is not None]
         # Extreme magnitudes: reproduce the original's factored "×10ⁿ" axis header
@@ -551,13 +580,22 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
         # a DOTTED grid/reference line (render ":"), a longer one is dashed ("--"),
         # none is solid ("-"). Mapping every dash pattern to "--" lost the dotted
         # look the source used (2003.09710 grid, 2006.05506 ref line = dark dots).
-        gls = "-" if not g.get("dashes") else (":" if _dash_is_dotted(g["dashes"]) else "--")
+        # A dotted grid uses a FINE, closely-spaced dot pattern (a tight custom dash)
+        # rather than matplotlib's coarser ":" -- closer to the source's fine dots
+        # (2003.09710). The recovered dash period is often sub-point (0.046pt) so it
+        # can't be reproduced literally; this approximates "thin + many dots".
+        _dotted = bool(g.get("dashes")) and _dash_is_dotted(g["dashes"])
+        if not g.get("dashes"):
+            gls = "-"
+        elif _dotted:
+            gls = (0, (0.5, 1.0))   # short dots, tight gaps
+        else:
+            gls = "--"
         gcolor = _color(g.get("color")) or "0.85"
         # Keep the grid SUBTLE like the source: a thin line at a low opacity. The
         # recovered width can be sub-point; floor just enough to stay visible but
-        # not heavy. Many grids are faint via a low stroke opacity (recovered as
-        # ``alpha``) rather than a light colour -- reproduce it (default subtle).
-        glw = min(max(g.get("linewidth") or 0.4, 0.3), 0.8)
+        # not heavy. Dotted grids floor thinner (0.25) than solid/dashed (0.3).
+        glw = min(max(g.get("linewidth") or 0.4, 0.25 if _dotted else 0.3), 0.8)
         galpha = g.get("alpha")
         if galpha is None:
             galpha = 0.5 if (gcolor != "0.85" and max(gcolor) < 0.5) else None
