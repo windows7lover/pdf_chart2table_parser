@@ -187,6 +187,19 @@ def test_x_title_picks_real_title_over_subcaption():
     assert _x_title(texts, region, labels) == "Epoch"
 
 
+def test_x_title_marks_subscript_as_mathtext():
+    """A subscripted axis title 'T_{j}' (a smaller, lowered 'j' span) is returned
+    with inline mathtext, not flattened to 'T j' (2003.09710-style titles)."""
+    region = Region(bbox=(100.0, 50.0, 300.0, 150.0))
+    labels = [_span("0", 100, 152, 106, 159), _span("100", 294, 152, 306, 159)]
+    texts = labels + [
+        _span("Temperature, T", 150, 162, 210, 170, size=8.0),
+        _span("j", 211, 165, 215, 171, size=5.5),   # smaller + lowered -> subscript
+        _span(" (C)", 216, 162, 232, 170, size=8.0),
+    ]
+    assert _x_title(texts, region, labels) == "Temperature, T$_{j}$ (C)"
+
+
 def test_x_title_none_when_only_caption():
     """No axis title -> None (a figure caption is not a title)."""
     region = Region(bbox=(100.0, 50.0, 300.0, 150.0))

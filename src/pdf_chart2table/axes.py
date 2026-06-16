@@ -49,7 +49,7 @@ def _parse_pi(s: str) -> float | None:
     except ValueError:
         return None
     return coeff * math.pi / denom if denom else None
-from .primitives import bbox_center as _center
+from .primitives import bbox_center as _center, join_scripts as _join_scripts
 
 # Geometry tolerances (PDF points).
 _SPINE_TOL = 8.0        # how far a tick may sit from the spine coordinate
@@ -767,6 +767,14 @@ def _title_from_rows(
         compact = text.replace(" ", "")
         if _is_numeric_span(compact) or len(compact) < 2:
             continue
+        # Mark sub/superscripts as inline mathtext ('T'+lowered 'j,H' -> 'T$_{j,H}$')
+        # so the title renders with the script the source drew, instead of the
+        # plain space-join that flattened it (2003.09710 'T j' -> 'T$_{j}$'). The
+        # guards above run on the plain text; only the RETURN is marked up.
+        if perp == 0:  # horizontal title (x-axis) -- script test is vertical-offset
+            items = [(s.text, s.size, _center(s.bbox)[1], s.bbox[0], s.bbox[2])
+                     for s in ordered]
+            return _join_scripts(items)
         return text
     return None
 
