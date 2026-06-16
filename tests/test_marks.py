@@ -836,6 +836,21 @@ def test_small_plus_glyph_classified_as_plus():
     assert _shape_of(_plus_glyph(200, 200, stroke=(0.25, 0.25, 0.25))) == "plus"
 
 
+def test_open_asterisk_glyph_classified_as_star():
+    """An open ``*`` = 4 crossing strokes -> 8 endpoints at the bbox corners AND
+    edge-midpoints (radiating from centre) classifies as 'star' (2004.01004),
+    not 'cross'."""
+    from pdf_chart2table.marks import _shape_of
+    cx, cy, r = 200.0, 200.0, 3.0
+    pts = [(cx, cy - r), (cx, cy + r), (cx - r, cy), (cx + r, cy),
+           (cx - r, cy - r), (cx + r, cy + r), (cx - r, cy + r), (cx + r, cy - r)]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    glyph = VPath(points=pts, stroke=(0.0, 0.0, 0.0), fill=None, width=1.0,
+                  dashes=None, closed=False,
+                  bbox=(min(xs), min(ys), max(xs), max(ys)))
+    assert _shape_of(glyph) == "star"
+
+
 def test_small_cross_markers_recognised_not_rejected():
     """A series of small ``×`` cross glyphs (min bbox side ~1.4 px, below the old
     strict 1.5 min-side) must be recognised as ONE marker series, not rejected.

@@ -334,7 +334,30 @@ def shape_of(p: Path) -> str:
         return _cross_or_plus(p)
     if n == 3:
         return "triangle"
+    if 6 <= n <= 8 and _is_asterisk(p):
+        return "star"
     return "cross" if not filled else "marker"
+
+
+def _is_asterisk(p) -> bool:
+    """True when an OPEN 6-8 vertex glyph is an asterisk ``*`` -- several strokes
+    radiating from the centre to the bbox boundary (2004.01004: a '*' is 4 crossing
+    strokes = 8 endpoints at the 4 corners + 4 edge-midpoints). Distinct from a '+'
+    or 'x' (4 vertices, handled above) and from a closed polygon marker."""
+    if p.closed:
+        return False
+    x0, y0, x1, y1 = p.bbox
+    rx, ry = (x1 - x0) / 2.0, (y1 - y0) / 2.0
+    if rx <= 0 or ry <= 0:
+        return False
+    cx, cy = 0.5 * (x0 + x1), 0.5 * (y0 + y1)
+    pts = list(dict.fromkeys(p.points))
+    if not (6 <= len(pts) <= 9):
+        return False
+    # Every vertex sits well away from the centre (near the boundary): the glyph
+    # is spokes from the middle, not a compact blob.
+    return all(abs((px - cx) / rx) >= 0.6 or abs((py - cy) / ry) >= 0.6
+               for px, py in pts)
 
 
 # A vertex counts as a "corner" of the bbox when it lies within this fraction of
