@@ -663,22 +663,28 @@ def _box(ax, record, style, font_scale=1.0):
             pass
 
 
-def _recon_figure(record, style, tex=False):
-    """A standalone reconstruction figure sized to the original's PHYSICAL extent.
+_CROP_MARGIN = 18.0  # io_store crops the original to region_bbox + this margin
 
-    The data axes is set to the region's point dimensions (1 pt = 1/72 in), so the
-    recovered point-based font sizes and stroke widths render at the same visual
-    scale as the original vector crop -- making a side-by-side directly comparable.
+
+def _recon_figure(record, style, tex=False):
+    """A standalone reconstruction figure matched to the original crop's geometry.
+
+    The region bbox IS the plot box (the calibration places the spines at the
+    region edges), and the original crop is that region plus a fixed _CROP_MARGIN
+    on every side. We size the recon figure the SAME way -- plot area = region
+    W x H, surrounded by _CROP_MARGIN -- so the two side-by-side panels are at the
+    identical physical scale and the recovered point sizes/line widths render
+    directly comparable. (Simpler than the old per-side margin floors; tick/title
+    text living in the margin band may overflow slightly on large-font charts --
+    tunable via _CROP_MARGIN.)
     """
     bb = record["source"]["region_bbox"]
     w = max(bb[2] - bb[0], 1.0)
     h = max(bb[3] - bb[1], 1.0)
-    lm = max(46.0, 0.18 * w)  # room for y ticks + y title
-    bm = max(38.0, 0.16 * h)  # room for x ticks + x title
-    tm, rm = 18.0, 16.0
-    fw, fh = lm + w + rm, tm + h + bm
+    m = _CROP_MARGIN
+    fw, fh = w + 2 * m, h + 2 * m
     fig = plt.figure(figsize=(fw / 72.0, fh / 72.0))
-    ax = fig.add_axes([lm / fw, bm / fh, w / fw, h / fh])
+    ax = fig.add_axes([m / fw, m / fh, w / fw, h / fh])
     _replot(ax, record, style, tex=tex)
     title = style.get("title")
     if title:
