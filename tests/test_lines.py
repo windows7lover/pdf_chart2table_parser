@@ -143,6 +143,30 @@ def test_few_dense_segments_do_not_fabricate_a_line():
     assert series == []
 
 
+def test_few_segments_complete_an_existing_long_curve():
+    # Regression for 2001.06496_p18c2: a top-envelope curve drawn partly as long
+    # polylines (tiling the ends) and partly as a FEW dense segments (filling the
+    # middle peaks). The segments number < _MIN_SEGMENT_COUNT, so on their own
+    # they'd be rejected, leaving a flat GAP across the curve's middle. Because
+    # the SAME colour already has a long curve, the segments must be pooled into
+    # it so the curve is assembled WHOLE (no hole).
+    green = (0.56, 0.69, 0.19)
+    long_a = _descending(120, 250, green, n=8, dx=7)   # x 120 -> 169
+    long_b = _descending(232, 250, green, n=8, dx=7)   # x 232 -> 281
+    # 3 dense segments tiling the hole 170..230 (fewer than _MIN_SEGMENT_COUNT=6)
+    segs = [
+        _dense_segment(170, 190, 240, 235, green),
+        _dense_segment(190, 210, 235, 245, green),
+        _dense_segment(210, 230, 245, 250, green),
+    ]
+    series, _ = _classify([long_a, long_b, *segs])
+    assert len(series) == 1, f"expected 1 merged curve, got {len(series)}"
+    xs = [p[0] for p in series[0].points]
+    # the curve must cover the formerly-missing middle (170..230), not jump over it
+    assert any(180 <= x <= 220 for x in xs), "middle segment-filled gap was dropped"
+    assert min(xs) <= 125 and max(xs) >= 275
+
+
 def test_solid_black_axis_aligned_rejected():
     # A solid black multi-vertex stroke that is FLAT (axis-aligned, ~constant y)
     # is a gridline/spine, not a curve: it does not vary in 2-D.

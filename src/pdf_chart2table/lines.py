@@ -885,6 +885,22 @@ def classify_lines(
                 out.append(q)
         return out if len(out) >= _MIN_VERTS else None
 
+    # Over-segmented curve repair: when a (colour, dash, width) key has BOTH
+    # long polylines AND dense curve-segments, the segments are gap-filling
+    # pieces of the SAME physical curve (the long parts tile most of the x-axis;
+    # the segments tile the holes between them), not a separate series. Pool the
+    # segments into that long group so the curve is assembled whole in one merge
+    # pass (2001.06496_p18c2: a top-envelope curve whose middle peaks were drawn
+    # as 4 segments — below _MIN_SEGMENT_COUNT — were dropped, leaving a flat
+    # gap). If the segments instead trace a DISTINCT same-colour curve, they
+    # x-overlap the long parts and _split_into_curves separates them again, so
+    # this can only complete a curve, never merge two. Segment groups for a
+    # colour with NO long curve keep the standalone, count-guarded path below
+    # (which guards against fabricating a series from a few stray glyphs).
+    for key in list(seg_groups):
+        if key in long_groups:
+            long_groups[key].extend(seg_groups.pop(key))
+
     # Build candidate curves per (colour, dash-form): x-sorted verts, exemplar
     # path, the true draw-order vertices (or None for multi-path merges), and the
     # recovered dash form (gapped-fragment curves are tagged "dashed").

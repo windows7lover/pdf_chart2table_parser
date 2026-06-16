@@ -31,3 +31,5 @@ iteration,timestamp,n_charts,mean_explained,total_residual,total_missed,charts_f
 30,2026-06-15 18:55,20,0.9799,49,0,13,"legend entry order = original top-to-bottom (2202.11909 PTE/aI un-swapped); cosmetic, shared-20 unchanged"
 31,2026-06-15 19:11,20,0.9799,49,0,13,
 32,2026-06-15 19:21,20,0.9799,49,0,13,dash recovery: solid-curve-in-pieces not dashed (2001.06496 blue/orange now solid+complete); shared regen
+33,2026-06-15 19:32,20,0.9799,49,0,13,
+34,2026-06-15 20:06,20,0.9832,44,0,14,"dropped-segment fix: pool dense curve-segments into a same-colour long curve (2001.06496_p18c2 green middle peaks recovered); corpus over-segmentation down, missed 53->52"
