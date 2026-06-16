@@ -30,6 +30,10 @@ _STYLE_NOTE = ("STYLE ONLY -- rendering attributes used to redraw the extracted 
 # points (real legends align to <1pt; allow slack). A larger spread means the
 # matched spans are scattered (a false vertical-legend match), not a column.
 _LEGEND_COL_TOL = 6.0
+# Typical text box-height / font-size for a normal (un-transformed) font. Used to
+# divide the intrinsic font metric out of a measured content-transform ratio so a
+# scaled-up figure's fonts/line widths are not over-inflated (see _content_scale).
+_FONT_BOX_METRIC = 1.36
 
 
 def _legend_left_aligned(matched: list) -> bool:
@@ -769,7 +773,10 @@ def _content_scale(spans):
     = 1.70), so any ratio in that band is just font metrics and snaps to 1.0 (a 1.70
     was inflating EVERY font ~1.7x on 2004.06765_p10c6). Only a figure genuinely
     drawn small then scaled up multiplies this into a much larger ratio (>=2); there
-    we DO rescale fonts + line widths back to their true on-page size."""
+    we DO rescale fonts + line widths back to their true on-page size -- but only by
+    the CTM part: the measured ratio is (intrinsic box metric ~1.36) x (figure CTM),
+    so we divide the typical box metric out, else fonts/line widths come out ~1.36x
+    too big (2001.01928_p5c1 ticks 10.3pt -> ~7.6pt true)."""
     ratios = [(s["bbox"][3] - s["bbox"][1]) / s["size"]
               for s in spans
               if s.get("size") and s["size"] > 0.05
@@ -777,7 +784,9 @@ def _content_scale(spans):
     if not ratios:
         return 1.0
     scale = min(50.0, max(0.2, sorted(ratios)[len(ratios) // 2]))
-    return 1.0 if 0.7 <= scale < 2.0 else scale
+    if 0.7 <= scale < 2.0:
+        return 1.0
+    return scale / _FONT_BOX_METRIC
 
 
 def _is_latex_font(font_weights):

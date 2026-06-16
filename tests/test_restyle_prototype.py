@@ -230,9 +230,12 @@ def test_content_scale_treats_tall_font_metrics_as_no_transform():
 
 
 def test_content_scale_keeps_genuine_large_transform():
-    # a figure truly drawn small then scaled up shows a much larger ratio (>=2).
+    # A figure truly drawn small then scaled up shows a much larger ratio (>=2).
+    # The measured ratio is (intrinsic box metric ~1.36) x (figure CTM); only the
+    # CTM is the content transform, so the returned scale divides the box metric
+    # out (3.0 / 1.36 ~= 2.21) -- else fonts/line widths come out ~1.36x too big.
     scaled = [_hspan_box(15.0, 5.0) for _ in range(10)]  # ratio 3.0
-    assert _content_scale(scaled) == 3.0
+    assert _content_scale(scaled) == 3.0 / 1.36
     assert _content_scale([]) == 1.0
 
 
