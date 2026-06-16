@@ -42,3 +42,25 @@ def test_plain_label_unchanged():
 def test_word_gap_inserts_space():
     items = [_it("Input", 8.0, 50.0, 0, 20), _it("power", 8.0, 50.0, 30, 55)]
     assert join_scripts(items) == "Input power"
+
+
+def test_italic_base_wrapped_in_mathtext():
+    # 2003.11050: an italic variable 'M' (6th item field) + lowered 's' -> the M
+    # is slanted: '$M$$_{s}$'. The subscript path is unchanged.
+    items = [("M", 10.0, 50.0, 0, 8, True), ("s", 7.0, 53.0, 8, 12, False)]
+    assert join_scripts(items) == "$M$$_{s}$"
+
+
+def test_italic_only_on_safe_variable_tokens():
+    # An italic run that is NOT a simple variable token (has punctuation/space)
+    # stays roman -- never risk a mathtext parse error.
+    items = [("v (m/s)", 10.0, 50.0, 0, 40, True)]
+    assert join_scripts(items) == "v (m/s)"
+    # A roman word after an italic variable: only the italic token is wrapped.
+    items2 = [("M", 10.0, 50.0, 0, 8, True), ("ratio", 10.0, 50.0, 30, 55, False)]
+    assert join_scripts(items2) == "$M$ ratio"
+
+
+def test_five_tuple_items_still_supported():
+    # Back-compat: items without the italic field behave exactly as before.
+    assert join_scripts([_it("P", 10.0, 50.0, 0, 8), _it("in", 7.0, 53.0, 8, 18)]) == "P$_{in}$"

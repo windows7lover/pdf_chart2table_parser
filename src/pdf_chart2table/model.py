@@ -53,6 +53,11 @@ class TextSpan:
     # color is black / unavailable.  Used by the inline-label detector to match
     # colored annotation text against curve colors.
     color: Color | None = None
+    # True when the span is drawn in an italic/oblique (non-symbol) font, so a
+    # variable in a label can be re-rendered italic (e.g. legend 'M$_{s}$' -> a
+    # slanted M). Symbol fonts carry the italic flag yet are not italic text, so
+    # they are excluded when this is set.
+    italic: bool = False
 
 
 @dataclass

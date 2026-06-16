@@ -415,7 +415,8 @@ def _assemble_label(
     # only where spans are horizontally separated.
     items = [(texts[i].text, texts[i].size,
               0.5 * (texts[i].bbox[1] + texts[i].bbox[3]),
-              texts[i].bbox[0], texts[i].bbox[2]) for i in picked]
+              texts[i].bbox[0], texts[i].bbox[2],
+              bool(getattr(texts[i], "italic", False))) for i in picked]
     label = _join_scripts(items)
     return label, set(picked)
 

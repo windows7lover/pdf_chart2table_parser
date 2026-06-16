@@ -27,44 +27,61 @@ import re
 from .model import Color, Path, Region
 
 
+# A base (non-script) run is re-rendered italic only when its text is a simple
+# variable token (letters/digits) -- safe in mathtext. Anything else stays roman
+# so we never risk a mathtext parse error on stray punctuation/spaces.
+_SAFE_ITALIC = re.compile(r"^[A-Za-z][A-Za-z0-9]*$")
+
+
 def join_scripts(items) -> str:
     """Join text spans into one string, marking SUB/SUPERSCRIPTS as inline
     mathtext so '10'+raised'5' -> '10$^{5}$', 'cm'+raised'-3' -> 'cm$^{-3}$',
-    'P'+lowered'in' -> 'P$_{in}$'.
+    'P'+lowered'in' -> 'P$_{in}$'. A base span flagged ITALIC and whose text is a
+    simple variable token is wrapped in mathtext ('M' italic -> '$M$', so a legend
+    'M$_{s}$' becomes '$M$$_{s}$' = slanted M).
 
-    ``items`` is an iterable of ``(text, size, cy, x0, x1)`` (any order; sorted by
-    x0). A span SMALLER than the base (largest) size whose centre is raised above
-    the baseline -> superscript; smaller and lowered -> subscript. Consecutive
-    same-script spans merge into one group. A wide horizontal gap inserts a space.
+    ``items`` is an iterable of ``(text, size, cy, x0, x1[, italic])`` (any order;
+    sorted by x0; the italic flag is optional and defaults False). A span SMALLER
+    than the base (largest) size whose centre is raised above the baseline ->
+    superscript; smaller and lowered -> subscript. Consecutive same-script,
+    same-italic spans merge into one group. A wide horizontal gap inserts a space.
     Falls back to a plain concatenation when sizes are absent (so non-script
     labels are returned UNCHANGED -- no '$', no behaviour change)."""
     items = sorted(items, key=lambda it: it[3])
-    sizes = [sz for _, sz, _, _, _ in items if sz]
+    sizes = [it[1] for it in items if it[1]]
     if not sizes:
-        return "".join(t for t, *_ in items)
+        return "".join(it[0] for it in items)
     base = max(sizes)
-    base_cys = [cy for _, sz, cy, _, _ in items if sz and sz >= 0.9 * base]
+    base_cys = [it[2] for it in items if it[1] and it[1] >= 0.9 * base]
     base_cy = sorted(base_cys)[len(base_cys) // 2] if base_cys else None
-    out, buf, cur = [], [], None
+    out, buf, cur, cur_it = [], [], None, False
     prev_x1 = None
 
     def flush():
-        nonlocal buf, cur
+        nonlocal buf, cur, cur_it
         if buf:
             seg = "".join(buf)
-            out.append("$%s{%s}$" % (cur, seg) if cur else seg)
+            if cur:
+                out.append("$%s{%s}$" % (cur, seg))
+            elif cur_it and _SAFE_ITALIC.match(seg.strip()):
+                out.append("$%s$" % seg.strip())
+            else:
+                out.append(seg)
             buf = []
 
-    for text, sz, cy, x0, x1 in items:
+    for it in items:
+        text, sz, cy, x0, x1 = it[0], it[1], it[2], it[3], it[4]
+        italic = bool(it[5]) if len(it) > 5 else False
         script = None
         if base_cy is not None and sz and sz < 0.82 * base:
             if cy < base_cy - 0.12 * base:      # raised (smaller PDF y)
                 script = "^"
             elif cy > base_cy + 0.12 * base:    # lowered
                 script = "_"
-        if script != cur:
+        eff_it = italic and script is None       # italic applies to base runs only
+        if script != cur or eff_it != cur_it:
             flush()
-            cur = script
+            cur, cur_it = script, eff_it
         if (prev_x1 is not None and script is None
                 and (x0 - prev_x1) > 0.28 * base):
             buf.append(" ")

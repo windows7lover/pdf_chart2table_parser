@@ -92,6 +92,21 @@ def _alpha(o) -> float | None:
     return max(0.0, a)
 
 
+# Math-SYMBOL fonts carry the PDF italic flag but are not italic TEXT (a single
+# glyph like 'µ' or '≪' must not be slanted as a variable). Excluded from italic.
+_SYMBOL_FONT_KEYS = ("cmsy", "cmex", "msam", "msbm", "rsfs", "symbol", "dingbat",
+                     "wingding", "marvosym", "esint", "stmary", "mathematica")
+
+
+def _span_italic(flags: int, fontname: str) -> bool:
+    """True when a span is italic/oblique TEXT (bit 1 of fitz flags, or an
+    italic/oblique font name), excluding math-symbol fonts."""
+    name = (fontname or "").lower()
+    if any(k in name for k in _SYMBOL_FONT_KEYS):
+        return False
+    return bool(flags & 2) or "italic" in name or "oblique" in name
+
+
 def _dashes_str(d) -> str | None:
     if not d:
         return None
@@ -159,6 +174,7 @@ def load_page(page: fitz.Page) -> tuple[list[Path], list[TextSpan]]:
                         size=span.get("size"),
                         dir=(float(ldir[0]), float(ldir[1])),
                         color=tc,
+                        italic=_span_italic(span.get("flags", 0), fontname),
                     )
                 )
 
