@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import math  # noqa: E402
 
 from render_restyle_prototype import (  # noqa: E402
+    _dash_is_dotted,
     _compose_runs, _draw_residual, _effective_scale, _faithful_tick_label,
     _group_color, _group_spans, _is_italic, _join_group, _label_match,
     _marker_shape, _math_italic, _norm, _plain_num, _span_color,
@@ -175,6 +176,14 @@ def test_label_runs_none_when_scripted():
 
 
 # --- renderer composition of runs into a mathtext string -----------------------
+def test_dash_is_dotted_classifies_fine_patterns():
+    # A short "on" segment reads as dots (render ':'); a long one as dashes ('--').
+    assert _dash_is_dotted("[ .046 .046 ] 0") is True    # 2003.09710 fine grid
+    assert _dash_is_dotted("[ .907 2.72 ] 0") is True     # 2006.05506 ref line
+    assert _dash_is_dotted("[ 3 2 ] 0") is False          # genuine dashes
+    assert _dash_is_dotted(None) is False
+
+
 def test_compose_runs_builds_mixed_mathtext():
     out = _compose_runs([["τ", True], [" (s)", False]])
     assert out == r"$\tau$ (s)"

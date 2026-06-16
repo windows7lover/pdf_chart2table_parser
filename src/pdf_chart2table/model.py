@@ -58,6 +58,9 @@ class TextSpan:
     # slanted M). Symbol fonts carry the italic flag yet are not italic text, so
     # they are excluded when this is set.
     italic: bool = False
+    # True when the span is drawn in a bold font -- so a bold (or bold-italic)
+    # label variable is re-rendered bold (legend 'M_s' in Arial-BoldItalic).
+    bold: bool = False
 
 
 @dataclass

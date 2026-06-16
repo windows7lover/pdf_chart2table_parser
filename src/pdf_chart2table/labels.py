@@ -416,7 +416,8 @@ def _assemble_label(
     items = [(texts[i].text, texts[i].size,
               0.5 * (texts[i].bbox[1] + texts[i].bbox[3]),
               texts[i].bbox[0], texts[i].bbox[2],
-              bool(getattr(texts[i], "italic", False))) for i in picked]
+              bool(getattr(texts[i], "italic", False)),
+              bool(getattr(texts[i], "bold", False))) for i in picked]
     label = _join_scripts(items)
     return label, set(picked)
 

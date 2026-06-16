@@ -40,13 +40,15 @@ def join_scripts(items) -> str:
     simple variable token is wrapped in mathtext ('M' italic -> '$M$', so a legend
     'M$_{s}$' becomes '$M$$_{s}$' = slanted M).
 
-    ``items`` is an iterable of ``(text, size, cy, x0, x1[, italic])`` (any order;
-    sorted by x0; the italic flag is optional and defaults False). A span SMALLER
-    than the base (largest) size whose centre is raised above the baseline ->
-    superscript; smaller and lowered -> subscript. Consecutive same-script,
-    same-italic spans merge into one group. A wide horizontal gap inserts a space.
-    Falls back to a plain concatenation when sizes are absent (so non-script
-    labels are returned UNCHANGED -- no '$', no behaviour change)."""
+    ``items`` is an iterable of ``(text, size, cy, x0, x1[, italic[, bold]])`` (any
+    order; sorted by x0; the italic/bold flags are optional and default False). A
+    span SMALLER than the base (largest) size whose centre is raised above the
+    baseline -> superscript; smaller and lowered -> subscript. Consecutive
+    same-script, same-emphasis spans merge into one group. A wide horizontal gap
+    inserts a space. A base run that is bold/italic and is a simple variable token
+    is wrapped in mathtext ('$M$' italic, '$\\mathbf{M}$' bold, '$\\boldsymbol{M}$'
+    bold-italic). Falls back to a plain concatenation when sizes are absent (so
+    non-script labels are returned UNCHANGED -- no '$', no behaviour change)."""
     items = sorted(items, key=lambda it: it[3])
     sizes = [it[1] for it in items if it[1]]
     if not sizes:
@@ -54,17 +56,23 @@ def join_scripts(items) -> str:
     base = max(sizes)
     base_cys = [it[2] for it in items if it[1] and it[1] >= 0.9 * base]
     base_cy = sorted(base_cys)[len(base_cys) // 2] if base_cys else None
-    out, buf, cur, cur_it = [], [], None, False
+    out, buf, cur, cur_it, cur_bd = [], [], None, False, False
     prev_x1 = None
 
     def flush():
-        nonlocal buf, cur, cur_it
+        nonlocal buf, cur, cur_it, cur_bd
         if buf:
             seg = "".join(buf)
             if cur:
                 out.append("$%s{%s}$" % (cur, seg))
-            elif cur_it and _SAFE_ITALIC.match(seg.strip()):
-                out.append("$%s$" % seg.strip())
+            elif (cur_it or cur_bd) and _SAFE_ITALIC.match(seg.strip()):
+                s = seg.strip()
+                if cur_it and cur_bd:
+                    out.append(r"$\boldsymbol{%s}$" % s)
+                elif cur_bd:
+                    out.append(r"$\mathbf{%s}$" % s)
+                else:
+                    out.append("$%s$" % s)
             else:
                 out.append(seg)
             buf = []
@@ -72,16 +80,18 @@ def join_scripts(items) -> str:
     for it in items:
         text, sz, cy, x0, x1 = it[0], it[1], it[2], it[3], it[4]
         italic = bool(it[5]) if len(it) > 5 else False
+        bold = bool(it[6]) if len(it) > 6 else False
         script = None
         if base_cy is not None and sz and sz < 0.82 * base:
             if cy < base_cy - 0.12 * base:      # raised (smaller PDF y)
                 script = "^"
             elif cy > base_cy + 0.12 * base:    # lowered
                 script = "_"
-        eff_it = italic and script is None       # italic applies to base runs only
-        if script != cur or eff_it != cur_it:
+        eff_it = italic and script is None       # emphasis applies to base runs only
+        eff_bd = bold and script is None
+        if script != cur or eff_it != cur_it or eff_bd != cur_bd:
             flush()
-            cur, cur_it = script, eff_it
+            cur, cur_it, cur_bd = script, eff_it, eff_bd
         if (prev_x1 is not None and script is None
                 and (x0 - prev_x1) > 0.28 * base):
             buf.append(" ")

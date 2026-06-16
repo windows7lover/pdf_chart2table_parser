@@ -64,3 +64,12 @@ def test_italic_only_on_safe_variable_tokens():
 def test_five_tuple_items_still_supported():
     # Back-compat: items without the italic field behave exactly as before.
     assert join_scripts([_it("P", 10.0, 50.0, 0, 8), _it("in", 7.0, 53.0, 8, 18)]) == "P$_{in}$"
+
+
+def test_bold_and_bold_italic_base_runs():
+    # 2003.11050: a bold-italic variable 'M' -> '$\\boldsymbol{M}$'; bold-only ->
+    # '$\\mathbf{M}$'. (text, size, cy, x0, x1, italic, bold)
+    bi = [("M", 10.0, 50.0, 0, 8, True, True), ("s", 7.0, 53.0, 8, 12, False, False)]
+    assert join_scripts(bi) == r"$\boldsymbol{M}$$_{s}$"
+    bold_only = [("R", 10.0, 50.0, 0, 8, False, True), ("e", 10.0, 50.0, 8, 14, False, True)]
+    assert join_scripts(bold_only) == r"$\mathbf{Re}$"

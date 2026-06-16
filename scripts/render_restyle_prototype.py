@@ -181,6 +181,17 @@ def _color(c):
         return None
 
 
+def _dash_is_dotted(dashes) -> bool:
+    """True when a PDF dash pattern reads as DOTS rather than dashes: its first
+    "on" segment is short (<= ~1.5pt), e.g. '[ .046 .046 ] 0' (fine grid) or
+    '[ .907 2.72 ] 0' (dotted reference line). Longer on-segments are dashes."""
+    try:
+        nums = [float(x) for x in re.findall(r"[\d.]+", str(dashes))]
+    except Exception:
+        return False
+    return bool(nums) and nums[0] <= 1.5
+
+
 def _anchor_loc(a):
     """Map a normalized (x, y) legend anchor to a matplotlib loc string."""
     x, y = a
@@ -532,15 +543,17 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
     # the ticks, in the recovered grey colour.
     g = style.get("grid")
     if g:
-        # The original grid is dashed (not dotted) -- "--" reads like the source
-        # and stays visible at thin widths where ":" disappears.
-        gls = "--" if g.get("dashes") else "-"
+        # Classify the recovered dash pattern: a small "on" segment (<= ~1.5pt) is
+        # a DOTTED grid/reference line (render ":"), a longer one is dashed ("--"),
+        # none is solid ("-"). Mapping every dash pattern to "--" lost the dotted
+        # look the source used (2003.09710 grid, 2006.05506 ref line = dark dots).
+        gls = "-" if not g.get("dashes") else (":" if _dash_is_dotted(g["dashes"]) else "--")
         gcolor = _color(g.get("color")) or "0.85"
         # Keep the grid SUBTLE like the source: a thin line at a low opacity. The
         # recovered width can be sub-point; floor just enough to stay visible but
         # not heavy. Many grids are faint via a low stroke opacity (recovered as
         # ``alpha``) rather than a light colour -- reproduce it (default subtle).
-        glw = min(max(g.get("linewidth") or 0.5, 0.4), 0.8)
+        glw = min(max(g.get("linewidth") or 0.4, 0.3), 0.8)
         galpha = g.get("alpha")
         if galpha is None:
             galpha = 0.5 if (gcolor != "0.85" and max(gcolor) < 0.5) else None

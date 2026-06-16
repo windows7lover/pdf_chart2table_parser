@@ -107,6 +107,15 @@ def _span_italic(flags: int, fontname: str) -> bool:
     return bool(flags & 2) or "italic" in name or "oblique" in name
 
 
+def _span_bold(flags: int, fontname: str) -> bool:
+    """True when a span is bold TEXT (bit 4 of fitz flags, or a bold font name),
+    excluding math-symbol fonts."""
+    name = (fontname or "").lower()
+    if any(k in name for k in _SYMBOL_FONT_KEYS):
+        return False
+    return bool(flags & 16) or "bold" in name
+
+
 def _dashes_str(d) -> str | None:
     if not d:
         return None
@@ -175,6 +184,7 @@ def load_page(page: fitz.Page) -> tuple[list[Path], list[TextSpan]]:
                         dir=(float(ldir[0]), float(ldir[1])),
                         color=tc,
                         italic=_span_italic(span.get("flags", 0), fontname),
+                        bold=_span_bold(span.get("flags", 0), fontname),
                     )
                 )
 
