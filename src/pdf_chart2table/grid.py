@@ -35,11 +35,26 @@ _SPAN_STRONG = 0.6        # standalone gridline: covers >= 60% of the plot span
 _SPAN_TICK = 0.4          # tick-confirmed gridline: lower bar, but must sit on a tick
 
 
+_CHROMA_MAX = 0.15        # grid colour must be near-neutral; above this it is data
+
 def _is_grey(c) -> bool:
     if c is None:
         return False
     mn, mx = min(c), max(c)
     return (mx - mn) <= 0.15 and 0.4 <= mx <= 0.96
+
+
+def _is_chromatic(c) -> bool:
+    """True if colour is saturated (max-min channel spread is large).
+
+    A real grid is decoration: near-neutral (grey/black/white), low chroma. A
+    SATURATED colour means the "grid" lines are actually data strokes that merely
+    happened to fall on the ticks (e.g. an antisymmetric curve crossing y=0 and a
+    couple of plateaux), so emitting them as a grid is a false positive. Black /
+    grey reference rules have zero chroma and are unaffected by this gate."""
+    if c is None:
+        return False
+    return (max(c) - min(c)) > _CHROMA_MAX
 
 
 def _union_fraction(intervals: list[tuple[float, float]], dim: float) -> float:
@@ -139,6 +154,12 @@ def detect_grid(region: Region, paths: list[Path],
     best = max(counts, key=lambda k: (counts[k], _is_grey(k[0]) if k[0] else False))
     ref = next(s for s in members if _key(s) == best)
     grid["color"] = list(ref["stroke"]) if ref["stroke"] else None
+    # Precision guard: a grid is decoration and is near-neutral. A saturated
+    # chromatic colour means these "lines" are data strokes that merely landed on
+    # the ticks (data-coloured magenta on 2507.19945 / 2001.01928), so reject the
+    # whole grid rather than draw spurious full-span coloured rules.
+    if _is_chromatic(grid["color"]):
+        return None
     grid["linewidth"] = ref["width"]
     grid["dashes"] = ref["dashes"]
     # Grid transparency: many grids are drawn faint via a low stroke opacity, not

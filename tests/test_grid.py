@@ -70,6 +70,24 @@ def test_dark_lines_off_ticks_not_grid():
     assert detect_grid(_region(paths), paths, y_ticks=[133.0, 167.0, 201.0]) is None
 
 
+def test_chromatic_gridlines_rejected():
+    # 2507.19945 / 2001.01928-style: data-coloured (saturated magenta) full-span
+    # strokes that fall on ticks must NOT be emitted as a grid -- a real grid is
+    # near-neutral, so a chromatic colour is a data false positive.
+    ys = (140, 180, 220, 260)
+    paths = [_line(110, y, 290, y, stroke=(0.70, 0.0, 0.70)) for y in ys]
+    assert detect_grid(_region(paths), paths, y_ticks=list(ys)) is None
+
+
+def test_neutral_grey_grid_still_kept_with_ticks():
+    # No-regression companion to the chromatic-rejection test: a genuine grey grid
+    # on the same tick positions is still recovered.
+    ys = (140, 180, 220, 260)
+    paths = [_line(110, y, 290, y, stroke=(0.8, 0.8, 0.8)) for y in ys]
+    grid = detect_grid(_region(paths), paths, y_ticks=list(ys))
+    assert grid and grid.get("y") and grid["color"] == [0.8, 0.8, 0.8]
+
+
 def test_records_grid_line_positions():
     ys = (140, 180, 220, 260)
     paths = [_line(110, y, 290, y) for y in ys]
