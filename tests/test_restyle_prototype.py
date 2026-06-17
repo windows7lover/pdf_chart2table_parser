@@ -269,8 +269,9 @@ def _mini_record_style():
     style = {"series": [{"color": [0.0, 0.0, 0.0], "label": None}],
              "x_axis": {"title": "X", "ticks": []},
              "y_axis": {"title": "Y", "ticks": []},
-             "text": {"base_font_size": 10.0, "x_title_font_size": 10.0,
-                      "y_title_font_size": 10.0}}
+             "text": {"base_font_size": 10.0,
+                      "elements": {"x_title": {"size": 10.0},
+                                   "y_title": {"size": 10.0}}}}
     return record, style
 
 
@@ -324,6 +325,32 @@ def test_font_scale_multiplies_recovered_label_size():
     fig, ax = plt.subplots()
     _replot(ax, record, style, font_scale=2.5)   # a larger panel -> bigger fonts
     assert ax.xaxis.label.get_size() == 25.0
+    plt.close(fig)
+
+
+def test_text_element_color_applied_to_labels_and_ticks():
+    # Unified elements drive colour for axis titles + tick labels (all text).
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    style["text"]["elements"] = {
+        "x_title": {"size": 10.0, "color": [1.0, 0.0, 0.0]},   # red
+        "y_title": {"size": 10.0, "color": [0.0, 0.0, 1.0]},   # blue
+        "ticks": {"size": 8.0, "color": [0.0, 0.5, 0.0]},      # green
+    }
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert ax.xaxis.label.get_color() == (1.0, 0.0, 0.0)
+    assert ax.yaxis.label.get_color() == (0.0, 0.0, 1.0)
+    assert ax.get_xticklabels()[0].get_color() == (0.0, 0.5, 0.0)
+    plt.close(fig)
+
+
+def test_text_element_no_color_defaults_black():
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()  # elements x/y_title have no colour
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert ax.xaxis.label.get_color() == "black"
     plt.close(fig)
 
 

@@ -1102,6 +1102,37 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     tick_bold = bool(tick_spans) and \
         sum(_is_bold(s) for s in tick_spans) >= len(tick_spans) / 2
 
+    # UNIFIED per-element text style: every text element (title, axis titles,
+    # ticks) carries the SAME properties -- size, colour, bold, italic, per-token
+    # runs and rotation -- recovered from its source spans. This replaces the
+    # scattered *_font_size / *_bold / *_runs fields (annotations + legend already
+    # carry their own colour). The renderer applies it through one code path.
+    def _elem(text):
+        grp = find_group(text)
+        s = grp[0] if grp else find(text)
+        if s is None:
+            return None
+        return {
+            "size": size_of(text),
+            "color": _group_color(grp) if grp else (
+                list(s["color"]) if s.get("color") else None),
+            "bold": bold_of(text),
+            "italic": italic_of(text),
+            "runs": runs_of(text),
+            "rotation": _text_rotation(s.get("dir")),
+        }
+    elements = {
+        "title": _elem(title_text),
+        "x_title": _elem(axis_titles.get("x")),
+        "y_title": _elem(axis_titles.get("y")),
+        "ticks": {"size": round(tick_size, 2) if tick_size else None,
+                  "color": _group_color(tick_spans),
+                  "bold": tick_bold},
+    }
+    for _ax in ("x_title", "y_title"):
+        if elements[_ax]:
+            elements[_ax]["pos"] = label_pos(axis_titles.get(_ax[0]))
+
     # FAKE-TITLE GUARD. The record's title may be a fragment of an in-plot caption
     # the extractor mis-promoted (e.g. "ns; Repetition Frequency = MHz"). A real
     # chart title is ONE coherent grouped span near the TOP-CENTER and ABOVE the
@@ -1137,26 +1168,14 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         "font_family": _classify_family(fonts),
         "font_face": _classify_face(fonts),
         "base_font_size": round(base, 2) if base else None,
-        "tick_font_size": round(tick_size, 2) if tick_size else None,
-        "tick_bold": tick_bold,
-        "title_font_size": size_of(title_text),
-        "title_bold": bold_of(title_text),
-        "x_title_font_size": size_of(axis_titles.get("x")),
-        "x_title_bold": bold_of(axis_titles.get("x")),
-        "x_title_italic": italic_of(axis_titles.get("x")),
-        "x_title_runs": runs_of(axis_titles.get("x")),
-        "y_title_font_size": size_of(axis_titles.get("y")),
-        "y_title_bold": bold_of(axis_titles.get("y")),
-        "y_title_italic": italic_of(axis_titles.get("y")),
-        "y_title_runs": runs_of(axis_titles.get("y")),
-        "title_italic": italic_of(title_text),
-        "title_runs": runs_of(title_text),
-        "x_label_pos": label_pos(axis_titles.get("x")),
-        "y_label_pos": label_pos(axis_titles.get("y")),
+        # Per-element text style (size/color/bold/italic/runs/rotation/pos) lives
+        # in `elements`; the legacy flat *_font_size/*_bold/*_runs fields were
+        # consolidated there (the renderer reads only `elements`).
         "show_legend": show_legend,
         "legend": legend,
         "annotations": annotations,  # in-graph text, NOT data or legend
         "title_ok": title_ok,        # title corroborated by a top-center span
+        "elements": elements,        # unified per-element text style (color etc.)
     }
 
 

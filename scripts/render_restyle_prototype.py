@@ -504,30 +504,43 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
         axis_obj.set_major_formatter(
             FuncFormatter(lambda x, pos=None: lut.get(round(x, 9)) or _plain_num(x)))
 
+    # Unified per-element text style (title / axis titles / ticks), recovered
+    # from the source spans: size, colour, bold, italic, per-token runs, rotation.
+    elems = txt.get("elements") or {}
+
+    def _ecolor(name):
+        e = elems.get(name)
+        return _color(e.get("color")) if e and e.get("color") else None
+
+    def _label_kwargs(name):
+        """matplotlib text kwargs for an axis-title element (one code path)."""
+        e = elems.get(name) or {}
+        runs = e.get("runs")
+        return runs, {
+            "fontsize": _fs(e.get("size")) or _fs(base_fs),
+            "fontweight": _w(e.get("bold")),
+            "color": _ecolor(name) or "black",
+            "fontstyle": "normal" if runs else _i(e.get("italic")),
+        }
     if xa:
         _apply_ticks(ax, "x", xa.get("ticks"), x_scale, xa.get("data_range"))
         _plain_linear(ax.xaxis, x_scale, xa.get("ticks"))
-        xr_runs = txt.get("x_title_runs")
-        ax.set_xlabel(_compose_runs(xr_runs) if xr_runs else L(xa.get("title") or ""),
-                      fontsize=_fs(txt.get("x_title_font_size")) or _fs(base_fs),
-                      fontweight=_w(txt.get("x_title_bold")),
-                      fontstyle="normal" if xr_runs else _i(txt.get("x_title_italic")))
-        p = txt.get("x_label_pos")  # only a plausibly-placed x label
+        xr, xkw = _label_kwargs("x_title")
+        ax.set_xlabel(_compose_runs(xr) if xr else L(xa.get("title") or ""), **xkw)
+        p = (elems.get("x_title") or {}).get("pos")  # only a plausibly-placed label
         if p and 0.2 <= p[0] <= 0.8 and -0.35 <= p[1] <= 0.02:
             ax.xaxis.set_label_coords(p[0], p[1])
     if ya:
         _apply_ticks(ax, "y", ya.get("ticks"), y_scale, ya.get("data_range"))
         _plain_linear(ax.yaxis, y_scale, ya.get("ticks"))
-        yr_runs = txt.get("y_title_runs")
-        ax.set_ylabel(_compose_runs(yr_runs) if yr_runs else L(ya.get("title") or ""),
-                      fontsize=_fs(txt.get("y_title_font_size")) or _fs(base_fs),
-                      fontweight=_w(txt.get("y_title_bold")),
-                      fontstyle="normal" if yr_runs else _i(txt.get("y_title_italic")))
-        p = txt.get("y_label_pos")
+        yr, ykw = _label_kwargs("y_title")
+        ax.set_ylabel(_compose_runs(yr) if yr else L(ya.get("title") or ""), **ykw)
+        p = (elems.get("y_title") or {}).get("pos")
         if p and -0.35 <= p[0] <= 0.02 and 0.2 <= p[1] <= 0.8:
             ax.yaxis.set_label_coords(p[0], p[1])
-    if _fs(txt.get("tick_font_size")):
-        ax.tick_params(labelsize=txt["tick_font_size"] * font_scale)
+    _tsize = (elems.get("ticks") or {}).get("size")
+    if _fs(_tsize):
+        ax.tick_params(labelsize=_tsize * font_scale)
     # match the original axis frame / tick line weight
     alw = style.get("axis_linewidth")
     if alw:
@@ -539,6 +552,11 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
         for sp in ax.spines.values():
             sp.set_edgecolor(acol)
         ax.tick_params(axis="both", which="both", color=acol, labelcolor=acol)
+    # Tick-LABEL colour from the recovered tick text (more faithful than the spine
+    # colour for the digits); applied last so it wins when present.
+    _tc = _ecolor("ticks")
+    if _tc:
+        ax.tick_params(axis="both", which="both", labelcolor=_tc)
     # match the original tick appearance, all parser-sourced where possible:
     # per-axis direction (in/out) and tick LENGTH; minor ticks were already placed
     # at their detected positions by _apply_ticks. Top/right presence is heuristic.
@@ -575,7 +593,7 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
                 sp.set_capstyle("round")
             except (AttributeError, ValueError):
                 pass
-    if txt.get("tick_bold"):
+    if (elems.get("ticks") or {}).get("bold"):
         for lb in ax.get_xticklabels() + ax.get_yticklabels():
             lb.set_fontweight("bold")
     # in-graph text annotations (recovered text that is NOT data or legend)
@@ -769,9 +787,12 @@ def _recon_figure(record, style, tex=False):
     title = style.get("title")
     if title:
         t = style.get("text") or {}
+        te = (t.get("elements") or {}).get("title") or {}
+        tcol = _color(te.get("color")) if te.get("color") else None
         ax.set_title(_latexify(title) if tex else title,
-                     fontsize=t.get("title_font_size"),
-                     fontweight="bold" if t.get("title_bold") else "normal")
+                     fontsize=te.get("size"),
+                     color=tcol or "black",
+                     fontweight="bold" if te.get("bold") else "normal")
     return fig
 
 
@@ -897,7 +918,8 @@ def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None,
     arr, clip, dpi = _original_image(record)
     txt = style.get("text") or {}
     title = style.get("title")
-    tfs = txt.get("title_font_size")
+    _te = (txt.get("elements") or {}).get("title") or {}
+    tfs = _te.get("size")
     rc = {}
     if txt.get("font_family"):
         rc["font.family"] = txt["font_family"]
@@ -936,7 +958,7 @@ def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None,
         _draw_residual(a3, arr, clip, dpi, resid)
         if title:
             fig.suptitle(title, fontsize=(tfs * png_font_scale if tfs else None),
-                         fontweight="bold" if txt.get("title_bold") else "normal")
+                         fontweight="bold" if _te.get("bold") else "normal")
         fig.tight_layout(); fig.savefig(out_png, dpi=110); plt.close(fig)
 
         # EPS: pure-vector reconstruction at physical scale
