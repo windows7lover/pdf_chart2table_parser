@@ -32,6 +32,7 @@ import argparse
 import csv
 import io
 import json
+import math
 import os
 import random
 import re
@@ -299,6 +300,45 @@ def _use_axis_multiplier(values):
     return mx > 0 and (mx >= 1e4 or mx < 1e-2)
 
 
+def _source_multiplier_exp(ticks):
+    """The ×10ⁿ exponent the SOURCE factored into its axis header, recovered from
+    the labelled ticks: a tick labelled ``"-900"`` carrying value ``-900000`` was
+    drawn under a ``×10³`` header (value / label-mantissa == 10³). Returns the
+    integer exponent when ALL labelled ticks agree on it, else None (so the
+    caller falls back to matplotlib's auto-chosen offset).
+
+    This reproduces the original's offset exponent instead of letting
+    ``ScalarFormatter`` pick its own (e.g. ``×10⁵`` with mantissa ``-9`` for the
+    same -900000 data -- a 100x-looking magnitude shift, the 2004.12366 bug)."""
+    exps = set()
+    for t in (ticks or []):
+        v = t.get("value")
+        lbl = t.get("label")
+        if v is None or v == 0 or lbl is None:
+            continue
+        # Parse the original label's printed mantissa (e.g. "-900"); the recovered
+        # ``value`` is that mantissa already multiplied by the source's ×10ⁿ
+        # header, so value / mantissa recovers n.
+        s = str(lbl).strip()
+        tt = (s.replace("−", "-").replace("—", "-")
+              .replace("×", "x").replace("·", "").replace(" ", ""))
+        m = re.fullmatch(
+            r"([-+]?(?:\d+\.?\d*|\.\d+))(?:[xX]10\^?\{?\(?([-+]?\d+)\}?\)?)?", tt)
+        if not m:
+            return None
+        mant = float(m.group(1)) * (10.0 ** int(m.group(2))) if m.group(2) else float(m.group(1))
+        if mant == 0:
+            continue
+        ratio = v / mant
+        e = round(math.log10(abs(ratio)))
+        if abs(abs(ratio) - 10.0 ** e) > 1e-6 * abs(ratio):
+            return None  # ratio is not a clean power of ten
+        exps.add(e)
+    if len(exps) == 1:
+        return exps.pop()
+    return None
+
+
 def _apply_ticks(ax, axis, ticks, scale, data_range=None):
     """Place the parser's DETECTED ticks: labeled ones as MAJOR (matplotlib
     formats the labels -- extracted label strings are often mangled), and the
@@ -488,7 +528,21 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
         # (mantissa ticks + a multiplier label) instead of full/scientific values.
         if _use_axis_multiplier(vals):
             from matplotlib.ticker import ScalarFormatter
-            fmt = ScalarFormatter(useMathText=True)
+            # Reproduce the SOURCE's factored ×10ⁿ exponent (from the recovered
+            # labels) rather than matplotlib's auto-chosen one: data to -900000
+            # drawn as ×10³ (mantissa -900) must NOT be re-offset as ×10⁵
+            # (mantissa -9). When the source exponent isn't recoverable, fall
+            # back to matplotlib's default offset choice.
+            src_exp = _source_multiplier_exp(ticks)
+
+            class _PinnedSF(ScalarFormatter):
+                def _set_order_of_magnitude(self):
+                    if src_exp is not None:
+                        self.orderOfMagnitude = src_exp
+                    else:
+                        super()._set_order_of_magnitude()
+
+            fmt = _PinnedSF(useMathText=True)
             fmt.set_scientific(True)
             fmt.set_powerlimits((-2, 4))
             axis_obj.set_major_formatter(fmt)

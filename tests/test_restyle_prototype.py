@@ -19,8 +19,8 @@ from render_restyle_prototype import (  # noqa: E402
     _dash_is_dotted, _metric_font_rc, _resolve_font,
     _compose_runs, _draw_residual, _effective_scale, _faithful_tick_label,
     _group_color, _group_spans, _is_italic, _join_group, _label_match,
-    _marker_shape, _math_italic, _norm, _plain_num, _span_color,
-    _threads_markers, _ticks_in_range, _use_axis_multiplier)
+    _marker_shape, _math_italic, _norm, _plain_num, _source_multiplier_exp,
+    _span_color, _threads_markers, _ticks_in_range, _use_axis_multiplier)
 
 from pdf_chart2table.model import Path  # noqa: E402
 from pdf_chart2table.style import (  # noqa: E402
@@ -563,6 +563,54 @@ def test_axis_multiplier_only_for_extreme_magnitudes():
     assert not _use_axis_multiplier([0.0, 0.5, 1.0])
     assert not _use_axis_multiplier([0.0, 100.0, 500.0])
     assert not _use_axis_multiplier([])
+
+
+def test_source_multiplier_exp_recovers_factored_exponent():
+    # 2004.12366_p12c1: labels "-100".."-900" carry values -100000..-900000, so
+    # the source factored a ×10^3 header (value / label-mantissa == 10^3). The
+    # renderer must reproduce ×10^3 (mantissa -900), NOT let ScalarFormatter pick
+    # its own ×10^5 (mantissa -9) -- a 100x-looking magnitude shift.
+    ticks = [{"value": -100000.0 * k, "label": f"−{100 * k}"}
+             for k in range(1, 10)]
+    ticks.insert(0, {"value": 0.0, "label": "0"})
+    assert _source_multiplier_exp(ticks) == 3
+    # ×10^-4 header: labels ".2 .4" carry values 2e-5 4e-5 -> exponent -4.
+    assert _source_multiplier_exp(
+        [{"value": 2e-5, "label": ".2"}, {"value": 4e-5, "label": ".4"}]) == -4
+    # No factoring (label matches value) -> exponent 0.
+    assert _source_multiplier_exp(
+        [{"value": 2e4, "label": "20000"}, {"value": 4e4, "label": "40000"}]) == 0
+    # Disagreement / non-power-of-ten ratio -> None (fall back to auto offset).
+    assert _source_multiplier_exp(
+        [{"value": -100000.0, "label": "−100"},
+         {"value": -2.0, "label": "−2"}]) is None
+    assert _source_multiplier_exp([]) is None
+
+
+def test_render_reproduces_source_axis_multiplier_exponent():
+    # End-to-end: a y-axis with -900000-magnitude data whose source labels were
+    # mantissas under a ×10^3 header must render the ×10^3 offset text (mantissa
+    # ticks 0..-900), not matplotlib's auto ×10^5 (0..-9).
+    from render_restyle_prototype import _replot, plt
+    yticks = [{"pixel": float(i), "value": -100000.0 * i,
+               "label": ("0" if i == 0 else f"−{100 * i}")}
+              for i in range(0, 10)]
+    record = {"series": [{"points": [{"x": 0.0, "y": 0.0},
+                                     {"x": 1.0, "y": -900000.0}]}],
+              "x_axis": {"data_range": [0.0, 1.0]},
+              "y_axis": {"data_range": [0.0, -900000.0]},
+              "xticks": [], "yticks": yticks}
+    style = {"series": [{"color": [0.0, 0.0, 0.0], "label": None}],
+             "x_axis": {"title": "X", "ticks": []},
+             "y_axis": {"title": "Y", "ticks": yticks},
+             "text": {"base_font_size": 10.0,
+                      "elements": {"x_title": {"size": 10.0},
+                                   "y_title": {"size": 10.0}}}}
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    fig.canvas.draw()  # force the formatter to compute its offset/order
+    assert ax.yaxis.get_major_formatter().orderOfMagnitude == 3
+    plt.close(fig)
 
 
 # --- span grouping (multi-token annotations merged into one coherent label) ---
