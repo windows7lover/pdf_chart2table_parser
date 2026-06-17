@@ -756,6 +756,24 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
                 c = want.get(t.get_text())
                 if c is not None:
                     t.set_color(c)
+        # The recovered anchor is the original's TEXT-block centre, but loc="center"
+        # centres the whole box (handle + text), so the text lands ~half a handle to
+        # the RIGHT (2001.01801 'Parallel'/'109° align.' shifted off the left spine).
+        # Measure the rendered text block and shift the legend so its TEXT centre
+        # sits on the anchor -- aligning the labels with the source regardless of the
+        # renderer's handle/pad widths.
+        anc = (leg or {}).get("anchor")
+        if legend_obj is not None and anc and kw.get("loc") == "center":
+            ax.figure.canvas.draw()
+            ext = [t.get_window_extent() for t in legend_obj.get_texts()]
+            if ext:
+                inv = ax.transAxes.inverted()
+                lo = inv.transform((min(e.x0 for e in ext), min(e.y0 for e in ext)))
+                hi = inv.transform((max(e.x1 for e in ext), max(e.y1 for e in ext)))
+                dx = anc[0] - (lo[0] + hi[0]) / 2
+                dy = anc[1] - (lo[1] + hi[1]) / 2
+                legend_obj.set_bbox_to_anchor((anc[0] + dx, anc[1] + dy),
+                                              transform=ax.transAxes)
 
 
 def _original_image(record):
