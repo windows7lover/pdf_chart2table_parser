@@ -126,6 +126,16 @@ def _dashes_str(d) -> str | None:
     return s
 
 
+def _is_round_cap(lc) -> bool:
+    """fitz reports lineCap as an int or a 3-tuple (start/mid/end); PDF cap 1 =
+    round. Treat the path as round-capped when its (first) cap is 1."""
+    if lc is None:
+        return False
+    if isinstance(lc, (tuple, list)):
+        return bool(lc) and lc[0] == 1
+    return lc == 1
+
+
 def load_page(page: fitz.Page) -> tuple[list[Path], list[TextSpan]]:
     """Return (paths, texts) for a single fitz page."""
     paths: list[Path] = []
@@ -144,6 +154,7 @@ def load_page(page: fitz.Page) -> tuple[list[Path], list[TextSpan]]:
                 bbox=_bbox_of(pts),
                 stroke_alpha=_alpha(d.get("stroke_opacity")),
                 fill_alpha=_alpha(d.get("fill_opacity")),
+                round_cap=_is_round_cap(d.get("lineCap")),
             )
         )
 

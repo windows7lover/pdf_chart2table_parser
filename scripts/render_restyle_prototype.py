@@ -357,6 +357,10 @@ def _axis_view(record, style, which):
 def _replot(ax, record, style, tex=False, font_scale=1.0):
     """Draw the extracted data into ``ax`` in the original's style."""
     L = _latexify if tex else (lambda x: x)
+    # Round line caps recovered from the source (PDF lineCap 1): thick lines get
+    # rounded ends instead of matplotlib's default projecting/butt caps.
+    _capkw = ({"solid_capstyle": "round", "dash_capstyle": "round"}
+              if style.get("round_caps") else {})
     has_label = False
     for ser, st in zip(record["series"], style["series"]):
         pts = ser["points"]
@@ -389,7 +393,7 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
             if st.get("connect"):
                 ax.plot(xs, ys, color=col, alpha=alpha,
                         linewidth=(st.get("linewidth") or 0.8) * font_scale,
-                        linestyle=ls, zorder=1)
+                        linestyle=ls, zorder=1, **_capkw)
             # FACE / EDGE colour + EDGE width are recovered independently. A None
             # face = open marker (no fill). Fall back to the series colour.
             face = _color(st.get("marker_face"))
@@ -401,7 +405,8 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
                        linewidths=(ew * font_scale if ew else None))
         else:
             ax.plot(xs, ys, color=col, alpha=alpha, label=lab,
-                    linewidth=(st.get("linewidth") or 1.2) * font_scale, linestyle=ls)
+                    linewidth=(st.get("linewidth") or 1.2) * font_scale,
+                    linestyle=ls, **_capkw)
         # Recovered per-point error bars (vertical whiskers): draw the bars only
         # (fmt="none"), on top of the markers/line already drawn above.
         yerr = [p.get("y_err") for p in pts]
@@ -560,6 +565,16 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
     if y_len:
         ax.tick_params(axis="y", which="major", length=round(max(y_len, _tmin), 2))
         ax.tick_params(axis="y", which="minor", length=round(0.6 * max(y_len, _tmin), 2))
+    # Round the tick marks + spines too when the source used round caps, so the
+    # short tick bars match the rounded line ends (2001.01038_p13c4).
+    if style.get("round_caps"):
+        for ln in ax.get_xticklines() + ax.get_yticklines():
+            ln.set_solid_capstyle("round")
+        for sp in ax.spines.values():
+            try:
+                sp.set_capstyle("round")
+            except (AttributeError, ValueError):
+                pass
     if txt.get("tick_bold"):
         for lb in ax.get_xticklabels() + ax.get_yticklabels():
             lb.set_fontweight("bold")

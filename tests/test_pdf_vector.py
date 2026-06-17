@@ -6,9 +6,19 @@ import fitz
 import pytest
 
 from conftest import fixture_names, pdf_path
-from pdf_chart2table.pdf_vector import _alpha, load_page, load_pdf
+from pdf_chart2table.pdf_vector import _alpha, _is_round_cap, load_page, load_pdf
 
 ALL_FIXTURES = fixture_names()
+
+
+def test_is_round_cap():
+    # fitz reports lineCap as a 3-tuple (start/mid/end) or an int; PDF cap 1 = round.
+    assert _is_round_cap((1, 1, 1)) is True
+    assert _is_round_cap(1) is True
+    assert _is_round_cap((0, 0, 0)) is False  # butt cap
+    assert _is_round_cap((2, 2, 2)) is False  # projecting square
+    assert _is_round_cap(None) is False
+    assert _is_round_cap(()) is False
 
 
 def test_alpha_normalization():

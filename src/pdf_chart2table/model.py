@@ -38,6 +38,9 @@ class Path:
     # shaded regions / CI bands / markers re-render with the right alpha.
     stroke_alpha: float | None = None
     fill_alpha: float | None = None
+    # True when the source stroked this path with ROUND line caps (PDF lineCap 1).
+    # Recovered so thick lines / ticks re-render with rounded ends, not butt caps.
+    round_cap: bool = False
 
 
 @dataclass

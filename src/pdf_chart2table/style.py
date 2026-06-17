@@ -487,9 +487,16 @@ def match_series_styles(paths, region_bbox, series):
             "rounded": bool(rounded),
         }
         break
+    # Round line caps: a graphics-state choice the source applies to ALL strokes
+    # (thick lines + tick marks get rounded ends, not butt). Recover it as one
+    # global flag when the majority of genuine in-region strokes are round-capped
+    # -> the renderer rounds line/marker/tick caps to match (2001.01038_p13c4).
+    capped = [p for p in inreg if p.stroke is not None and p.width]
+    round_caps = bool(capped) and sum(p.round_cap for p in capped) > 0.5 * len(capped)
     meta = {"axis_linewidth": _median(spine_w),
             "axis_color": axis_color,
             "ticks": recover_tick_style(inreg, region_bbox),
+            "round_caps": round_caps,
             "legend_box": legend_frame is not None,
             "legend_frame": legend_frame}
     return out, meta
@@ -1264,6 +1271,7 @@ def build_chart_style(d: dict, page, fitz_page) -> dict:
     if alw:
         style["axis_linewidth"] = round(min(3.0, max(0.2, alw)), 2)
     style["ticks_style"] = meta.get("ticks")
+    style["round_caps"] = meta.get("round_caps", False)
     style["legend_box"] = meta.get("legend_box", False)
     style["legend_frame"] = meta.get("legend_frame")  # border/fill/corner style
     style["axis_color"] = meta.get("axis_color")  # coloured axes/frame (None=black)

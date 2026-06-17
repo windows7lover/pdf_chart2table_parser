@@ -96,3 +96,24 @@ def test_no_legend_frame_without_box():
     _, meta = match_series_styles([curve], REGION, [])
     assert meta["legend_box"] is False
     assert meta["legend_frame"] is None
+
+
+# --- global round_caps flag: majority of stroked in-region paths round-capped --
+def _stroked(round_cap):
+    pts = [(20.0 + i, 100.0) for i in range(30)]
+    return Path(points=pts, stroke=(0, 0, 0), fill=None, width=1.0, dashes=None,
+                closed=False, bbox=(20.0, 100.0, 49.0, 100.0),
+                round_cap=round_cap)
+
+
+def test_round_caps_flag_majority():
+    # 3 round-capped vs 1 butt -> majority round -> flag True
+    paths = [_stroked(True), _stroked(True), _stroked(True), _stroked(False)]
+    _, meta = match_series_styles(paths, REGION, [])
+    assert meta["round_caps"] is True
+
+
+def test_round_caps_flag_minority_stays_false():
+    paths = [_stroked(True), _stroked(False), _stroked(False)]
+    _, meta = match_series_styles(paths, REGION, [])
+    assert meta["round_caps"] is False
