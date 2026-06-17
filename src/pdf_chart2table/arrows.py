@@ -70,12 +70,28 @@ def _is_head(p: Path, diag: float) -> bool:
     return _aspect(p.bbox) <= 0.5
 
 
+def _line_thickness(pts) -> float:
+    """Max perpendicular deviation of the points from the first->last chord.
+
+    A straight shaft (a single segment, or a near-collinear polyline) has a
+    near-zero deviation regardless of its ORIENTATION; the bbox min-dimension
+    does not -- a diagonal segment has a large bbox in both axes yet is still a
+    thin 1-D line. Measuring deviation from the chord catches diagonal shafts
+    that the bbox test wrongly rejected."""
+    a, b = pts[0], pts[-1]
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    seg = (dx * dx + dy * dy) ** 0.5
+    if seg == 0:
+        return max((abs(q[0] - a[0]) + abs(q[1] - a[1])) for q in pts)
+    return max(abs((q[0] - a[0]) * dy - (q[1] - a[1]) * dx) / seg for q in pts)
+
+
 def _is_shaft(p: Path, headsz: float, diag: float) -> bool:
     """A thin, open, roughly-straight segment long enough to be an arrow shaft."""
     b = p.bbox
     if p.fill is not None or not (2 <= len(p.points) <= 8):
         return False
-    if min(b[2] - b[0], b[3] - b[1]) >= 2.5:  # must be thin (near-1D)
+    if _line_thickness(p.points) >= 2.5:  # must be thin/near-straight (near-1D)
         return False
     return headsz * 0.8 < _bmax(b) < 0.6 * diag
 
@@ -87,12 +103,15 @@ def detect_arrows(region: Region, paths: list[Path]):
         return set(), []
     diag = _bmax(region.bbox) or 1.0
     heads = [(i, paths[i]) for i in idxs if _is_head(paths[i], diag)]
-    # Arrows are rare (a handful per chart). Many small filled triangles are a
-    # MARKER series, not arrowheads -- bail out rather than risk deleting data.
-    if len(heads) > 3:
-        return set(), []
+    # A head BACKED BY A SEPARATE MATCHED SHAFT is a strong, unambiguous arrow
+    # signal -- recovered with no upper limit. A head with NO shaft (a bare
+    # triangle, or a single-polygon patch identified by its outline alone) is
+    # ambiguous: it is the exact shape of a triangle MARKER. So we tally those
+    # "unconfirmed" heads and, if there are many, treat them as a marker series
+    # and drop them -- preserving the original guard against deleting data.
     used: set[int] = set()
-    records: list[dict] = []
+    confirmed: list[tuple[set[int], dict]] = []
+    unconfirmed: list[tuple[set[int], dict]] = []
     for hi, hp in heads:
         if hi in used:
             continue
@@ -115,17 +134,38 @@ def detect_arrows(region: Region, paths: list[Path]):
             sp = paths[best]
             tail = max((sp.points[0], sp.points[-1]),
                        key=lambda e: abs(e[0] - hc[0]) + abs(e[1] - hc[1]))
+            bucket = confirmed
+            owned = {hi, best}
         elif len(_distinct(hp.points)) >= 10:
             # single-polygon arrow (head+shaft drawn as one curved patch): the
             # complex outline alone identifies it -- no separate shaft to match.
             used.add(hi)
             tip = max(hp.points, key=lambda e: abs(e[0] - hc[0]) + abs(e[1] - hc[1]))
             tail = tip
+            bucket = unconfirmed
+            owned = {hi}
         else:
-            continue  # a bare simple triangle with no shaft -> likely a marker
-        records.append({
+            # a bare simple triangle with no shaft -> almost certainly a marker;
+            # never recorded, but it does count toward the marker-series guard.
+            unconfirmed.append((set(), None))
+            continue
+        bucket.append((owned, {
             "tail_px": [round(tail[0], 2), round(tail[1], 2)],
             "head_px": [round(hc[0], 2), round(hc[1], 2)],
             "color": list(hp.fill) if hp.fill else None,
-        })
-    return used, records
+        }))
+    # Arrows are rare (a handful per chart). Many UNCONFIRMED heads (no matched
+    # shaft) are a triangle-MARKER series, not arrowheads -- drop them rather
+    # than risk deleting data. Complete shaft+head arrows always survive.
+    out_used: set[int] = set()
+    records: list[dict] = []
+    for owned, rec in confirmed:
+        out_used |= owned
+        records.append(rec)
+    if len(unconfirmed) <= 3:
+        for owned, rec in unconfirmed:
+            if rec is None:
+                continue
+            out_used |= owned
+            records.append(rec)
+    return out_used, records

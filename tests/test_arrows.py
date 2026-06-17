@@ -104,6 +104,71 @@ def test_glyphs_do_not_trip_head_bail_and_drop_arrow():
     assert idxs == {0, 1}
 
 
+def _diag_arrow(head_tip, tail, *, w=3.0, h=4.0):
+    """An arrow whose shaft is a DIAGONAL 2-point segment from ``tail`` to the
+    arrowhead at ``head_tip``. The head is a small filled triangle; the shaft is
+    a single straight segment whose bbox is large in BOTH axes (it is diagonal)
+    yet is geometrically thin (a 1-D line)."""
+    cx, cy = head_tip
+    head = _path([(cx - w / 2, cy - h), (cx + w / 2, cy - h), (cx, cy),
+                  (cx - w / 2, cy - h)], fill=(0.0, 0.0, 0.0))
+    shaft = _path([tail, (cx, cy)], stroke=(0.0, 0.0, 0.0))
+    return shaft, head
+
+
+def test_five_diagonal_arrows_all_recovered():
+    """Five complete shaft+head arrows with DIAGONAL shafts (inline labels
+    pointing to curves, as on 2109.05382 p5c3) are ALL recovered -- the head
+    count is no longer bailed once each head has a matched shaft, and a diagonal
+    shaft is no longer rejected by a bbox-min-dimension thinness test."""
+    paths = []
+    tips = [(180.0, 180.0), (200.0, 155.0), (230.0, 140.0),
+            (235.0, 112.0), (250.0, 88.0)]
+    for cx, cy in tips:
+        shaft, head = _diag_arrow((cx, cy), (cx - 45.0, cy - 28.0))
+        paths += [shaft, head]
+    region = Region(bbox=(84.0, 61.0, 285.0, 193.0),
+                    path_indices=list(range(len(paths))), text_indices=[])
+    idxs, recs = detect_arrows(region, paths)
+    assert len(recs) == 5
+    # every path (5 shafts + 5 heads) is flagged for removal from the data.
+    assert idxs == set(range(len(paths)))
+
+
+def test_many_bare_heads_still_bail_as_markers():
+    """A triangle-MARKER series: many small filled triangles with NO shaft.
+    Each is a bare head; more than three bare heads trips the marker guard, so
+    NOTHING is recorded (the markers stay as data, not deleted as arrows)."""
+    heads = [_arrowhead((150.0 + 20 * i, 200.0)) for i in range(6)]
+    region = Region(bbox=(120.0, 100.0, 400.0, 300.0),
+                    path_indices=list(range(len(heads))), text_indices=[])
+    idxs, recs = detect_arrows(region, heads)
+    assert recs == []
+    assert idxs == set()
+
+
+def test_many_complete_arrows_not_bailed_but_bare_heads_are():
+    """Discriminator: five COMPLETE shaft+head arrows are recovered even with
+    several extra BARE heads present, until the bare-head count alone exceeds
+    the marker guard -- then only the bare (unconfirmed) heads are dropped while
+    the complete arrows survive."""
+    paths = []
+    tips = [(180.0, 180.0), (200.0, 155.0), (230.0, 140.0),
+            (235.0, 112.0), (250.0, 88.0)]
+    for cx, cy in tips:
+        shaft, head = _diag_arrow((cx, cy), (cx - 45.0, cy - 28.0))
+        paths += [shaft, head]
+    n_complete = len(paths)
+    # three bare heads (no shaft): within the guard, so they do not bail the
+    # complete arrows -- but being unconfirmed they are not recorded either.
+    paths += [_arrowhead((120.0 + 15 * i, 250.0)) for i in range(3)]
+    region = Region(bbox=(84.0, 61.0, 300.0, 300.0),
+                    path_indices=list(range(len(paths))), text_indices=[])
+    idxs, recs = detect_arrows(region, paths)
+    assert len(recs) == 5
+    assert idxs == set(range(n_complete))
+
+
 def test_cli_persists_arrows_in_data_coords(tmp_path):
     """parse_pdf must store each detected arrow's tip/tail in DATA coords."""
     import json
