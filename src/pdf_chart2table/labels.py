@@ -1092,6 +1092,9 @@ def _detect_inline_labels(
 
     seen: set[tuple[Color, str]] = set()
     out: list[tuple[str, Color | None, str]] = []
+    # Left edges + font sizes of the accepted colored anchors, used to extend the
+    # column to a same-style BLACK label (see the second pass below).
+    anchors: list[tuple[float, float]] = []  # (left edge x, font size)
     order = sorted(range(len(texts)),
                    key=lambda i: (round(_cy(texts[i].bbox) / _ROW_BIN), texts[i].bbox[0]))
     used: set[int] = set()
@@ -1125,7 +1128,44 @@ def _detect_inline_labels(
             continue
         seen.add(key)
         out.append(("line", matched_pc, label))
+        anchors.append((t.bbox[0], _eff_size(t)))
         used |= consumed
+
+    # Second pass: extend the column to a BLACK inline label. A black series drawn
+    # alongside coloured ones is labelled in plain black text (TextSpan.color is
+    # None), which the colour-keyed pass above can never match (2005.13879_p3c3:
+    # "θ = 21.8°" for the black curve). We admit a black span ONLY when it slots
+    # cleanly into the column already confirmed by ≥2 coloured labels: same left
+    # edge and font size, same "enough alnum, not a bare number" shape. The strict
+    # column geometry is what keeps black AXIS TICKS (which sit in the margin, not
+    # the label column) from leaking in.
+    if len(anchors) >= 2:
+        col_x = sorted(a[0] for a in anchors)[len(anchors) // 2]
+        col_sz = sorted(a[1] for a in anchors)[len(anchors) // 2]
+        for ti in order:
+            t = texts[ti]
+            if ti in used or t.color is not None:
+                continue
+            if not _horizontal(t) or not t.text.strip():
+                continue
+            if not _inside(t.bbox, region, _LEGEND_MARGIN):
+                continue
+            if abs(t.bbox[0] - col_x) > _LABEL_ROW_TOL:
+                continue  # not left-aligned with the label column
+            if col_sz and abs(_eff_size(t) - col_sz) > 0.5:
+                continue  # different font size -> not a column entry
+            label, consumed = _assemble_label(ti, _cy(t.bbox), texts, used)
+            if not label or _is_numeric(label) or _is_proxy_label(label):
+                continue
+            if sum(1 for c in label if c.isalnum()) < _INLINE_MIN_ALNUM:
+                continue
+            key = ((0.0, 0.0, 0.0), label)
+            if key in seen:
+                used |= consumed
+                continue
+            seen.add(key)
+            out.append(("line", (0.0, 0.0, 0.0), label))
+            used |= consumed
 
     return out
 

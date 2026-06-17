@@ -1032,7 +1032,11 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         # Entry order as drawn (top-to-bottom, then left-to-right), so the renderer
         # presents entries in the original order, not extraction order
         # (2202.11909_p25c1: 'PTE simulation'/'aI fitting' were swapped).
-        order = [matched_labels[i] for i in sorted(
+        # Clean each entry the same way the per-series style labels are cleaned
+        # (_clean drops non-printable control glyphs, e.g. a trailing BEL from a
+        # mangled degree-sign), so the renderer's order-match against the plotted
+        # series labels succeeds instead of silently keeping extraction order.
+        order = [_clean(matched_labels[i]) for i in sorted(
             range(len(matched)),
             key=lambda i: (round((ent[i][1] + ent[i][3]) / 12.0), ent[i][0]))]
         # The legend STYLE (font size, bold, entry order) is always recoverable

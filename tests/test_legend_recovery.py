@@ -406,3 +406,86 @@ def test_order_fallback_partial_multi_blocked():
     # The remaining two must NOT be assigned (partial-multi blocked).
     assert s_grey1.label is None, f"expected None, got {s_grey1.label!r}"
     assert s_grey2.label is None, f"expected None, got {s_grey2.label!r}"
+
+
+# --------------------------------------------------------------------------
+# Inline labels: a BLACK series labelled in plain black text, sitting in the
+# same left-aligned column as the coloured inline labels, is recovered too
+# (2005.13879_p3c3: the "θ = 21.8°" black curve was dropped from the legend).
+# --------------------------------------------------------------------------
+
+def _cspan(text, x0, y, color, w=40.0, h=6.0, size=6.0):
+    """A horizontal text span carrying its fill colour (None = black)."""
+    return TextSpan(text=text, bbox=(x0, y, x0 + w, y + h), size=size,
+                    dir=(1.0, 0.0), color=color)
+
+
+def test_inline_black_label_in_coloured_column():
+    region = _region((50.0, 40.0, 300.0, 200.0))
+    # Coloured data curves (non-black) inside the region.
+    blue_curve = _line(60.0, 60.0, 280.0, BLUE)
+    red_curve = _line(60.0, 80.0, 280.0, RED)
+    # A black data curve (the one whose label the colour-keyed pass can't match).
+    black_curve = _line(60.0, 100.0, 280.0, (0.0, 0.0, 0.0))
+    # Inline labels: two coloured ones forming a left-aligned column, plus a
+    # black label slotting into the same column just below them.
+    t_blue = _cspan("theta = 0.8", 70.0, 58.0, BLUE)
+    t_red = _cspan("theta = 3.5", 70.0, 78.0, RED)
+    t_black = _cspan("theta = 21.8", 70.0, 98.0, None)
+
+    labels = detect_labels(region, [blue_curve, red_curve, black_curve],
+                           [t_blue, t_red, t_black])
+    found = {(col, lab) for _, col, lab in labels.legend}
+    assert ((0.0, 0.0, 0.0), "theta = 21.8") in found, found
+
+    # And it flows through to the black series via colour matching.
+    s_blue = _series_at(BLUE, 60, 60, 280, 60)
+    s_red = _series_at(RED, 60, 80, 280, 80)
+    s_black = _series_at((0.0, 0.0, 0.0), 60, 100, 280, 100)
+    _apply_legend_labels([s_blue, s_red, s_black], labels.legend)
+    assert s_black.label == "theta = 21.8", f"got {s_black.label!r}"
+
+
+def test_inline_black_label_needs_two_coloured_anchors():
+    """A lone black span (no confirmed coloured column) is NOT taken as a label
+    -- the column geometry is what guards against black axis ticks leaking in."""
+    region = _region((50.0, 40.0, 300.0, 200.0))
+    blue_curve = _line(60.0, 60.0, 280.0, BLUE)
+    black_curve = _line(60.0, 100.0, 280.0, (0.0, 0.0, 0.0))
+    t_blue = _cspan("theta = 0.8", 70.0, 58.0, BLUE)
+    t_black = _cspan("theta = 21.8", 70.0, 98.0, None)  # only ONE coloured anchor
+
+    labels = detect_labels(region, [blue_curve, black_curve], [t_blue, t_black])
+    found = {lab for _, _, lab in labels.legend}
+    assert "theta = 21.8" not in found, found
+
+
+# --------------------------------------------------------------------------
+# Legend entry ORDER: the recovered order strings are cleaned the same way the
+# per-series style labels are, so the renderer's order-match (which compares
+# order entries against the plotted, already-cleaned labels) succeeds and the
+# legend reads top-to-bottom instead of silently keeping extraction order
+# (2005.13879_p3c3: a trailing BEL control glyph broke the match).
+# --------------------------------------------------------------------------
+
+def test_legend_order_strips_control_chars_top_to_bottom():
+    import fitz
+
+    from pdf_chart2table.style import recover_text_style
+
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=300)
+    region = (50.0, 40.0, 260.0, 200.0)
+    # Coloured data curves at descending rows.
+    page.draw_line(fitz.Point(60, 60), fitz.Point(250, 60), color=(0, 0, 1), width=1)
+    page.draw_line(fitz.Point(60, 90), fitz.Point(250, 90), color=(1, 0, 0), width=1)
+    # Inline labels carry a trailing BEL ("\x07") -- a mangled degree sign.
+    page.insert_text(fitz.Point(70, 60), "A = 1\x07", fontsize=6, color=(0, 0, 1))
+    page.insert_text(fitz.Point(70, 90), "A = 2\x07", fontsize=6, color=(1, 0, 0))
+    series_labels = ["A = 1\x07", "A = 2\x07"]
+
+    style = recover_text_style(page, region, {}, series_labels, None, [])
+    order = style["legend"]["order"]
+    # Control char stripped (matches the cleaned series labels), top-to-bottom.
+    assert order == ["A = 1", "A = 2"], order
+    assert all("\x07" not in o for o in order)
