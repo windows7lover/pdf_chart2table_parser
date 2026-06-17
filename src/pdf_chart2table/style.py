@@ -461,7 +461,6 @@ def match_series_styles(paths, region_bbox, series):
     # Axis frame/spine stroke width: dark, axis-aligned border lines near the
     # region edge, or the plot-frame rectangle. Sets spine + tick line weight.
     spine_w = []
-    spine_cols = []
     for p in inreg:
         # A spine/frame is DARK (grey/black) or CHROMATIC (a coloured frame, any
         # brightness). Exclude only light-grey strokes (gridlines), so a bright
@@ -479,18 +478,18 @@ def match_series_styles(paths, region_bbox, series):
                  len(p.points) <= 6)
         if (thin_long and near) or frame:
             spine_w.append(p.width)
-            spine_cols.append(_round_color(p.stroke))
     # The axis/frame colour (modal spine stroke); None when plain black -> the
     # renderer keeps matplotlib's default black axes.
-    axis_color = None
-    if spine_cols:
-        modal = max(set(spine_cols), key=spine_cols.count)
-        # Only a CHROMATIC frame counts as a coloured axis. A near-black / grey
-        # spine (sat ~ 0) stays matplotlib-default black -> no cosmetic churn on
-        # the many ordinary dark-grey axes; only genuine colour (e.g. a blue
-        # frame) is recovered.
-        if max(modal) - min(modal) > 0.12:
-            axis_color = list(modal)
+    #
+    # Real chart axes are NEUTRAL (black / grey), never a saturated colour. A
+    # CHROMATIC "spine" colour is a false positive: a thin axis-aligned data
+    # stroke (e.g. a green 'planar orbits' series or a coloured legend rule) that
+    # happened to run along the frame and got picked up as the spine. A genuinely
+    # coloured frame only occurs on dual-axis (out-of-scope) charts, so rejecting
+    # chromatic axis colours is safe for the in-scope single-axis charts and
+    # avoids painting the frame a data-series colour. Mirrors grid.py
+    # ``_is_chromatic`` (chroma = max-min channel > 0.15).
+    axis_color = None  # neutral default (matplotlib black) for grey/black spines
     # Legend frame: a box-like rectangle (sharp OR rounded corners) NARROWER than
     # the full plot frame, with a white-ish background -- either on the SAME path,
     # OR on a COINCIDENT sibling rectangle (papers commonly draw the legend as a
