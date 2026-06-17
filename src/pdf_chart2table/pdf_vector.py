@@ -22,6 +22,24 @@ from .model import BBox, Color, Path, PageData, Point, TextSpan
 _BEZIER_STEPS = 8
 
 
+def _mathtext_glyph(page: fitz.Page, bbox) -> str | None:
+    """Bitmap-match a matplotlib mathtext Type3 glyph in ``bbox`` to its Unicode.
+
+    Returns the recovered character only for a confident match (glyph_match's IoU
+    + margin gate), else None so the caller keeps the Latin-decoded text. Used to
+    rescue CM math glyphs that PyMuPDF reads as plain letters (π->'p', ρ->'r')."""
+    try:
+        from . import glyph_match
+
+        hit = glyph_match.recognize_region(page, bbox)
+    except Exception:
+        return None
+    if hit is None:
+        return None
+    _latex, uni, _conf = hit
+    return uni
+
+
 def _bezier_points(p0, p1, p2, p3, steps: int = _BEZIER_STEPS) -> list[Point]:
     """Sample a cubic bezier at ``steps`` segments, excluding the start point."""
     out: list[Point] = []
@@ -177,6 +195,17 @@ def load_page(page: fitz.Page) -> tuple[list[Path], list[TextSpan]]:
                     if rec:
                         text = rec
                 bb = span["bbox"]
+                # Matplotlib mathtext Type3 fonts (no BaseFont/ToUnicode) decode a
+                # math glyph by its Computer-Modern slot, so π reads as 'p', ρ as
+                # 'r' (the broken-text gate above misses these -- they look like
+                # ASCII letters). When the font carries that fingerprint, confirm
+                # each single-letter glyph by bitmap-matching it against rendered
+                # CM mathtext; only a confident match replaces the text.
+                if (len(text) == 1 and text.isalpha()
+                        and decoder.is_mathtext_type3(fontname)):
+                    sym = _mathtext_glyph(page, bb)
+                    if sym is not None:
+                        text = sym
                 # PyMuPDF encodes text color as 0xRRGGBB integer; 0 = black.
                 c_int = span.get("color", 0) or 0
                 if c_int:

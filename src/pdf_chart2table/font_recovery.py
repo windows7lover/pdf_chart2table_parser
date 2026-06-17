@@ -254,6 +254,17 @@ def _type1_code_to_name(buf: bytes) -> dict[int, str] | None:
 # ``[ code /name /name code /name ... ]`` -- a code resets the running index.
 _DIFF_TOKEN_RE = re.compile(r"\d+|/[^\s/\]]+")
 
+# Matplotlib emits math symbols (\pi, \rho, ...) as embedded Type3 fonts with NO
+# BaseFont and NO ToUnicode, whose /Differences names each glyph ``s<code>`` where
+# the number equals the char code (e.g. ``[112/s112 114/s114]``). The code is the
+# glyph's Computer-Modern slot, NOT a Unicode value, so PyMuPDF decodes it via the
+# standard Latin encoding -- e.g. slot 112 (CM ``\pi``) reads as 'p', slot 114
+# (CM ``\rho``) as 'r'. These spans look like plain ASCII letters, so the broken-
+# text gate misses them. We recognise the font fingerprint here; the actual glyph
+# is then confirmed by bitmap matching (glyph_match), which is deterministic.
+_TYPE3_XREF_RE = re.compile(r"Type3 \((\d+) 0 R\)")
+_S_CODE_GLYPH_RE = re.compile(r"^s\d+$")
+
 
 class FontDecoder:
     """Per-page cache of char-code -> Unicode maps for broken math fonts.
@@ -269,6 +280,8 @@ class FontDecoder:
         # base font name (no subset tag) -> {code: unicode str}
         self._maps: dict[str, dict[int, str]] = {}
         self._scanned: set[int] = set()
+        # font xref -> is matplotlib mathtext Type3 (cached fingerprint probe)
+        self._type3_mathtext: dict[int, bool] = {}
 
     @staticmethod
     def _strip_tag(name: str) -> str:
@@ -351,6 +364,40 @@ class FontDecoder:
             else:
                 cur = int(tok)
         return out
+
+    def is_mathtext_type3(self, font: str) -> bool:
+        """True when ``font`` is a matplotlib mathtext Type3 font (no BaseFont, no
+        ToUnicode, ``s<code>`` /Differences names) whose Latin-decoded text may be
+        a mis-read Computer-Modern math glyph (e.g. 'p'->π, 'r'->ρ).
+
+        ``font`` is the name PyMuPDF reports, e.g. ``"Type3 (276 0 R)"``. Result is
+        cached per xref. A regular (BaseFont-bearing, ToUnicode-mapped) font never
+        matches, so this is a no-op for ordinary documents.
+        """
+        m = _TYPE3_XREF_RE.search(font or "")
+        if not m:
+            return False
+        xref = int(m.group(1))
+        cached = self._type3_mathtext.get(xref)
+        if cached is not None:
+            return cached
+        result = self._probe_mathtext_type3(xref)
+        self._type3_mathtext[xref] = result
+        return result
+
+    def _probe_mathtext_type3(self, xref: int) -> bool:
+        try:
+            if self._doc.xref_get_key(xref, "Subtype")[1] != "/Type3":
+                return False
+            if self._doc.xref_get_key(xref, "ToUnicode")[0] != "null":
+                return False  # a working ToUnicode map -> trust the decoded text
+        except Exception:
+            return False
+        diffs = self._differences_map(xref)
+        if not diffs:
+            return False
+        # All glyph names follow the matplotlib ``s<code>`` convention.
+        return all(_S_CODE_GLYPH_RE.match(name) for name in diffs.values())
 
     def recover(self, page: fitz.Page, codes: list[int], font: str) -> str | None:
         """Recover a span's text from its raw char ``codes`` using ``font``'s map.

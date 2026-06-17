@@ -274,6 +274,18 @@ def _faithful_tick_label(value, label):
         return None
     t = (s.replace("−", "-").replace("—", "-")
           .replace("×", "x").replace("·", "").replace(" ", ""))
+    # π-axis tick labels ("0.5π", "2π", "π/2", ...) carry value coeff·π; keep the
+    # original "Nπ" string when it faithfully renders the radian value, so a tick
+    # at 1.5708 labelled "0.5π" stays "0.5π" rather than printing "1.5708".
+    pm = re.fullmatch(r"([-+]?\d*\.?\d*)π(?:/(\d+\.?\d*))?", t)
+    if pm:
+        coeff = pm.group(1)
+        try:
+            c = 1.0 if coeff in ("", "+") else (-1.0 if coeff == "-" else float(coeff))
+            num = c * math.pi / (float(pm.group(2)) if pm.group(2) else 1.0)
+        except (ValueError, ZeroDivisionError):
+            return None
+        return s if abs(num - value) <= 1e-6 * max(abs(value), abs(num)) + 1e-9 else None
     m = re.fullmatch(r"([-+]?(?:\d+\.?\d*|\.\d+))(?:[xX]10\^?\{?\(?([-+]?\d+)\}?\)?)?", t)
     if not m:
         return None

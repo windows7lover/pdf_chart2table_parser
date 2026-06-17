@@ -34,3 +34,46 @@ def test_pi_spans_are_numeric_and_parsed():
     # ordinary numbers still parse normally
     assert _parse_plain("2") == 2.0
     assert not _is_numeric_span("time")
+
+
+# --- Type3 mathtext glyph mis-decode (2001.01928_p5c1) -----------------------
+# The π suffix on the "0.0π .. 3.0π" x-ticks is a matplotlib mathtext Type3 glyph
+# (no BaseFont / no ToUnicode, /Differences names it ``s112`` = its Computer-Modern
+# slot). PyMuPDF decodes that slot through Latin -> 'p', so the broken-text gate
+# misses it. FontDecoder.is_mathtext_type3 recognises the font fingerprint so the
+# glyph can then be confirmed by bitmap matching; here we assert the gate.
+
+# A matplotlib-style Type3 font: no BaseFont/ToUnicode, /Differences = s<code>.
+_T3_MATHTEXT_PDF = b"""%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Resources<</Font<</F1 5 0 R/F2 8 0 R/F3 10 0 R>>>>/Contents 4 0 R>>endobj
+4 0 obj<</Length 6>>stream
+BT ET
+endstream endobj
+5 0 obj<</Type/Font/Subtype/Type3/FontBBox[0 0 100 100]/FontMatrix[0.01 0 0 0.01 0 0]/CharProcs 6 0 R/Encoding 7 0 R/FirstChar 112/LastChar 114/Widths[10 0 10]>>endobj
+6 0 obj<</s112 9 0 R/s114 9 0 R>>endobj
+7 0 obj<</Type/Encoding/Differences[112/s112 114/s114]>>endobj
+8 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
+9 0 obj<</Length 5>>stream
+0 d0
+endstream endobj
+10 0 obj<</Type/Font/Subtype/Type3/FontBBox[0 0 100 100]/FontMatrix[0.01 0 0 0.01 0 0]/CharProcs 6 0 R/Encoding 7 0 R/ToUnicode 9 0 R/FirstChar 112/LastChar 114/Widths[10 0 10]>>endobj
+trailer<</Root 1 0 R/Size 11>>
+%%EOF"""
+
+
+def test_is_mathtext_type3_fingerprint():
+    import fitz
+
+    from pdf_chart2table.font_recovery import FontDecoder
+
+    doc = fitz.open(stream=_T3_MATHTEXT_PDF, filetype="pdf")
+    dec = FontDecoder(doc)
+    # matplotlib mathtext Type3 (no BaseFont/ToUnicode, s<code> Differences)
+    assert dec.is_mathtext_type3("Type3 (5 0 R)") is True
+    # an ordinary font is never flagged
+    assert dec.is_mathtext_type3("Helvetica") is False
+    assert dec.is_mathtext_type3("") is False
+    # a Type3 font WITH a ToUnicode map is trusted, not overridden
+    assert dec.is_mathtext_type3("Type3 (10 0 R)") is False

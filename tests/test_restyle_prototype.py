@@ -586,6 +586,20 @@ def test_tick_label_rejects_mismatched_or_mangled():
     assert _faithful_tick_label(1.0, "C_Min") is None     # mangled (non-numeric)
 
 
+def test_tick_label_keeps_pi_suffix():
+    # 2001.01928_p5c1: a π-axis ("0.0π .. 3.0π") -- the recovered "Nπ" labels carry
+    # radian values (N·π) and must render verbatim, not as the raw radian number.
+    assert _faithful_tick_label(0.0, "0.0π") == "0.0π"
+    assert _faithful_tick_label(0.5 * math.pi, "0.5π") == "0.5π"
+    assert _faithful_tick_label(math.pi, "1.0π") == "1.0π"
+    assert _faithful_tick_label(3.0 * math.pi, "3.0π") == "3.0π"
+    assert _faithful_tick_label(math.pi, "π") == "π"
+    assert _faithful_tick_label(2 * math.pi, "2π") == "2π"
+    assert _faithful_tick_label(math.pi / 2, "π/2") == "π/2"
+    # a π label that does NOT match its value is rejected (falls back to numeric)
+    assert _faithful_tick_label(1.0, "0.5π") is None
+
+
 def test_plain_num_drops_trailing_zero_and_avoids_scientific():
     assert _plain_num(1.0) == "1"
     assert _plain_num(500.0) == "500"
