@@ -1360,6 +1360,85 @@ def build_style(d: dict, series_styles: list) -> dict:
 
 
 # --------------------------------------------------------------------------
+# Axis-spanning highlight bands (axvspan / axhspan)
+# --------------------------------------------------------------------------
+
+# A highlight band must span (nearly) the full plot extent in one axis and be
+# NARROW in the other -- a band, not the whole plot background or a wide CI fill.
+_SPAN_MIN_FULL_FRAC = 0.9    # full-extent axis: bbox >= 90% of plot side
+_SPAN_MAX_NARROW_FRAC = 0.6  # narrow axis: bbox <= 60% of plot side (a band)
+# A simple rectangle has very few distinct vertices; a CI band tracing a curve
+# has many. Cap the distinct-point count so curve-following fills are rejected.
+_SPAN_MAX_POINTS = 6
+
+
+def _distinct_points(p) -> int:
+    return len(set((round(x, 2), round(y, 2)) for x, y in p.points))
+
+
+def recover_spans(paths, region_bbox, x_calib, y_calib) -> list[dict]:
+    """Recover axis-spanning highlight bands (axvspan/axhspan-style shaded regions).
+
+    A HIGHLIGHT BAND is a FILLED, simple rectangle (<= ~6 distinct points) whose
+    extent spans (nearly) the FULL plot height (vertical band) OR full width
+    (horizontal band) and is NARROW in the other dimension. It must NOT be
+    near-white (so the white plot background is excluded) and must be a rectangle
+    (so a CI band following a curve -- tall AND wide, many points -- is excluded).
+
+    Returns a list of ``{axis, lo, hi, color, alpha}`` in DATA coords, one per
+    band. ``axis='x'`` is a vertical band (full height, axvspan over an x-range);
+    ``axis='y'`` is a horizontal band (full width, axhspan over a y-range).
+    Empty when no safe band is found (the common case).
+    """
+    if x_calib is None or y_calib is None:
+        return []
+    from .calibrate import to_data
+    rx0, ry0, rx1, ry1 = region_bbox
+    pw, ph = rx1 - rx0, ry1 - ry0
+    if pw <= 0 or ph <= 0:
+        return []
+    spans: list[dict] = []
+    for p in paths:
+        if p.fill is None:
+            continue
+        # Not near-white: the white plot background / page fill is excluded.
+        if min(p.fill[:3]) >= 0.9:
+            continue
+        bx0, by0, bx1, by1 = p.bbox
+        # In-region: the band must lie within the plotting box (small slack).
+        if (bx1 < rx0 - 2 or bx0 > rx1 + 2 or by1 < ry0 - 2 or by0 > ry1 + 2):
+            continue
+        bw, bh = bx1 - bx0, by1 - by0
+        # A simple rectangle, not a curve-following CI band (many points).
+        if _distinct_points(p) > _SPAN_MAX_POINTS:
+            continue
+        full_h = bh >= _SPAN_MIN_FULL_FRAC * ph
+        full_w = bw >= _SPAN_MIN_FULL_FRAC * pw
+        narrow_w = bw <= _SPAN_MAX_NARROW_FRAC * pw
+        narrow_h = bh <= _SPAN_MAX_NARROW_FRAC * ph
+        if full_h and narrow_w:        # vertical band: full height, narrow width
+            lo = to_data(x_calib, bx0)
+            hi = to_data(x_calib, bx1)
+            axis = "x"
+        elif full_w and narrow_h:      # horizontal band: full width, narrow height
+            lo = to_data(y_calib, by0)
+            hi = to_data(y_calib, by1)
+            axis = "y"
+        else:
+            continue                   # spans both (background) or neither -> skip
+        if lo > hi:
+            lo, hi = hi, lo
+        spans.append({
+            "axis": axis,
+            "lo": round(lo, 6),
+            "hi": round(hi, 6),
+            "color": [round(c, 4) for c in p.fill[:3]],
+            "alpha": (round(p.fill_alpha, 3) if p.fill_alpha is not None else None),
+        })
+    return spans
+
+
+# --------------------------------------------------------------------------
 # Entry point: assemble the full top-level style block at parse time
 # --------------------------------------------------------------------------
 
@@ -1396,4 +1475,14 @@ def build_chart_style(d: dict, page, fitz_page) -> dict:
     style["legend_box"] = meta.get("legend_box", False)
     style["legend_frame"] = meta.get("legend_frame")  # border/fill/corner style
     style["axis_color"] = meta.get("axis_color")  # coloured axes/frame (None=black)
+    # Axis-spanning highlight bands (axvspan/axhspan-style shaded regions). The
+    # true plotting box (axis spine-to-spine) is the band's reference extent; fall
+    # back to the region bbox when a pixel_range is unavailable.
+    px, py = xa.get("pixel_range"), ya.get("pixel_range")
+    plot_box = ((px[0], py[0], px[1], py[1])
+                if (px and py and None not in px and None not in py) else rbbox)
+    spans = recover_spans(page.paths, plot_box,
+                          xa.get("calibration"), ya.get("calibration"))
+    if spans:
+        style["spans"] = spans
     return style

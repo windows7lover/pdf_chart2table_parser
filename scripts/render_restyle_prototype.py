@@ -414,6 +414,18 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
     # rounded ends instead of matplotlib's default projecting/butt caps.
     _capkw = ({"solid_capstyle": "round", "dash_capstyle": "round"}
               if style.get("round_caps") else {})
+    # Axis-spanning highlight bands (recovered axvspan/axhspan shaded regions),
+    # drawn first at zorder 0 so they sit BELOW the grid lines and data.
+    for sp in (style.get("spans") or []):
+        scol = _color(sp.get("color"))
+        salpha = sp.get("alpha")
+        lo, hi = sp.get("lo"), sp.get("hi")
+        if lo is None or hi is None:
+            continue
+        if sp.get("axis") == "x":
+            ax.axvspan(lo, hi, color=scol, alpha=salpha, zorder=0, linewidth=0)
+        elif sp.get("axis") == "y":
+            ax.axhspan(lo, hi, color=scol, alpha=salpha, zorder=0, linewidth=0)
     has_label = False
     for ser, st in zip(record["series"], style["series"]):
         pts = ser["points"]
