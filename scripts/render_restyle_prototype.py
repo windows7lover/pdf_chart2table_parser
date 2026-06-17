@@ -961,6 +961,13 @@ def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None,
     if txt.get("font_family"):
         rc["font.family"] = txt["font_family"]
         rc.update(_metric_font_rc(txt.get("font_face")))
+        # Match the MATH font to the body family. matplotlib's mathtext default
+        # ('dejavusans') renders sub/superscripts + $\mathbf{V}$ in sans regardless
+        # of the serif body, so a label like 'V_D = 1V' came out half-sans
+        # (DejaVu) half-serif (Liberation). STIX is Times-metric -> serif charts
+        # get serif math matching Liberation Serif; sans charts get STIX-sans.
+        rc["mathtext.fontset"] = (
+            "stixsans" if txt["font_family"] == "sans-serif" else "stix")
     base = txt.get("base_font_size")
     # The 4-panel PNG forces each panel to ~5in, while recovered font sizes are in
     # the original crop's points; the original is shown as a raster MAGNIFIED to
