@@ -344,6 +344,110 @@ def _frag_x_coverage(paths) -> float:
     return covered / span
 
 
+# --- Fragment-drawn dash classification ----------------------------------
+# Some renderers rasterise a dashed/dotted/dash-dot curve as MANY tiny solid
+# sub-strokes (each path ``dashes=None``, ~2 vertices, sub-point length) with
+# real GAPS between the dash "on" runs. The merged curve then looks solid. We
+# reconstruct the on/off pattern from the fragment geometry: chain touching
+# fragments into "on" runs, measure each run's drawn length and the gap to the
+# next run, and classify the line style from the run-length distribution.
+
+# Consecutive fragments whose endpoints are within this many points belong to
+# the SAME dash "on" run (sub-point flattening segments touch end-to-end).
+_FRAG_TOUCH = 0.6
+# A fragment is a dash sub-stroke only if it is this short (a long multi-vertex
+# polyline is a genuine solid curve piece, not a dash fragment).
+_FRAG_MAX_LEN = 1.5
+# Need at least this many short fragments before fragmentation is treated as a
+# dash signal (a handful of short pieces is just a wiggly solid curve).
+_DASH_MIN_FRAGMENTS = 30
+# A run counts as a "dot" when its drawn length is at or below this (points):
+# comparable to a stroke width, so it renders as a round dot, not a dash.
+_DOT_MAX_LEN = 1.6
+# Dash-dot needs a clear LONG component: the long runs are at least this factor
+# longer than the short (dot) runs.
+_DASHDOT_RATIO = 2.5
+
+
+def _frag_len(p) -> float:
+    """Total drawn arc length of a fragment path (sum of its segment lengths)."""
+    pts = p.points
+    return sum(((pts[i][0] - pts[i + 1][0]) ** 2
+                + (pts[i][1] - pts[i + 1][1]) ** 2) ** 0.5
+               for i in range(len(pts) - 1))
+
+
+def _classify_fragment_dash(cands, width):
+    """Classify a fragment-drawn line style from same-colour fragment paths.
+
+    Returns a matplotlib linestyle string ``"--"`` / ``":"`` / ``"-."`` when the
+    fragments form a clear dashed / dotted / dash-dot pattern, else ``None``
+    (caller keeps the curve solid). ``cands`` are the same-colour stroked paths
+    of one series; ``width`` is the series' stroke width (for the dot threshold).
+
+    Method: keep only the short sub-stroke fragments, order them along the curve
+    (by midpoint x, the curves here are x-monotone), chain end-to-end-touching
+    ones into "on" runs, and read the on-run length distribution + gaps:
+      - dotted  (``:``): on-runs uniformly tiny (~ a stroke width) -> dots.
+      - dash-dot(``-.``): on-runs bimodal -> long dashes alternating with dots.
+      - dashed  (``--``): on-runs uniformly moderate, separated by gaps.
+    A SOLID curve drawn in few long pieces has < ``_DASH_MIN_FRAGMENTS`` short
+    fragments (or no real gaps) and returns ``None`` -> stays solid."""
+    frags = [p for p in cands
+             if p.stroke is not None and len(p.points) >= 2
+             and _frag_len(p) <= _FRAG_MAX_LEN]
+    if len(frags) < _DASH_MIN_FRAGMENTS:
+        return None
+    # Guard against a SOLID curve whose colour also has incidental short paths
+    # (ticks, markers, axis): a real fragment-drawn dash is built almost ENTIRELY
+    # of short sub-strokes, so the short fragments must dominate the total drawn
+    # length. A solid curve is mostly LONG polylines (its short pieces are decor).
+    short_len = sum(_frag_len(p) for p in frags)
+    long_len = sum(_frag_len(p) for p in cands
+                   if p.stroke is not None and _frag_len(p) > _FRAG_MAX_LEN)
+    if short_len <= 2.0 * long_len:
+        return None
+    frags.sort(key=lambda p: 0.5 * (p.bbox[0] + p.bbox[2]))
+    runs = []          # drawn length of each "on" run
+    gaps = []          # gap length between consecutive runs
+    cur = _frag_len(frags[0])
+    prev_end = frags[0].points[-1]
+    for p in frags[1:]:
+        s, e = p.points[0], p.points[-1]
+        d_s = ((prev_end[0] - s[0]) ** 2 + (prev_end[1] - s[1]) ** 2) ** 0.5
+        d_e = ((prev_end[0] - e[0]) ** 2 + (prev_end[1] - e[1]) ** 2) ** 0.5
+        gap = min(d_s, d_e)
+        if gap > _FRAG_TOUCH:
+            runs.append(cur)
+            gaps.append(gap)
+            cur = _frag_len(p)
+        else:
+            cur += _frag_len(p) + gap
+        prev_end = e if d_s <= d_e else s
+    runs.append(cur)
+    if len(runs) < 4 or not gaps:
+        return None
+    runs_s = sorted(runs)
+    med_run = runs_s[len(runs_s) // 2]
+    med_gap = sorted(gaps)[len(gaps) // 2]
+    # Require genuine OFF gaps comparable to the on length: a solid curve merely
+    # split into pieces touches end-to-end (tiny gaps) and must stay solid.
+    if med_gap < max(_FRAG_TOUCH, 0.4 * med_run):
+        return None
+    dot_thresh = max(_DOT_MAX_LEN, 1.6 * (width or 0.0))
+    p10 = runs_s[max(0, int(0.1 * (len(runs_s) - 1)))]
+    p90 = runs_s[int(0.9 * (len(runs_s) - 1))]
+    # dash-dot: a clearly BIMODAL on-run distribution (short dots + long dashes).
+    if p10 <= dot_thresh and p90 >= _DASHDOT_RATIO * max(p10, 1e-6) \
+            and p90 > dot_thresh:
+        return "-."
+    # dotted: all on-runs tiny (dots).
+    if med_run <= dot_thresh and p90 <= 1.5 * dot_thresh:
+        return ":"
+    # dashed: uniform moderate on-runs with gaps.
+    return "--"
+
+
 def match_series_styles(paths, region_bbox, series):
     """Per-series width/linestyle/marker, matched by GEOMETRY (not just colour).
 
@@ -422,6 +526,15 @@ def match_series_styles(paths, region_bbox, series):
         if (ls == "-" and len(big) >= 5 and frag >= 5 and longest < 0.55 * diag
                 and _frag_x_coverage(big) < _DASH_FRAG_MAX_COVERAGE):
             ls = (0.0, (3.0, 2.0))
+        # Sub-point fragment-drawn dashing: when a dashed/dotted/dash-dot curve is
+        # rasterised as MANY tiny solid sub-strokes (no PDF dash array, fragments
+        # too small to be "big"), recover the line style from the fragment on/off
+        # geometry (2001.01928_p5c1: black solid / red dashed / green dotted /
+        # blue dash-dot). Only when the genuine-PDF-dash path saw solid.
+        if ls == "-":
+            frag_ls = _classify_fragment_dash(cands, best.width)
+            if frag_ls is not None:
+                ls = frag_ls
         small_paths = [p for p in cands
                        if 0.2 < max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) <= 12.0]
         smalls = [max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) for p in small_paths]
