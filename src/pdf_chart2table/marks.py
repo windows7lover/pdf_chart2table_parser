@@ -1078,12 +1078,18 @@ def classify_marks(
                 continue
             if n_in >= _LEGEND_GROUP_DROP_FRAC * len(flags):
                 in_marks = [m for m, f in zip(sm.marks, flags) if f]
+                n_out = len(flags) - n_in
                 xs = [m.cx for m in in_marks]
                 ys = [m.cy for m in in_marks]
                 collinear = (min(max(xs) - min(xs), max(ys) - min(ys))
                              <= _LEGEND_SWATCH_LINE_TOL)
-                if not collinear:
-                    continue  # 2-D scatter under the legend = data, keep all
+                # Keep a 2-D in-box cluster ONLY when part of the series extends
+                # OUTSIDE the box — evidence of real data the legend overlaps
+                # (2005.10210 diamonds: 13 in / 2 out). A 2-D cluster ENTIRELY in
+                # the box is legend content (a glyph-outline label text block,
+                # e.g. 2002.05277's 74 black label glyphs) -> cull it.
+                if not collinear and n_out >= 1:
+                    continue
                 kept = [m for m, f in zip(sm.marks, flags) if not f]
                 if kept:
                     sm.marks = kept

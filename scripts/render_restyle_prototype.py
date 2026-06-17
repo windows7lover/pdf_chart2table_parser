@@ -438,41 +438,43 @@ def _draw_legend_manual(ax, record, style, txt, L, _fs, font_scale=1.0):
         x, y = e["x_frac"], e["y_frac"]
         size = _fs(e.get("size")) or fs_default
         st = lab2style.get(_key(e["label"]))
-        # Recovered swatch geometry: None = inline label (draw text only), a dict
-        # = the original sample's line LENGTH / marker DIAMETER to match its size.
+        # Recovered swatch geometry: None = inline label (draw text only); a dict =
+        # the original sample's line LENGTH / marker DIAMETER / shape / colour. The
+        # series (st) supplies extra detail (dash, face/edge) when one matched; an
+        # OCR-recovered glyph legend has no series, so it draws from ``handle`` alone.
         handle = e.get("handle", "?")
-        col = _color((handle or {}).get("color") if isinstance(handle, dict) else None) \
-            or (_color(st.get("color")) if st else "black")
-        if handle is None:
-            pass  # inline curve label: no legend sample in the original
-        elif st is not None:
-            ls = st.get("linestyle") or "-"
-            if isinstance(ls, list):           # JSON dash tuple [offset,[on,off]]
-                ls = (ls[0], tuple(ls[1]))
-            is_scatter = st.get("render_as") == "scatter"
-            # Sample sits just left of the label; LENGTH from the recovered swatch
-            # (fall back to ~2*fontsize in axes fraction when not recovered).
+        hd = handle if isinstance(handle, dict) else {}
+        col = _color(hd.get("color")) or (_color(st.get("color")) if st else "black")
+        if handle is not None:
+            is_scatter = (st.get("render_as") == "scatter") if st else False
+            draws_line = (hd.get("line_len_frac") is not None) \
+                or (st is not None and ((not is_scatter) or st.get("connect")))
+            draws_marker = (hd.get("marker") is not None) \
+                or (hd.get("marker_d") is not None) or is_scatter
             hx1 = x - 0.012
-            llen = (handle.get("line_len_frac") if isinstance(handle, dict) else None)
-            if not llen:
-                llen = min(0.12, max(0.03, 2.0 * size / 72.0 / 3.0))
+            llen = hd.get("line_len_frac") or min(0.12, max(0.03, 2.0 * size / 216.0))
             hx0 = max(0.0, hx1 - llen)
-            mdia = (handle.get("marker_d") if isinstance(handle, dict) else None) \
-                or st.get("markersize")
-            if (not is_scatter) or st.get("connect"):
+            if draws_line:
+                ls = (st.get("linestyle") if st else None) or "-"
+                if isinstance(ls, list):       # JSON dash tuple [offset,[on,off]]
+                    ls = (ls[0], tuple(ls[1]))
                 ax.plot([hx0, hx1], [y, y], transform=tr, color=col,
-                        linewidth=(st.get("linewidth") or 1.0) * font_scale,
+                        linewidth=((st.get("linewidth") if st else None) or 1.0) * font_scale,
                         linestyle=ls, zorder=5, clip_on=False)
-            if is_scatter:
-                mk = st.get("marker_shape") or st.get("marker") or "o"
-                face = _color(st.get("marker_face"))
-                edge = _color(st.get("marker_edge")) or col
-                ax.plot([(hx0 + hx1) / 2], [y], transform=tr, marker=mk,
+            if draws_marker:
+                mk = (st.get("marker_shape") or st.get("marker") if st else None) \
+                    or hd.get("marker") or "o"
+                mdia = hd.get("marker_d") or (st.get("markersize") if st else None)
+                face = _color(st.get("marker_face")) if st else None
+                edge = (_color(st.get("marker_edge")) if st else None) or col
+                cxm = (hx0 + hx1) / 2 if draws_line else hx1 - 0.008
+                ax.plot([cxm], [y], transform=tr, marker=mk,
                         linestyle="none", zorder=6, clip_on=False,
                         markersize=((mdia * font_scale) if mdia else 6),
                         markerfacecolor=(face if face is not None else "none"),
                         markeredgecolor=edge,
-                        markeredgewidth=(st.get("marker_edge_width") or 0.6) * font_scale)
+                        markeredgewidth=((st.get("marker_edge_width") if st else None)
+                                         or 0.6) * font_scale)
         tcol = _color(lcs.get(e["label"])) or "black"
         ax.text(x, y, L(e["label"]), transform=tr, fontsize=size,
                 va="center", ha="left", color=tcol, zorder=6, clip_on=False,
@@ -838,10 +840,13 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
                     arrowprops=dict(arrowstyle="->",
                                     color=_color(a.get("color")) or "black",
                                     lw=0.8, shrinkA=0, shrinkB=0))
-    # Draw a legend only when it is actually present on THIS panel.
-    if has_label and txt.get("show_legend", True):
+    # Draw a legend only when it is actually present on THIS panel. Fire when the
+    # series carry labels OR the recovered layout has entries (a glyph-outline /
+    # OCR-recovered legend has entries but no series labels).
+    _has_entries = bool((txt.get("legend") or {}).get("entries"))
+    if (has_label or _has_entries) and txt.get("show_legend", True):
         # Draw the legend with OUR OWN drawer (never ax.legend): replay the
-        # recovered per-entry layout + each entry's series handle style.
+        # recovered per-entry layout + each entry's series/swatch handle style.
         _draw_legend_manual(ax, record, style, txt, L, _fs, font_scale)
 
 

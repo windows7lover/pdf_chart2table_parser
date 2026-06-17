@@ -25,7 +25,12 @@ import re
 from dataclasses import dataclass, field
 
 from .model import BBox, Color, Path, Region, TextSpan
-from .primitives import bbox_center as _bbox_center, join_scripts as _join_scripts
+from .primitives import (
+    MARKER_CODE as _MARKER_CODE,
+    bbox_center as _bbox_center,
+    join_scripts as _join_scripts,
+    shape_of as _shape_of,
+)
 
 # Numeric tick label (to exclude from title detection).
 _NUMERIC = re.compile(r"^[-+]?\d*\.?\d+$")
@@ -1239,6 +1244,115 @@ def _detect_handle_legend(
             continue
         return box
     return None
+
+
+def _handle_legend_column(region: Region, paths: list[Path]):
+    """The chosen handle column (list of line-sample bboxes) + its row band, or
+    None. Shared by _detect_handle_legend and the OCR glyph-legend recovery."""
+    rw = region.bbox[2] - region.bbox[0]
+    if rw <= 0:
+        return None
+    handles = [p.bbox for p in paths
+               if p.stroke is not None and _swatch_style(p) in ("line", "dashed")
+               and _inside(p.bbox, region, _LEGEND_MARGIN)
+               and (p.bbox[2] - p.bbox[0]) <= _HANDLE_MAX_W_FRAC * rw]
+    if len(handles) < _HANDLE_MIN_ROWS:
+        return None
+    handles.sort(key=lambda b: (b[0], b[1]))
+    columns: list[list[BBox]] = []
+    for b in handles:
+        for col in columns:
+            ref = col[0]
+            if (abs(b[0] - ref[0]) <= _HANDLE_X_TOL
+                    and abs((b[2] - b[0]) - (ref[2] - ref[0])) <= _HANDLE_LEN_TOL):
+                col.append(b)
+                break
+        else:
+            columns.append([b])
+    for col in sorted(columns, key=len, reverse=True):
+        rows = sorted({round(0.5 * (b[1] + b[3]), 1) for b in col})
+        if len(rows) >= _HANDLE_MIN_ROWS:
+            return col
+    return None
+
+
+def recover_glyph_legend(region: Region, paths: list[Path],
+                         texts: list[TextSpan], fitz_page) -> list[dict] | None:
+    """OCR a glyph-outline / math legend into editable per-entry render objects.
+
+    Fires when a handle column is present but its labels are NOT selectable text
+    (so the text/colour detectors recovered nothing). For each handle row it OCRs
+    the label band to the right of the sample and assembles a self-contained
+    entry: the recovered label STRING (canonical, editable for augmentation) plus
+    the row's swatch geometry (line length / marker diameter / colour) so the
+    custom drawer can replay it. Returns pixel-space entries or None.
+
+    Entries: ``{label, label_x0, cy, line_len, marker, marker_d, color}``.
+    """
+    if fitz_page is None:
+        return None
+    col = _handle_legend_column(region, paths)
+    if col is None:
+        return None
+    try:
+        from .ocr_backfill import _ocr_band, _engine
+    except Exception:
+        return None
+    if _engine() is None:
+        return None
+
+    col.sort(key=lambda b: 0.5 * (b[1] + b[3]))
+    cys = [0.5 * (b[1] + b[3]) for b in col]
+    # Row pitch (median gap) bounds each row's OCR band so neighbours don't bleed.
+    gaps = [b - a for a, b in zip(cys, cys[1:])]
+    pitch = (sorted(gaps)[len(gaps) // 2] if gaps else 12.0)
+    half = max(3.0, 0.45 * pitch)
+    rx1 = region.bbox[2]
+    entries: list[dict] = []
+    for hb in col:
+        cy = 0.5 * (hb[1] + hb[3])
+        hx1 = hb[2]
+        # A marker drawn on this handle row (small 2-D glyph near the sample).
+        marker_d = None
+        marker_shape = None
+        for p in paths:
+            bw, bh = p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]
+            pcx = 0.5 * (p.bbox[0] + p.bbox[2])
+            pcy = 0.5 * (p.bbox[1] + p.bbox[3])
+            if (2.0 <= bw <= 14.0 and 2.0 <= bh <= 14.0
+                    and abs(pcy - cy) <= half and hb[0] - 4.0 <= pcx <= hx1 + 6.0):
+                if max(bw, bh) >= (marker_d or 0.0):
+                    marker_shape = _shape_of(p)
+                marker_d = max(marker_d or 0.0, max(bw, bh))
+        # OCR the label band to the right of the sample, on this row.
+        band = (hx1 + 1.0, cy - half, rx1 + 2.0, cy + half)
+        toks = [t for t in _ocr_band(fitz_page, band) if t.get("conf", 0) >= 0.3
+                and t["text"].strip()]
+        toks.sort(key=lambda t: t["x"])
+        # Drop a trailing isolated 1-char token (a stray data marker / glyph at the
+        # band's right edge OCR'd as a letter): its gap from the rest is far larger
+        # than the normal inter-token spacing. Threshold uses the spacing of the
+        # OTHER tokens (excluding the trailing gap, which would inflate a median).
+        while len(toks) >= 3 and len(toks[-1]["text"].strip()) <= 1:
+            inner = [b["x"] - a["x"] for a, b in zip(toks[:-1], toks[1:-1])]
+            ref = (sorted(inner)[len(inner) // 2] if inner else 1.0)
+            if (toks[-1]["x"] - toks[-2]["x"]) <= 3.0 * max(ref, 1.0):
+                break
+            toks.pop()
+        label = " ".join(t["text"].strip() for t in toks).strip()
+        if not label:
+            continue
+        scol = None
+        for p in paths:                       # sample colour = the handle stroke
+            if p.bbox is hb or (abs(p.bbox[0] - hb[0]) < 0.1
+                                and abs(p.bbox[1] - hb[1]) < 0.1):
+                scol = p.stroke or p.fill
+                break
+        entries.append({"label": label, "label_x0": hx1 + 2.0, "cy": cy,
+                        "line_len": (hb[2] - hb[0]), "marker_d": marker_d,
+                        "marker": _MARKER_CODE.get(marker_shape) if marker_shape else None,
+                        "color": list(scol) if scol else None})
+    return entries or None
 
 
 def _detect_inline_labels(

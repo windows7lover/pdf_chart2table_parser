@@ -1528,6 +1528,8 @@ def _attach_legend_handle_geometry(text_style, paths, rbbox):
     rw = (rx1 - rx0) or 1.0
     rh = (ry1 - ry0) or 1.0
     for e in entries:
+        if "handle" in e:
+            continue  # already self-contained (OCR-recovered glyph legend)
         # Label's left edge + vertical centre back in PIXEL space.
         lx = rx0 + e["x_frac"] * rw
         cy = ry0 + (1.0 - e["y_frac"]) * rh
@@ -1562,6 +1564,52 @@ def _attach_legend_handle_geometry(text_style, paths, rbbox):
             }
 
 
+def _recover_ocr_legend(text_style, d, page, fitz_page):
+    """Populate text_style['legend'] for a glyph-outline / math legend via OCR.
+
+    Calls labels.recover_glyph_legend (handle column + per-row OCR), converts the
+    pixel entries to axes-fraction render entries with self-contained handle
+    geometry, and computes the frame bbox. No-op when OCR is unavailable or no
+    handle legend is found."""
+    from .labels import recover_glyph_legend, _detect_handle_legend
+    from .model import Region
+    rbbox = d["source"]["region_bbox"]
+    region = Region(bbox=tuple(rbbox))
+    px = recover_glyph_legend(region, page.paths, [], fitz_page)
+    if not px:
+        return
+    rx0, ry0, rx1, ry1 = rbbox
+    rw = (rx1 - rx0) or 1.0
+    rh = (ry1 - ry0) or 1.0
+    size = text_style.get("base_font_size") or 8.0
+    ents = []
+    for e in px:
+        ents.append({
+            "label": e["label"],
+            "x_frac": round((e["label_x0"] - rx0) / rw, 4),
+            "y_frac": round(1.0 - (e["cy"] - ry0) / rh, 4),
+            "size": size, "bold": False, "italic": False,
+            "handle": {
+                "line_len_frac": round(e["line_len"] / rw, 4) if e.get("line_len") else None,
+                "marker_d": round(e["marker_d"], 2) if e.get("marker_d") else None,
+                "marker": e.get("marker"),
+                "color": e.get("color"),
+            },
+        })
+    box = _detect_handle_legend(region, page.paths, None)
+    bbox_frac = None
+    if box:
+        bx0, by0, bx1, by1 = box
+        bbox_frac = [round((bx0 - rx0) / rw, 4), round(1.0 - (by1 - ry0) / rh, 4),
+                     round((bx1 - rx0) / rw, 4), round(1.0 - (by0 - ry0) / rh, 4)]
+    text_style["legend"] = {
+        "orientation": "vertical", "ncol": 1, "fontsize": size, "bold": False,
+        "order": [e["label"] for e in ents], "entries": ents,
+        "bbox_frac": bbox_frac, "ocr_recovered": True,
+    }
+    text_style["show_legend"] = True
+
+
 def build_chart_style(d: dict, page, fitz_page) -> dict:
     """Assemble the canonical top-level ``style`` block for one chart record.
 
@@ -1581,6 +1629,12 @@ def build_chart_style(d: dict, page, fitz_page) -> dict:
         {"x": xa.get("title"), "y": ya.get("title")},
         [s.get("label") for s in d.get("series", [])],
         ttl, tick_labels)
+    # Glyph-outline / math legend: the text matcher found no entries (labels are
+    # vector outlines, not selectable text). If a handle column is present, OCR
+    # each row's label into an editable string and synthesise self-contained
+    # render entries. Gated by OCR availability (no-op when PDFCHART_OCR=0).
+    if text_style is not None and not ((text_style.get("legend") or {}).get("entries")):
+        _recover_ocr_legend(text_style, d, page, fitz_page)
     # Record each legend entry's real swatch geometry (line length / marker
     # diameter, or handle=None for inline labels) so the drawer matches the
     # original's sample size instead of synthesising it.
