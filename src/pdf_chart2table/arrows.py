@@ -96,6 +96,82 @@ def _is_shaft(p: Path, headsz: float, diag: float) -> bool:
     return headsz * 0.8 < _bmax(b) < 0.6 * diag
 
 
+def _marker_series_heads(heads, idxs, paths, diag) -> set:
+    """Identify heads that are actually a CONNECTED data marker-series, not arrows.
+
+    A data curve drawn as "filled triangle markers joined by a line" looks like a
+    swarm of arrowhead-shaped heads, and the polyline segments between markers look
+    like shafts -- so each marker would pair into an "arrow" and the curve would be
+    deleted. The tell is the CONNECTING line: a segment that bridges TWO markers has
+    a same-colour head at *each* end. Genuine annotation arrows never do -- an
+    arrow's shaft has a free tail (it points at a label/curve, not at another
+    same-colour arrowhead). So a chain of >=3 same-colour heads linked head->shaft->
+    head is a marker series.
+
+    Returns the set of head path-indices belonging to such a series. Also sweeps in
+    any stray head that shares the series' glyph SIGNATURE (same colour + size +
+    aspect) -- e.g. an end marker that has no segment beyond it -- so the whole
+    series is dropped, while genuine arrows of a DIFFERENT shape/size (even of the
+    same colour) are spared."""
+    if len(heads) < 3:
+        return set()
+    hc = {hi: _centroid(hp.points) for hi, hp in heads}
+    hsz = {hi: _bmax(hp.bbox) for hi, hp in heads}
+    hkey = {hi: (tuple(round(c, 2) for c in hp.fill) if hp.fill else None)
+            for hi, hp in heads}
+    min_hsz = min(hsz.values())
+    # Edge a--b iff some shaft connects head a's centroid to head b's centroid
+    # (one end near a, the other near b) and a,b share fill colour.
+    adj: dict[int, set] = {hi: set() for hi, _ in heads}
+
+    def _near(end):
+        return [hi for hi, _ in heads
+                if abs(end[0] - hc[hi][0]) + abs(end[1] - hc[hi][1]) < hsz[hi] * 1.5]
+
+    for i in idxs:
+        p = paths[i]
+        if not _is_shaft(p, min_hsz, diag):
+            continue
+        n0, n1 = _near(p.points[0]), _near(p.points[-1])
+        for a in n0:
+            for b in n1:
+                if a != b and hkey[a] is not None and hkey[a] == hkey[b]:
+                    adj[a].add(b)
+                    adj[b].add(a)
+    # Connected components of the same-colour-link graph.
+    series: set = set()
+    seen: set = set()
+    for hi, _ in heads:
+        if hi in seen:
+            continue
+        stack, comp = [hi], set()
+        while stack:
+            x = stack.pop()
+            if x in comp:
+                continue
+            comp.add(x)
+            seen.add(x)
+            stack.extend(adj[x])
+        if len(comp) >= 3:
+            series |= comp
+    if not series:
+        return set()
+    # Sweep in stray heads matching a series glyph's signature (colour+size+aspect),
+    # e.g. an end marker with no segment beyond it. A genuine arrow of a different
+    # shape/size is NOT swept in even when it shares the colour.
+    sigs = [(hkey[hi], hsz[hi], _aspect(paths[hi].bbox)) for hi in series]
+    for hi, hp in heads:
+        if hi in series:
+            continue
+        k, sz, asp = hkey[hi], hsz[hi], _aspect(hp.bbox)
+        for sk, ssz, sasp in sigs:
+            if (k == sk and abs(sz - ssz) <= 0.15 * ssz
+                    and abs(asp - sasp) <= 0.12):
+                series.add(hi)
+                break
+    return series
+
+
 def detect_arrows(region: Region, paths: list[Path]):
     """Return (set of arrow path indices to drop, list of arrow records)."""
     idxs = list(getattr(region, "path_indices", []))
@@ -103,6 +179,12 @@ def detect_arrows(region: Region, paths: list[Path]):
         return set(), []
     diag = _bmax(region.bbox) or 1.0
     heads = [(i, paths[i]) for i in idxs if _is_head(paths[i], diag)]
+    # A CONNECTED data marker-series (filled triangles joined by a line) mimics a
+    # swarm of shaft+head arrows; identify and drop those heads first so they are
+    # neither paired into arrows nor counted toward the bare-head guard.
+    series = _marker_series_heads(heads, idxs, paths, diag)
+    if series:
+        heads = [(i, p) for i, p in heads if i not in series]
     # A head BACKED BY A SEPARATE MATCHED SHAFT is a strong, unambiguous arrow
     # signal -- recovered with no upper limit. A head with NO shaft (a bare
     # triangle, or a single-polygon patch identified by its outline alone) is

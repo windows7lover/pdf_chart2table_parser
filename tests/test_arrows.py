@@ -204,6 +204,62 @@ def test_connected_shaft_and_head_still_an_arrow():
     assert idxs == {0, 1}
 
 
+def _tri_marker(cx, cy, *, w=9.0, h=8.0):
+    """A filled upward triangle data MARKER (arrowhead-shaped) centred at
+    ``(cx, cy)`` -- the exact glyph a connected triangle data-series is drawn with."""
+    return _path([(cx - w / 2, cy + h / 2), (cx + w / 2, cy + h / 2),
+                  (cx, cy - h / 2), (cx - w / 2, cy + h / 2)],
+                 fill=(0.0, 0.0, 1.0))
+
+
+def test_connected_triangle_marker_series_yields_no_arrows():
+    """A blue filled-triangle data curve (markers JOINED by a line) must NOT be
+    decomposed into arrows (regression for 2003.11050 p20c2). Each triangle is
+    arrowhead-shaped and each connecting segment looks like a shaft, but the
+    segment bridges TWO same-colour markers -> a connected same-colour head-chain
+    -> a marker series, not arrows. Nothing is recorded; no path is dropped."""
+    markers = [_tri_marker(120.0 + 40 * i, 200.0 - 10 * i) for i in range(5)]
+    # connecting line drawn as separate 2-point segments between adjacent markers.
+    segs = [_path([(120.0 + 40 * i, 200.0 - 10 * i),
+                   (120.0 + 40 * (i + 1), 200.0 - 10 * (i + 1))],
+                  stroke=(0.0, 0.0, 1.0)) for i in range(4)]
+    paths = markers + segs
+    region = Region(bbox=(80.0, 100.0, 360.0, 280.0),
+                    path_indices=list(range(len(paths))), text_indices=[])
+    idxs, recs = detect_arrows(region, paths)
+    assert recs == []
+    assert idxs == set()
+
+
+def test_marker_series_and_genuine_arrows_coexist():
+    """The 2003.11050 case in full: a connected blue triangle marker-series PLUS
+    two genuine distinct annotation arrows (a blue + a red, each a smaller/narrower
+    head with its own free-tailed shaft). The marker series is dropped while BOTH
+    genuine arrows are still recovered."""
+    markers = [_tri_marker(120.0 + 40 * i, 200.0 - 10 * i) for i in range(5)]
+    segs = [_path([(120.0 + 40 * i, 200.0 - 10 * i),
+                   (120.0 + 40 * (i + 1), 200.0 - 10 * (i + 1))],
+                  stroke=(0.0, 0.0, 1.0)) for i in range(4)]
+    # Two genuine arrows: smaller, narrower heads (sz/aspect differ from markers),
+    # each with a free-tailed shaft pointing away (not toward another head).
+    blue_head = _path([(301.5, 53.0), (304.5, 53.0), (303.0, 60.0),
+                       (301.5, 53.0)], fill=(0.0, 0.0, 1.0))
+    blue_shaft = _path([(303.0, 56.0), (303.0, 90.0)], stroke=(0.0, 0.0, 1.0))
+    red_head = _path([(331.5, 53.0), (334.5, 53.0), (333.0, 60.0),
+                      (331.5, 53.0)], fill=(1.0, 0.0, 0.0))
+    red_shaft = _path([(333.0, 56.0), (333.0, 90.0)], stroke=(1.0, 0.0, 0.0))
+    paths = markers + segs + [blue_shaft, blue_head, red_shaft, red_head]
+    region = Region(bbox=(80.0, 40.0, 360.0, 280.0),
+                    path_indices=list(range(len(paths))), text_indices=[])
+    idxs, recs = detect_arrows(region, paths)
+    assert len(recs) == 2
+    colors = sorted(tuple(r["color"]) for r in recs)
+    assert colors == [(0.0, 0.0, 1.0), (1.0, 0.0, 0.0)]
+    # only the two genuine arrows' paths are dropped; the marker series stays.
+    bh, bs, rh, rs = (len(markers) + len(segs) + j for j in range(4))
+    assert idxs == {bh, bs, rh, rs}
+
+
 def test_cli_persists_arrows_in_data_coords(tmp_path):
     """parse_pdf must store each detected arrow's tip/tail in DATA coords."""
     import json
