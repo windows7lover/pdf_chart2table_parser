@@ -1080,7 +1080,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         if tc is not None:
             legend_label_colors[lab] = tc
     legend = None
-    if len(matched) >= 2:
+    if len(matched) >= 1:
         # Measure geometry from the FULL legend ENTRY, not the single matched
         # span: a multi-span entry ('V'+'D'+'= 1V') is matched on a fragment
         # ('= 1V'), whose left edge sits mid-entry. Expanding each match to its
@@ -1128,6 +1128,26 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         # but KEEP the recovered font/bold. Left-aligned stacks are exempt
         # (genuine narrow-panel legends, 2005.05829_p13c1 "1S/2S exciton").
         left_aligned = _legend_left_aligned([{"bbox": b} for b in ent])
+        # Per-entry render LAYOUT for the custom legend drawer (the renderer pairs
+        # each entry's label with its series to draw the handle). One entry per
+        # matched label: the label's left-edge anchor + vertical centre in axes
+        # fraction, its font size, and bold/italic. Drawn top-to-bottom in `order`.
+        render_entries = []
+        for i, m in enumerate(matched):
+            bx0, by0, bx1, by1 = ent[i]
+            lx, lyc = to_frac(bx0, (by0 + by1) / 2)
+            render_entries.append({
+                "label": _clean(matched_labels[i]),
+                "x_frac": round(lx, 4),
+                "y_frac": round(lyc, 4),
+                "size": (round(m["size"] * scale, 2) if m.get("size") else base),
+                "bold": bool(bold_reliable and _is_bold(m)),
+                "italic": bool(italic_reliable and _is_italic(m)),
+            })
+        # Frame box in axes fraction: labels' extent grown left by the swatch
+        # allowance (the handle sits left of the leftmost label).
+        fx0, fy1 = to_frac(mx0 - sw, my0)
+        fx1, fy0 = to_frac(mx1, my1)
         legend = {
             "orientation": "horizontal" if horizontal else "vertical",
             "ncol": int(ncol),
@@ -1135,6 +1155,8 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
                          if matched[0].get("size") else base),
             "bold": bold_reliable and any(_is_bold(s) for s in matched),
             "order": order,
+            "entries": render_entries,
+            "bbox_frac": [round(fx0, 4), round(fy0, 4), round(fx1, 4), round(fy1, 4)],
         }
         if horizontal or wfrac <= 0.6 or left_aligned:
             legend["anchor"] = [round(cxf, 3), round(cyf, 3)]

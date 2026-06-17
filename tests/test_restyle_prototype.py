@@ -490,8 +490,21 @@ def _legend_record_style(legend_frame):
              "y_axis": {"title": "Y", "ticks": []},
              "legend_box": True, "legend_frame": legend_frame,
              "text": {"base_font_size": 10.0, "show_legend": True,
-                      "legend": {"fontsize": 8.0}}}
+                      "legend": {"fontsize": 8.0,
+                                 "entries": [
+                                     {"label": "A", "x_frac": 0.2, "y_frac": 0.9,
+                                      "size": 8.0, "bold": False, "italic": False},
+                                     {"label": "B", "x_frac": 0.2, "y_frac": 0.8,
+                                      "size": 8.0, "bold": False, "italic": False}],
+                                 "bbox_frac": [0.08, 0.75, 0.45, 0.95]}}}
     return record, style
+
+
+def _legend_frame_patch(ax):
+    """The FancyBboxPatch our manual legend drawer adds for the frame, or None."""
+    from matplotlib.patches import FancyBboxPatch
+    pats = [p for p in ax.patches if isinstance(p, FancyBboxPatch)]
+    return pats[-1] if pats else None
 
 
 def test_legend_frame_style_applied_to_renderer():
@@ -504,9 +517,8 @@ def test_legend_frame_style_applied_to_renderer():
     record, style = _legend_record_style(frame)
     fig, ax = plt.subplots()
     _replot(ax, record, style)
-    leg = ax.get_legend()
-    assert leg is not None
-    fr = leg.get_frame()
+    fr = _legend_frame_patch(ax)
+    assert fr is not None, "manual legend frame patch not drawn"
     ec = fr.get_edgecolor()
     assert all(abs(ec[i] - 0.149) < 1e-3 for i in range(3))
     assert abs(fr.get_linewidth() - 0.432) < 1e-3
@@ -545,7 +557,8 @@ def test_legend_frame_rounded_uses_round_boxstyle():
     record, style = _legend_record_style(frame)
     fig, ax = plt.subplots()
     _replot(ax, record, style)
-    assert type(ax.get_legend().get_frame().get_boxstyle()).__name__ == "Round"
+    fr = _legend_frame_patch(ax)
+    assert fr is not None and type(fr.get_boxstyle()).__name__ == "Round"
     plt.close(fig)
 
 

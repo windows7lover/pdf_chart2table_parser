@@ -407,6 +407,85 @@ def _axis_view(record, style, which):
     }
 
 
+def _draw_legend_manual(ax, record, style, txt, L, _fs, font_scale=1.0):
+    """Draw the legend OURSELVES from the recovered layout — never ax.legend().
+
+    Recovered ``txt['legend']`` carries per-entry LAYOUT (label text + axes-frac
+    position + font) and a frame bbox; each entry's HANDLE style comes from the
+    matching series (so the sample matches what is plotted). We draw the frame,
+    then per entry a line and/or marker handle in the swatch column left of the
+    label, then the label text — all in axes-fraction (transAxes) coordinates at
+    the measured positions. Returns True if a legend was drawn.
+    """
+    import matplotlib.patches as mpatches
+    leg = txt.get("legend") or {}
+    entries = leg.get("entries") or []
+    if not entries:
+        return False
+
+    def _key(s):
+        return (s or "").strip()
+
+    lab2style = {}
+    for ser, st in zip(record["series"], style["series"]):
+        if st.get("label"):
+            lab2style.setdefault(_key(st["label"]), st)
+
+    tr = ax.transAxes
+    bb = leg.get("bbox_frac")
+    frame = style.get("legend_frame")
+    if bb and (style.get("legend_box") or frame):
+        x0, y0, x1, y1 = bb
+        ec = _color((frame or {}).get("edge_color")) or "black"
+        fc = _color((frame or {}).get("face_color"))
+        lw = (frame or {}).get("linewidth") or 0.8
+        ax.add_patch(mpatches.FancyBboxPatch(
+            (min(x0, x1), min(y0, y1)), abs(x1 - x0), abs(y1 - y0),
+            boxstyle=("round,pad=0" if (frame or {}).get("rounded")
+                      else "square,pad=0"),
+            transform=tr, facecolor=(fc if fc is not None else "none"),
+            edgecolor=ec, linewidth=lw, zorder=4, clip_on=False, mutation_scale=6))
+
+    fs_default = _fs(leg.get("fontsize")) or 8
+    lcs = txt.get("legend_label_colors") or {}
+    for e in entries:
+        x, y = e["x_frac"], e["y_frac"]
+        size = _fs(e.get("size")) or fs_default
+        st = lab2style.get(_key(e["label"]))
+        col = _color(st.get("color")) if st else "black"
+        # Handle column: from the frame's left edge to just left of the label.
+        hx1 = x - 0.01
+        hx0 = (bb[0] + 0.006) if bb else (x - 0.06)
+        if hx0 >= hx1 - 0.01:
+            hx0 = hx1 - 0.04
+        if st is not None:
+            ls = st.get("linestyle") or "-"
+            if isinstance(ls, list):           # JSON dash tuple [offset,[on,off]]
+                ls = (ls[0], tuple(ls[1]))
+            is_scatter = st.get("render_as") == "scatter"
+            if (not is_scatter) or st.get("connect"):
+                ax.plot([hx0, hx1], [y, y], transform=tr, color=col,
+                        linewidth=(st.get("linewidth") or 1.0) * font_scale,
+                        linestyle=ls, zorder=5, clip_on=False)
+            if is_scatter:
+                mk = st.get("marker_shape") or st.get("marker") or "o"
+                face = _color(st.get("marker_face"))
+                edge = _color(st.get("marker_edge")) or col
+                md = st.get("markersize")
+                ax.plot([(hx0 + hx1) / 2], [y], transform=tr, marker=mk,
+                        linestyle="none", zorder=6, clip_on=False,
+                        markersize=((md * font_scale) if md else 6),
+                        markerfacecolor=(face if face is not None else "none"),
+                        markeredgecolor=edge,
+                        markeredgewidth=(st.get("marker_edge_width") or 0.6) * font_scale)
+        tcol = _color(lcs.get(e["label"])) or "black"
+        ax.text(x, y, L(e["label"]), transform=tr, fontsize=size,
+                va="center", ha="left", color=tcol, zorder=6, clip_on=False,
+                fontweight="bold" if (e.get("bold") or leg.get("bold")) else "normal",
+                fontstyle="italic" if e.get("italic") else "normal")
+    return True
+
+
 def _replot(ax, record, style, tex=False, font_scale=1.0):
     """Draw the extracted data into ``ax`` in the original's style."""
     L = _latexify if tex else (lambda x: x)
@@ -766,109 +845,9 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
                                     lw=0.8, shrinkA=0, shrinkB=0))
     # Draw a legend only when it is actually present on THIS panel.
     if has_label and txt.get("show_legend", True):
-        leg = txt.get("legend")
-        # frame only if the original legend was boxed (else borderless -- matplotlib's
-        # faint gray box is rarely in the original).
-        # Compact padding -- matplotlib's defaults make the box bulkier than the
-        # tight legends these papers use.
-        kw = {"fontsize": _fs((leg or {}).get("fontsize")) or _fs(base_fs) or 8,
-              "frameon": bool(style.get("legend_box")),
-              "borderpad": 0.3, "labelspacing": 0.3, "handlelength": 1.0,
-              "handletextpad": 0.4, "columnspacing": 1.0, "borderaxespad": 0.3}
-        # Recovered legend-box style: border colour/width, fill, and square vs
-        # rounded corners -- so the frame matches the original instead of
-        # matplotlib's default light-grey fancybox. linewidth is applied to the
-        # frame patch after the legend is (re)created below.
-        frame = style.get("legend_frame")
-        if frame:
-            kw["frameon"] = True
-            kw["fancybox"] = bool(frame.get("rounded"))
-            if frame.get("edge_color") is not None:
-                kw["edgecolor"] = tuple(frame["edge_color"])
-            if frame.get("face_color") is not None:
-                kw["facecolor"] = tuple(frame["face_color"])
-                kw["framealpha"] = 1.0  # opaque white fill, as in the original
-        if leg:
-            kw["ncol"] = leg.get("ncol", 1)
-            a = leg.get("anchor")
-            if a and -0.1 <= a[0] <= 1.1 and -0.1 <= a[1] <= 1.1:
-                kw["loc"] = "center"  # place the box AT the recovered center
-                kw["bbox_to_anchor"] = tuple(a)
-            elif a:
-                kw["loc"] = _anchor_loc(a)
-            if leg.get("bold"):
-                kw["prop"] = {"weight": "bold", "size": kw.pop("fontsize")}
-            # Present entries in the ORIGINAL legend's top-to-bottom order (not the
-            # series-extraction order): reorder the auto-collected handles/labels to
-            # match leg["order"] (2202.11909_p25c1 had PTE/aI swapped).
-            if leg.get("order"):
-                _h, _lab = ax.get_legend_handles_labels()
-                _want = [L(o) for o in leg["order"]]
-                _used, _idx = set(), []
-                for w in _want:
-                    for j, ll in enumerate(_lab):
-                        if j not in _used and ll == w:
-                            _used.add(j); _idx.append(j); break
-                _idx += [j for j in range(len(_lab)) if j not in _used]
-                if len(_idx) == len(_lab) and _idx != list(range(len(_lab))):
-                    kw["handles"] = [_h[j] for j in _idx]
-                    kw["labels"] = [_lab[j] for j in _idx]
-        legend_obj = ax.legend(**kw)
-        # FIT the legend size to the original: measure the rendered legend width
-        # in axes fraction and rescale the font toward the recovered extent.
-        # The recovered FONT SIZE is measured directly from the PDF and is
-        # accurate; the recovered WIDTH (w_frac) over-estimates the handle (it adds
-        # a 3.2*fontsize swatch allowance), so it must never GROW the font (that
-        # inflated legends 1.4-1.6x: 2002.02623 9.3->13.6). Only allow SHRINK (cap
-        # at 1.0) when the rendered legend genuinely overflows the recovered width.
-        tw = (leg or {}).get("w_frac")
-        if legend_obj is not None and tw and tw > 0:
-            ax.figure.canvas.draw()
-            bb = legend_obj.get_window_extent()
-            inv = ax.transAxes.inverted()
-            (p0x, _), (p1x, _) = inv.transform((bb.x0, bb.y0)), inv.transform((bb.x1, bb.y1))
-            cur_w = abs(p1x - p0x)
-            if cur_w > 1e-3:
-                r = max(0.55, min(1.0, tw / cur_w))
-                if abs(r - 1.0) > 0.08:  # re-create at fitted size
-                    if "prop" in kw:
-                        kw["prop"] = dict(kw["prop"], size=kw["prop"]["size"] * r)
-                    else:
-                        kw["fontsize"] = (kw.get("fontsize") or 8) * r
-                    legend_obj.remove()
-                    legend_obj = ax.legend(**kw)
-        # Apply the recovered border width to whichever legend frame is final.
-        if frame and legend_obj is not None and frame.get("linewidth"):
-            legend_obj.get_frame().set_linewidth(frame["linewidth"])
-        # Colour the legend entry TEXT to match the source (only entries the source
-        # drew chromatically; black/grey labels were omitted at recovery so they
-        # stay matplotlib-default black). Keyed by the rendered (latexified) label;
-        # recorded independent of legend-layout recovery so it tints auto-legends.
-        lcs = txt.get("legend_label_colors")
-        if legend_obj is not None and lcs:
-            want = {L(k): tuple(v) for k, v in lcs.items()}
-            for t in legend_obj.get_texts():
-                c = want.get(t.get_text())
-                if c is not None:
-                    t.set_color(c)
-        # The recovered anchor is the original's TEXT-block centre, but loc="center"
-        # centres the whole box (handle + text), so the text lands ~half a handle to
-        # the RIGHT (2001.01801 'Parallel'/'109° align.' shifted off the left spine).
-        # Measure the rendered text block and shift the legend so its TEXT centre
-        # sits on the anchor -- aligning the labels with the source regardless of the
-        # renderer's handle/pad widths.
-        anc = (leg or {}).get("anchor")
-        if legend_obj is not None and anc and kw.get("loc") == "center":
-            ax.figure.canvas.draw()
-            ext = [t.get_window_extent() for t in legend_obj.get_texts()]
-            if ext:
-                inv = ax.transAxes.inverted()
-                lo = inv.transform((min(e.x0 for e in ext), min(e.y0 for e in ext)))
-                hi = inv.transform((max(e.x1 for e in ext), max(e.y1 for e in ext)))
-                dx = anc[0] - (lo[0] + hi[0]) / 2
-                dy = anc[1] - (lo[1] + hi[1]) / 2
-                legend_obj.set_bbox_to_anchor((anc[0] + dx, anc[1] + dy),
-                                              transform=ax.transAxes)
+        # Draw the legend with OUR OWN drawer (never ax.legend): replay the
+        # recovered per-entry layout + each entry's series handle style.
+        _draw_legend_manual(ax, record, style, txt, L, _fs, font_scale)
 
 
 def _original_image(record):
