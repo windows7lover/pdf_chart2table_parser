@@ -997,6 +997,11 @@ def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None,
     _te = (txt.get("elements") or {}).get("title") or {}
     tfs = _te.get("size")
     rc = {}
+    # Recovered dash arrays are ABSOLUTE PDF points; matplotlib scales dash
+    # patterns by linewidth by default (lines.scale_dashes), which shrank thin
+    # dashed curves to look dotted (2003.01158 lw~0.6 -> 1.57pt dash -> ~1pt).
+    # Render dashes at their recovered absolute length instead.
+    rc["lines.scale_dashes"] = False
     if txt.get("font_family"):
         rc["font.family"] = txt["font_family"]
         rc.update(_metric_font_rc(txt.get("font_face")))
