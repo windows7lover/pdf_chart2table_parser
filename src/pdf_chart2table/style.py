@@ -749,6 +749,18 @@ def _group_color(group):
     return max(counts, key=counts.get)
 
 
+def _text_color(c):
+    """A text colour worth recording: CHROMATIC only (RGB spread > 0.12).
+
+    Black / grey / white text returns None so the renderer leaves it
+    matplotlib-default black and never overrides e.g. a coloured-axis tick
+    labelcolor; only genuinely-coloured text (a blue label) is carried. Same
+    rule the legend uses, so all text colour is gated consistently."""
+    if c is None:
+        return None
+    return [round(v, 3) for v in c] if (max(c) - min(c)) > 0.12 else None
+
+
 def _spans_in_region(fitz_page, region_bbox, margin=44.0):
     """Text spans whose center lies within region+/-margin, plus font weights.
 
@@ -874,6 +886,10 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
 
     sizes = sorted(s["size"] for s in spans if s.get("size"))
     base = sizes[len(sizes) // 2] * scale if sizes else None
+    # Group the region's spans into logical labels ONCE; _group_spans is O(n^2)
+    # and deterministic, so the title/axis-title matching, legend layout and
+    # title-guard all reuse this instead of rebuilding it per call.
+    grouped = _group_spans(spans, base)
 
     def to_frac(cx, cy):
         return (cx - x0) / w, (y1 - cy) / h  # matplotlib axes fraction (y up)
@@ -906,7 +922,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         if not key:
             return None
         best, best_len = None, -1
-        for grp in _group_spans(spans, base):
+        for grp in grouped:
             gk = _norm(_join_group(grp))
             if gk and (gk == key or gk in key or key in gk):
                 if len(gk) > best_len:
@@ -972,9 +988,9 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     # entries (sat > 0.12); black/grey labels omitted -> stay default black.
     legend_label_colors = {}
     for lab, s in zip(matched_labels, matched):
-        c = s.get("color")
-        if c and (max(c) - min(c)) > 0.12:
-            legend_label_colors[lab] = [round(v, 3) for v in c]
+        tc = _text_color(s.get("color"))
+        if tc is not None:
+            legend_label_colors[lab] = tc
     legend = None
     if len(matched) >= 2:
         # Measure geometry from the FULL legend ENTRY, not the single matched
@@ -983,7 +999,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         # _group_spans group recovers the entry's true left edge, so stacked
         # entries read as left-aligned (and width/anchor are correct) instead of
         # spuriously failing the width gate (2001.01038_p13c4).
-        groups = _group_spans(spans, base)
+        groups = grouped
 
         def _entry_box(m):
             for g in groups:
@@ -1019,7 +1035,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         # scattered ticks) -> drop only the ANCHOR so the renderer auto-places,
         # but KEEP the recovered font/bold. Left-aligned stacks are exempt
         # (genuine narrow-panel legends, 2005.05829_p13c1 "1S/2S exciton").
-        left_aligned = (max(b[0] for b in ent) - min(b[0] for b in ent)) <= _LEGEND_COL_TOL
+        left_aligned = _legend_left_aligned([{"bbox": b} for b in ent])
         legend = {
             "orientation": "horizontal" if horizontal else "vertical",
             "ncol": int(ncol),
@@ -1118,8 +1134,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
             return None
         return {
             "size": size_of(text),
-            "color": _group_color(grp) if grp else (
-                list(s["color"]) if s.get("color") else None),
+            "color": _text_color(_group_color(grp) if grp else s.get("color")),
             "bold": bold_of(text),
             "italic": italic_of(text),
             "runs": runs_of(text),
@@ -1130,7 +1145,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         "x_title": _elem(axis_titles.get("x")),
         "y_title": _elem(axis_titles.get("y")),
         "ticks": {"size": round(tick_size, 2) if tick_size else None,
-                  "color": _group_color(tick_spans),
+                  "color": _text_color(_group_color(tick_spans)),
                   "bold": tick_bold},
     }
     for _ax in ("x_title", "y_title"):
@@ -1148,7 +1163,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     title_ok = False
     tkey = _norm(title_text)
     if tkey:
-        for grp in _group_spans(spans, base):
+        for grp in grouped:
             gtext = _join_group(grp)
             gkey = _norm(gtext)
             if not gkey:

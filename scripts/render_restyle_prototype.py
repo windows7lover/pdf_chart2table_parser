@@ -590,7 +590,10 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
     # from the marker itself (MarkerStyle(..., capstyle="round")).
     if style.get("round_caps"):
         for ln in ax.get_xticklines() + ax.get_yticklines():
-            ln.set_marker(MarkerStyle(ln.get_marker(), capstyle="round"))
+            try:
+                ln.set_marker(MarkerStyle(ln.get_marker(), capstyle="round"))
+            except (AttributeError, ValueError, TypeError):
+                pass
         for sp in ax.spines.values():
             try:
                 sp.set_capstyle("round")
@@ -887,6 +890,19 @@ def _draw_residual(ax, arr, clip, dpi, resid, show_title=True):
     ax.axis("off")
 
 
+# Per-face overrides layered onto the metric-font defaults, keyed by the token
+# from style._classify_face. Verdana/Tahoma are wide -> DejaVu Sans (Bitstream-
+# Vera lineage) fits better than Arial-metric Liberation Sans; Calibri -> Carlito;
+# Cambria -> Caladea (both metric-compatible); Courier is monospace though
+# _classify_family labels it "serif".
+_FACE_OVERRIDES = {
+    "verdana": {"font.sans-serif": ["DejaVu Sans", "Liberation Sans"]},
+    "calibri": {"font.sans-serif": ["Carlito", "Liberation Sans", "DejaVu Sans"]},
+    "cambria": {"font.serif": ["Caladea", "Liberation Serif", "DejaVu Serif"]},
+    "courier": {"font.family": "monospace"},
+}
+
+
 def _metric_font_rc(face=None):
     """Prefer metric-compatible faces over matplotlib's stock DejaVu.
 
@@ -894,27 +910,15 @@ def _metric_font_rc(face=None):
     Helvetica. Liberation Serif/Sans/Mono are metric-compatible with Times New
     Roman / Arial / Courier, so the recovered "serif"/"sans-serif" family
     defaults to them (falling back to DejaVu when Liberation isn't installed).
-
-    `face` is the specific recovered face (style._classify_face) when the
-    generic default mismatches its metrics: Verdana/Tahoma are wide -> DejaVu
-    Sans (Bitstream-Vera lineage) fits better than Arial-metric Liberation Sans;
-    Calibri -> Carlito; Cambria -> Caladea (both metric-compatible)."""
-    serif = ["Liberation Serif", "DejaVu Serif"]
-    sans = ["Liberation Sans", "DejaVu Sans"]
-    mono = ["Liberation Mono", "DejaVu Sans Mono"]
-    out = {}
-    if face == "verdana":
-        sans = ["DejaVu Sans", "Liberation Sans"]
-    elif face == "calibri":
-        sans = ["Carlito", "Liberation Sans", "DejaVu Sans"]
-    elif face == "cambria":
-        serif = ["Caladea", "Liberation Serif", "DejaVu Serif"]
-    elif face == "courier":
-        # _classify_family mislabels Courier as "serif"; it's monospace.
-        out["font.family"] = "monospace"
-    out.update({"font.serif": serif, "font.sans-serif": sans,
-                "font.monospace": mono})
-    return out
+    `face` (style._classify_face) layers a specific substitute via
+    _FACE_OVERRIDES when the generic default mismatches that face's metrics."""
+    rc = {
+        "font.serif": ["Liberation Serif", "DejaVu Serif"],
+        "font.sans-serif": ["Liberation Sans", "DejaVu Sans"],
+        "font.monospace": ["Liberation Mono", "DejaVu Sans Mono"],
+    }
+    rc.update(_FACE_OVERRIDES.get(face, {}))
+    return rc
 
 
 def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None,

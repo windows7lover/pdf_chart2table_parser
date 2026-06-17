@@ -54,7 +54,10 @@ def join_scripts(items) -> str:
     if not sizes:
         return "".join(it[0] for it in items)
     base = max(sizes)
-    base_cys = [it[2] for it in items if it[1] and it[1] >= 0.9 * base]
+    # Baseline reference from the BASE-RUN spans only (>= 0.92x): a near-full-size
+    # subscript (~0.90x) is script-eligible (sz < 0.92x below), so including it
+    # here would drag the baseline onto the subscript row and mis-tier the rest.
+    base_cys = [it[2] for it in items if it[1] and it[1] >= 0.92 * base]
     base_cy = sorted(base_cys)[len(base_cys) // 2] if base_cys else None
     out, buf, cur, cur_it, cur_bd = [], [], None, False, False
     prev_x1 = None
