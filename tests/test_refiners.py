@@ -17,8 +17,8 @@ from pdf_chart2table.refiners import (
 )
 
 
-def _series(marker, pix):
-    return Series(label=None, marker=marker, color=(0, 0, 0),
+def _series(marker, pix, color=(0, 0, 0)):
+    return Series(label=None, marker=marker, color=color,
                   points=[{"x": x, "y": y, "x_px": x, "y_px": y} for x, y in pix])
 
 
@@ -32,10 +32,45 @@ def test_connector_through_scatter_dropped():
 
 
 def test_straight_fit_line_dropped():
+    # A straight line in the SAME colour as the markers is a same-colour overlay
+    # (decoration) -> dropped. (Both default to black via _series.)
     marks = _series("s", [(10, 12), (25, 40), (40, 8), (55, 33)])  # scatter
     fit = _series(None, [(5 + i, 5 + 2 * i) for i in range(60)])    # perfectly straight
     kept, reasons = drop_spurious_lines([marks, fit])
     assert marks in kept and fit not in kept
+    assert any("straight" in r for r in reasons)
+
+
+def test_chromatic_straight_fit_line_kept():
+    # 2006.01115_p33c2: black square markers + a straight RED linear fit line
+    # through them. A straight line in a SATURATED colour distinct from the
+    # markers is a chromatic fit/trend line (DATA), not decoration -> KEEP it.
+    marks = _series("s", [(10, 12), (25, 40), (40, 8), (55, 33)], color=(0, 0, 0))
+    fit = _series(None, [(5 + i, 5 + 2 * i) for i in range(60)], color=(1.0, 0.0, 0.0))
+    kept, reasons = drop_spurious_lines([marks, fit])
+    assert marks in kept and fit in kept, "chromatic fit line distinct from markers must be kept"
+    assert not any("straight" in r for r in reasons)
+
+
+def test_chromatic_connector_still_dropped():
+    # Even a colour-distinct line is dropped when it is a CONNECTOR (its vertices
+    # sit ON the markers): the connector test fires before the fit-line colour
+    # gate, so a red line tracing red... no -- tracing distinct markers is still
+    # decoration when it merely joins them.
+    marks = _series("o", [(10, 10), (20, 25), (30, 15), (40, 35)], color=(0, 0, 0))
+    connector = _series(None, [(10, 10), (20, 25), (30, 15), (40, 35)], color=(1.0, 0.0, 0.0))
+    kept, reasons = drop_spurious_lines([marks, connector])
+    assert connector not in kept, "a connector through markers is decoration regardless of colour"
+    assert any("connector" in r for r in reasons)
+
+
+def test_grey_straight_line_through_markers_dropped():
+    # A near-grey (unsaturated) straight line through markers is NOT a chromatic
+    # fit line: gridline/spine/baseline-shaped decoration -> still dropped.
+    marks = _series("s", [(10, 12), (25, 40), (40, 8), (55, 33)], color=(0, 0, 0))
+    grey = _series(None, [(5 + i, 5 + 2 * i) for i in range(60)], color=(0.5, 0.5, 0.5))
+    kept, reasons = drop_spurious_lines([marks, grey])
+    assert grey not in kept, "an unsaturated straight line is not a chromatic fit -> dropped"
     assert any("straight" in r for r in reasons)
 
 

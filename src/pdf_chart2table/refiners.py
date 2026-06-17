@@ -9,7 +9,10 @@ line+marker data series are never touched.
 from __future__ import annotations
 
 from .model import Axis, Path, Series
-from .primitives import round_color as _round_color
+from .primitives import (
+    is_saturated as _is_saturated,
+    round_color as _round_color,
+)
 
 # --- residual step-2 refiner thresholds ------------------------------------
 # A residual path is a candidate dropped curve only if it is LONG (spans this
@@ -50,6 +53,22 @@ _CONNECTOR_MULTITRACK = 1.3
 _STRAIGHT_R2 = 0.999
 # ...and spans at least this fraction of the plot diagonal (ignore tiny segments).
 _STRAIGHT_MIN_SPAN = 0.3
+# Per-channel RGB gap above which two colours are "distinct". A straight line in a
+# colour distinct from every marker series is a chromatic FIT / TREND line through
+# the data (e.g. a red linear fit over black square markers) and is KEPT as a
+# series; a straight line sharing a marker series' colour is decoration (a
+# same-colour overlay / connector) and is dropped as before. Spines / gridlines /
+# error-bars never reach here (they are filtered as non-data in classify_lines).
+_DISTINCT_RGB_GAP = 0.2
+
+
+def _colors_distinct(a, b) -> bool:
+    """True when colours ``a`` and ``b`` differ on any channel by more than
+    ``_DISTINCT_RGB_GAP`` (so red vs black is distinct, two near-identical greys
+    are not). A missing colour is treated as not-distinct (cannot tell apart)."""
+    if a is None or b is None:
+        return False
+    return any(abs(ai - bi) > _DISTINCT_RGB_GAP for ai, bi in zip(a, b))
 
 
 def _pixels(s: Series) -> list[tuple[float, float]]:
@@ -113,6 +132,7 @@ def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
     marker_pts = [p for s in markers for p in _pixels(s)]
     if not marker_pts:
         return series, []
+    marker_colors = [s.color for s in markers]
     mxs = [x for x, _ in marker_pts]
     mys = [y for _, y in marker_pts]
     diag = max(((max(mxs) - min(mxs)) ** 2 + (max(mys) - min(mys)) ** 2) ** 0.5, 1.0)
@@ -136,6 +156,15 @@ def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
             reasons.append(f"dropped connector line ({frac:.0%} of vertices on markers)")
             continue
         if _linear_r2(line_pts) >= _STRAIGHT_R2 and span >= _STRAIGHT_MIN_SPAN * diag:
+            # A straight line in a SATURATED colour distinct from every marker
+            # series is a chromatic fit / trend line through the data (e.g. a red
+            # linear fit over black square markers) -- keep it as a series. Only a
+            # straight line sharing a marker colour is decoration (same-colour
+            # overlay) and is dropped.
+            if (_is_saturated(s.color)
+                    and all(_colors_distinct(s.color, mc) for mc in marker_colors)):
+                kept.append(s)
+                continue
             reasons.append("dropped straight reference/fit line (R^2>=0.997)")
             continue
         kept.append(s)
