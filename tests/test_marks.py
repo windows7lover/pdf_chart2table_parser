@@ -1243,3 +1243,41 @@ def test_scatter_without_connector_keeps_all_marks():
     series = classify_marks(region, paths, [])
     assert len(series) == 1
     assert len(series[0].marks) == 6
+
+
+def test_scattered_series_under_legend_box_kept():
+    # A data series whose points happen to cluster UNDER the legend box (>=75% in
+    # box) must NOT be culled when those in-box marks are a 2-D scatter (wide x AND
+    # y spread) -- only a collinear swatch column/row is legend decoration.
+    # (2005.10210_p45c1: orange-diamond series 14 -> 2 because it sat under the legend.)
+    region = Region(bbox=(100.0, 100.0, 400.0, 400.0),
+                    path_indices=list(range(6)), text_indices=[])
+    plot_box = (100.0, 100.0, 400.0, 400.0)
+    legend_bbox = (110.0, 110.0, 200.0, 220.0)   # top-left legend box
+    blue = (0.0, 0.0, 1.0)
+    # 6 squares scattered in 2-D, 5 inside the legend box, 1 outside
+    centers = [(120, 130), (160, 150), (140, 200), (190, 180), (130, 170),
+               (300, 300)]
+    paths = [_square(cx, cy, fill=blue) for cx, cy in centers]
+    series = classify_marks(region, paths, [], plot_box=plot_box,
+                            legend_bbox=legend_bbox)
+    assert len(series) == 1
+    assert len(series[0].marks) == 6            # scatter kept, not culled
+
+
+def test_swatch_column_in_legend_box_dropped():
+    # A genuine swatch COLUMN (aligned x, stacked y) inside the legend box IS
+    # legend decoration and is dropped.
+    region = Region(bbox=(100.0, 100.0, 400.0, 400.0),
+                    path_indices=list(range(5)), text_indices=[])
+    plot_box = (100.0, 100.0, 400.0, 400.0)
+    legend_bbox = (110.0, 110.0, 200.0, 240.0)
+    blue = (0.0, 0.0, 1.0)
+    # 4 swatches at one x, stacked vertically (a column) + 1 real datum outside
+    paths = [_square(130, 130, fill=blue), _square(130, 160, fill=blue),
+             _square(130, 190, fill=blue), _square(130, 220, fill=blue),
+             _square(320, 320, fill=blue)]
+    series = classify_marks(region, paths, [], plot_box=plot_box,
+                            legend_bbox=legend_bbox)
+    assert len(series) == 1
+    assert len(series[0].marks) == 1            # column culled, only outside datum kept

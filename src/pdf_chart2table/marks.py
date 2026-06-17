@@ -168,6 +168,11 @@ _CONN_SUPPORT_FRAC = 0.6   # only filter when ≥ this fraction of marks are sup
 # crosses the legend and all its marks are kept (2006.05506_p12c1: a rising
 # scatter whose low-T points sit under the corner legend).
 _LEGEND_GROUP_DROP_FRAC = 0.75
+# A legend swatch group is a COLUMN/ROW of samples: its in-box marks are aligned,
+# so the smaller of their x-/y-spread is within this many px (sample column width
+# / row height jitter). A real data series the legend overlaps scatters in 2-D
+# and exceeds this on BOTH axes, so it is kept rather than culled as decoration.
+_LEGEND_SWATCH_LINE_TOL = 10.0
 
 # Sparse-on-dense guard: skip an extraction if the number of extracted marker
 # points is very small relative to the region's total path count AND the region
@@ -1056,6 +1061,15 @@ def classify_marks(
     # Group-wise legend-box filter: a swatch column has (nearly) all its marks
     # inside the legend box -> drop them (legend decoration). A data series that
     # only crosses the box has a minority inside -> keep ALL its marks.
+    #
+    # Collinearity guard: a legend swatch group is a COLUMN (or row) of samples —
+    # its in-box marks are aligned (small spread on one axis). A real data series
+    # the legend merely sits on top of has its in-box marks SCATTERED in 2-D. So
+    # we only drop a mostly-in-box group when its in-box marks are collinear; a
+    # 2-D in-box cluster is data overlapped by the legend and is kept (the one
+    # actual swatch among it is already removed per-mark by _is_legend_swatch).
+    # (2005.10210_p45c1: an orange-diamond series clustered under the legend was
+    # culled wholesale — 14 points -> 2 — because 87% fell in the box.)
     if effective_legend_bbox is not None:
         for key, sm in list(groups.items()):
             flags = in_legend[key]
@@ -1063,6 +1077,13 @@ def classify_marks(
             if n_in == 0:
                 continue
             if n_in >= _LEGEND_GROUP_DROP_FRAC * len(flags):
+                in_marks = [m for m, f in zip(sm.marks, flags) if f]
+                xs = [m.cx for m in in_marks]
+                ys = [m.cy for m in in_marks]
+                collinear = (min(max(xs) - min(xs), max(ys) - min(ys))
+                             <= _LEGEND_SWATCH_LINE_TOL)
+                if not collinear:
+                    continue  # 2-D scatter under the legend = data, keep all
                 kept = [m for m, f in zip(sm.marks, flags) if not f]
                 if kept:
                     sm.marks = kept
