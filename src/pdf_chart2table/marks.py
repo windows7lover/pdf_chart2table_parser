@@ -915,6 +915,21 @@ def classify_marks(
             continue
         if _is_legend_swatch(cx, cy, region_texts, plot_box):
             continue
+        # Swatch INSIDE a confirmed legend box: cull per-mark. The group-aware
+        # box filter below only drops a group when ≥_LEGEND_GROUP_DROP_FRAC of its
+        # marks are in the box, so a lone swatch sharing a series' colour+shape
+        # (the legend illustrates that very series) survives as a stray 16th
+        # point off the curve. Here the mark is both inside the detected legend
+        # box AND swatch-aligned to a legend label (a marker immediately left of
+        # its label text): the box already confirms the text is legend text, so
+        # the _LEGEND_BORDER_FRAC guard is unnecessary (pass plot_box=None to
+        # skip it). A real datum crossing the box is not label-aligned, so it is
+        # kept (2308.15922_p4c1: the blue 'Asymptotic' swatch at the curve's
+        # plateau gap).
+        if effective_legend_bbox is not None and _in_legend_box(
+            cx, cy, effective_legend_bbox
+        ) and _is_legend_swatch(cx, cy, region_texts, None):
+            continue
         cand_marks.append((i, cx, cy, p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]))
 
     text_idx = _text_run_indices(cand_marks)

@@ -656,6 +656,65 @@ def test_data_series_crossing_legend_box_kept():
     )
 
 
+def test_legend_swatch_aligned_to_label_culled_from_series():
+    """Regression (2308.15922_p4c1): a legend SWATCH that shares its series'
+    colour+shape and sits INSIDE the detected legend box leaks into that series.
+
+    The group-aware legend-box filter only drops a group when
+    >= _LEGEND_GROUP_DROP_FRAC of its marks fall in the box; the legend
+    illustrates the very series it labels, so the lone swatch is a 1-in-N
+    minority and the whole group (curve + swatch) was kept, adding a stray
+    off-curve point. The swatch sits immediately LEFT of its legend label text,
+    so it must be culled per-mark — while a real datum at the same location
+    (no adjacent legend label) is kept.
+    """
+    region = Region(bbox=(80.0, 70.0, 270.0, 135.0),
+                    path_indices=[], text_indices=[])
+    plot_box = (84.0, 73.0, 268.0, 132.0)
+    # Legend bottom-right, well INSIDE the plot box (deep enough that the
+    # _LEGEND_BORDER_FRAC text guard would otherwise reject the label).
+    legend = (188.0, 100.0, 266.0, 130.0)
+    # 'Asymptotic' legend label text just right of the swatch column.
+    label = TextSpan(text="Asymptotic", bbox=(211.0, 112.0, 245.0, 119.0),
+                     size=7.0)
+    region.text_indices = [0]
+    # 15 real blue-square data points forming a curve (none label-aligned).
+    blue = [_square(90 + 11 * i, 125 - 3 * i, fill=(0.4, 0.4, 0.7))
+            for i in range(15)]
+    # The blue legend swatch: same colour+shape, INSIDE the legend box, just
+    # left of the 'Asymptotic' label (cy aligned with the label row).
+    swatch = _square(197.0, 115.5, fill=(0.4, 0.4, 0.7))
+    paths = blue + [swatch]
+    region.path_indices = list(range(len(paths)))
+    series = classify_marks(region, paths, [label], plot_box=plot_box,
+                            legend_bbox=legend)
+    blue_series = [s for s in series if s.fill is not None
+                   and tuple(round(c, 2) for c in s.fill) == (0.4, 0.4, 0.7)]
+    assert blue_series, "blue series must survive"
+    assert len(blue_series[0].marks) == 15, (
+        "the label-aligned legend swatch must be culled, leaving 15 real points, "
+        f"got {len(blue_series[0].marks)}"
+    )
+    # The kept marks must all be the real curve, not the swatch at (197, 115.5).
+    assert not any(abs(m.cx - 197.0) < 1.0 and abs(m.cy - 115.5) < 1.0
+                   for m in blue_series[0].marks), "swatch must not be a data point"
+
+    # Counterfactual: a real datum at the swatch location with NO adjacent
+    # legend label (no text) must be KEPT — the cull keys on label alignment,
+    # not merely being inside the box (the group-minority rule keeps it).
+    region_no_label = Region(bbox=region.bbox,
+                             path_indices=list(range(len(paths))),
+                             text_indices=[])
+    series_no_label = classify_marks(region_no_label, paths, [],
+                                     plot_box=plot_box, legend_bbox=legend)
+    blue2 = [s for s in series_no_label if s.fill is not None
+             and tuple(round(c, 2) for c in s.fill) == (0.4, 0.4, 0.7)]
+    assert blue2 and len(blue2[0].marks) == 16, (
+        "with no legend label, the in-box minority mark is a real datum and "
+        f"must be kept, got {len(blue2[0].marks) if blue2 else 0}"
+    )
+
+
 def test_open_diamond_shape_detected():
     """Regression (2006.05506_p12c1): an OPEN diamond (stroke-only, fill=None)
     must classify as 'diamond', not 'square'. Diamond geometry (top vertex at
