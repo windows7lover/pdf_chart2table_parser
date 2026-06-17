@@ -511,6 +511,28 @@ def _classify_family(font_weights):
     return "serif"  # Computer Modern / Times / Nimbus / unknown -> serif
 
 
+def _classify_face(font_weights):
+    """Canonical face token for the dominant font, when a specific metric-
+    compatible substitute beats the generic serif/sans default; else None.
+
+    serif->Liberation Serif (Times) and sans->Liberation Sans (Arial) are the
+    renderer defaults, so only faces whose metrics those DON'T match need a
+    token: Verdana/Tahoma (wide -> DejaVu Sans, Bitstream-Vera lineage), Calibri
+    (-> Carlito), Cambria (-> Caladea), Courier (-> Liberation Mono)."""
+    if not font_weights:
+        return None
+    name = max(font_weights, key=font_weights.get).lower()
+    if "verdana" in name or "tahoma" in name:
+        return "verdana"
+    if "calibri" in name:
+        return "calibri"
+    if "cambria" in name:
+        return "cambria"
+    if "courier" in name or name.startswith("cour"):
+        return "courier"
+    return None
+
+
 def _norm(s):
     return "".join(ch for ch in (s or "").lower() if ch.isalnum())
 
@@ -1096,6 +1118,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         "content_scale": round(scale, 2),  # also applied to line widths
         "latex_like": _is_latex_font(fonts),
         "font_family": _classify_family(fonts),
+        "font_face": _classify_face(fonts),
         "base_font_size": round(base, 2) if base else None,
         "tick_font_size": round(tick_size, 2) if tick_size else None,
         "tick_bold": tick_bold,

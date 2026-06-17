@@ -837,19 +837,34 @@ def _draw_residual(ax, arr, clip, dpi, resid, show_title=True):
     ax.axis("off")
 
 
-def _metric_font_rc():
+def _metric_font_rc(face=None):
     """Prefer metric-compatible faces over matplotlib's stock DejaVu.
 
     DejaVu Serif/Sans glyph metrics differ visibly from the papers' Times/
     Helvetica. Liberation Serif/Sans/Mono are metric-compatible with Times New
-    Roman / Arial / Courier, so resolving the recovered "serif"/"sans-serif"
-    family through them reproduces the source glyph proportions (and they fall
-    back to DejaVu when Liberation isn't installed)."""
-    return {
-        "font.serif": ["Liberation Serif", "DejaVu Serif"],
-        "font.sans-serif": ["Liberation Sans", "DejaVu Sans"],
-        "font.monospace": ["Liberation Mono", "DejaVu Sans Mono"],
-    }
+    Roman / Arial / Courier, so the recovered "serif"/"sans-serif" family
+    defaults to them (falling back to DejaVu when Liberation isn't installed).
+
+    `face` is the specific recovered face (style._classify_face) when the
+    generic default mismatches its metrics: Verdana/Tahoma are wide -> DejaVu
+    Sans (Bitstream-Vera lineage) fits better than Arial-metric Liberation Sans;
+    Calibri -> Carlito; Cambria -> Caladea (both metric-compatible)."""
+    serif = ["Liberation Serif", "DejaVu Serif"]
+    sans = ["Liberation Sans", "DejaVu Sans"]
+    mono = ["Liberation Mono", "DejaVu Sans Mono"]
+    out = {}
+    if face == "verdana":
+        sans = ["DejaVu Sans", "Liberation Sans"]
+    elif face == "calibri":
+        sans = ["Carlito", "Liberation Sans", "DejaVu Sans"]
+    elif face == "cambria":
+        serif = ["Caladea", "Liberation Serif", "DejaVu Serif"]
+    elif face == "courier":
+        # _classify_family mislabels Courier as "serif"; it's monospace.
+        out["font.family"] = "monospace"
+    out.update({"font.serif": serif, "font.sans-serif": sans,
+                "font.monospace": mono})
+    return out
 
 
 def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None,
@@ -861,7 +876,7 @@ def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None,
     rc = {}
     if txt.get("font_family"):
         rc["font.family"] = txt["font_family"]
-        rc.update(_metric_font_rc())
+        rc.update(_metric_font_rc(txt.get("font_face")))
     base = txt.get("base_font_size")
     # The 4-panel PNG forces each panel to ~5in, while recovered font sizes are in
     # the original crop's points; the original is shown as a raster MAGNIFIED to

@@ -24,8 +24,8 @@ from render_restyle_prototype import (  # noqa: E402
 
 from pdf_chart2table.model import Path  # noqa: E402
 from pdf_chart2table.style import (  # noqa: E402
-    _content_scale, _is_symbol_font, _label_runs, _text_rotation,
-    _title_span_match)
+    _classify_face, _content_scale, _is_symbol_font, _label_runs,
+    _text_rotation, _title_span_match)
 
 
 def _path(points, fill=None, stroke=(0.0, 0.0, 0.0)):
@@ -118,6 +118,31 @@ def test_metric_font_rc_prefers_liberation_then_dejavu():
     assert rc["font.monospace"][0] == "Liberation Mono"
     assert "DejaVu Serif" in rc["font.serif"]
     assert "DejaVu Sans" in rc["font.sans-serif"]
+
+
+def test_classify_face_picks_distinct_substitutes():
+    # dominant face by char count -> canonical token (real corpus font names)
+    assert _classify_face({"Verdana": 50, "ArialMT": 5}) == "verdana"
+    assert _classify_face({"Tahoma": 30}) == "verdana"
+    assert _classify_face({"Calibri": 40}) == "calibri"
+    assert _classify_face({"Cambria": 20}) == "cambria"
+    assert _classify_face({"Courier-Bold": 12}) == "courier"
+    # Faces the generic serif/sans default already matches -> no token.
+    assert _classify_face({"ArialMT": 30, "Verdana": 2}) is None
+    assert _classify_face({"Times New Roman": 30}) is None
+    assert _classify_face({}) is None
+
+
+def test_metric_font_rc_face_specific_substitutes():
+    # Verdana is wider than Arial -> DejaVu Sans (Vera lineage) must lead, not Liberation.
+    assert _metric_font_rc("verdana")["font.sans-serif"][0] == "DejaVu Sans"
+    # Calibri -> Carlito, Cambria -> Caladea (metric-compatible).
+    assert _metric_font_rc("calibri")["font.sans-serif"][0] == "Carlito"
+    assert _metric_font_rc("cambria")["font.serif"][0] == "Caladea"
+    # Courier is monospace though _classify_family calls it "serif".
+    assert _metric_font_rc("courier")["font.family"] == "monospace"
+    # An unknown/None face keeps the Liberation defaults.
+    assert _metric_font_rc(None)["font.sans-serif"][0] == "Liberation Sans"
 
 
 def test_italic_detected_from_flag_and_font_name():
