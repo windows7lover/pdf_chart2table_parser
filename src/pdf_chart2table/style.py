@@ -286,6 +286,43 @@ def _threads_markers(paths, pts, tol, frac=0.8):
     return False
 
 
+# A point this many ``tol``s off the threading path is an OUTLIER: connecting it
+# (the renderer joins ALL points in draw order) would draw a spurious segment, so
+# the series must stay UNCONNECTED. A genuine marker on a connector sits sub-pixel
+# on the line, so this bound is very generous and never rejects a real line+marker.
+_THREAD_OUTLIER_MULT = 6.0
+
+
+def _connector_fits_all(paths, pts, tol, frac=0.8):
+    """Connector evidence that survives the renderer joining ALL points in order.
+
+    :func:`_threads_markers` accepts a path that threads ``frac`` of the points,
+    which is right for recovering a suppressed connector. But the renderer draws
+    one polyline through EVERY point in draw order: if a threaded path leaves even
+    one point GROSSLY off the line (e.g. a lone isolated marker far above a small
+    connected cluster -- 2504.21746_p6c1: 5 black circles joined by a line, a 6th
+    25 px above), connecting that point fabricates a long spurious segment. So a
+    series is connected iff some same-colour path both threads ``frac`` of the
+    points AND leaves NO point more than ``_THREAD_OUTLIER_MULT * tol`` off it."""
+    if not _threads_markers(paths, pts, tol, frac):
+        return False
+    need = max(2, int(round(frac * len(pts))))
+    tol2 = tol * tol
+    out2 = (_THREAD_OUTLIER_MULT * tol) ** 2
+    pts_arr = np.asarray(pts, dtype=np.float64)
+    for p in paths:
+        pp = p.points
+        if len(pp) < 2:
+            continue
+        seg = np.asarray(pp, dtype=np.float64)
+        dmin = _min_seg_dist_sq(pts_arr, seg[:-1, 0], seg[:-1, 1],
+                                seg[1:, 0], seg[1:, 1])
+        if int(np.count_nonzero(dmin <= tol2)) >= need \
+                and bool(np.all(dmin <= out2)):
+            return True
+    return False
+
+
 def recover_tick_style(paths, region_bbox):
     """Recover tick appearance from the original: direction (in/out), whether the
     top/right axes carry ticks, and whether minor ticks are present."""
@@ -618,7 +655,7 @@ def match_series_styles(paths, region_bbox, series):
         # markers (seg-distance <1px), so a sibling same-colour series' line that
         # merely grazes a filled-circle scatter (2006.09651_p5c1/p5c2) is rejected.
         tol = max(2.0, 0.5 * (msize or 0.0))
-        connect = _threads_markers(big, pts, tol)
+        connect = _connector_fits_all(big, pts, tol)
         # Transparency: the traced path's stroke alpha (fall back to a same-colour
         # marker's fill alpha). None when fully opaque -> renderer leaves it solid.
         alpha = best.stroke_alpha
