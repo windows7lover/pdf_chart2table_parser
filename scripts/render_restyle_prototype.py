@@ -438,17 +438,27 @@ def _draw_legend_manual(ax, record, style, txt, L, _fs, font_scale=1.0):
         x, y = e["x_frac"], e["y_frac"]
         size = _fs(e.get("size")) or fs_default
         st = lab2style.get(_key(e["label"]))
-        col = _color(st.get("color")) if st else "black"
-        # Handle column: from the frame's left edge to just left of the label.
-        hx1 = x - 0.01
-        hx0 = (bb[0] + 0.006) if bb else (x - 0.06)
-        if hx0 >= hx1 - 0.01:
-            hx0 = hx1 - 0.04
-        if st is not None:
+        # Recovered swatch geometry: None = inline label (draw text only), a dict
+        # = the original sample's line LENGTH / marker DIAMETER to match its size.
+        handle = e.get("handle", "?")
+        col = _color((handle or {}).get("color") if isinstance(handle, dict) else None) \
+            or (_color(st.get("color")) if st else "black")
+        if handle is None:
+            pass  # inline curve label: no legend sample in the original
+        elif st is not None:
             ls = st.get("linestyle") or "-"
             if isinstance(ls, list):           # JSON dash tuple [offset,[on,off]]
                 ls = (ls[0], tuple(ls[1]))
             is_scatter = st.get("render_as") == "scatter"
+            # Sample sits just left of the label; LENGTH from the recovered swatch
+            # (fall back to ~2*fontsize in axes fraction when not recovered).
+            hx1 = x - 0.012
+            llen = (handle.get("line_len_frac") if isinstance(handle, dict) else None)
+            if not llen:
+                llen = min(0.12, max(0.03, 2.0 * size / 72.0 / 3.0))
+            hx0 = max(0.0, hx1 - llen)
+            mdia = (handle.get("marker_d") if isinstance(handle, dict) else None) \
+                or st.get("markersize")
             if (not is_scatter) or st.get("connect"):
                 ax.plot([hx0, hx1], [y, y], transform=tr, color=col,
                         linewidth=(st.get("linewidth") or 1.0) * font_scale,
@@ -457,10 +467,9 @@ def _draw_legend_manual(ax, record, style, txt, L, _fs, font_scale=1.0):
                 mk = st.get("marker_shape") or st.get("marker") or "o"
                 face = _color(st.get("marker_face"))
                 edge = _color(st.get("marker_edge")) or col
-                md = st.get("markersize")
                 ax.plot([(hx0 + hx1) / 2], [y], transform=tr, marker=mk,
                         linestyle="none", zorder=6, clip_on=False,
-                        markersize=((md * font_scale) if md else 6),
+                        markersize=((mdia * font_scale) if mdia else 6),
                         markerfacecolor=(face if face is not None else "none"),
                         markeredgecolor=edge,
                         markeredgewidth=(st.get("marker_edge_width") or 0.6) * font_scale)
@@ -920,9 +929,13 @@ def _recon_figure(record, style, tex=False):
     return fig
 
 
-def _compose_pdf(crop_pdf, recon_pdf, out_pdf, resid_pdf=None):
+def _compose_pdf(crop_pdf, recon_pdf, out_pdf, resid_pdf=None, legend_labels=None):
     """Side-by-side PDF: original VECTOR crop | VECTOR reconstruction, plus an
-    optional RESIDUAL panel (unexplained ink) when ``resid_pdf`` is given."""
+    optional RESIDUAL panel (unexplained ink) when ``resid_pdf`` is given.
+
+    ``legend_labels`` (recovered legend entry strings) are listed in a band at the
+    bottom so the reconstruction shows WHICH legend text was recovered (a check on
+    the custom legend drawer and a basis for data-augmentation edits)."""
     cap = 14.0  # caption band height (points)
     rec = fitz.open(recon_pdf)
     r1 = rec[0].rect
@@ -931,11 +944,13 @@ def _compose_pdf(crop_pdf, recon_pdf, out_pdf, resid_pdf=None):
     res = fitz.open(resid_pdf) if resid_pdf else None
     r2 = res[0].rect if res else None
     gap = 18.0
+    labels = [str(l) for l in (legend_labels or []) if l]
+    foot = (12.0 + 10.0 * len(labels)) if labels else 0.0  # bottom legend-text band
     # Place panels at their NATURAL size (no scaling): the plot area is the
     # region's W x H in crop and reconstruction, so unscaled => SAME physical size;
     # top-aligning the pages lines the plot areas up vertically.
     heights = [r0.height, r1.height] + ([r2.height] if r2 else [])
-    H = cap + max(heights)
+    H = cap + max(heights) + foot
     W = r0.width + gap + r1.width + ((gap + r2.width) if r2 else 0)
     out = fitz.open()
     pg = out.new_page(width=W, height=H)
@@ -950,6 +965,11 @@ def _compose_pdf(crop_pdf, recon_pdf, out_pdf, resid_pdf=None):
         pg.show_pdf_page(fitz.Rect(x2, cap, x2 + r2.width, cap + r2.height), res, 0)
         pg.insert_text((x2 + 4, 11), "residual (unexplained)", fontsize=9)
         res.close()
+    if labels:
+        fy = cap + max(heights) + 10.0
+        pg.insert_text((4, fy), "recovered legend text:", fontsize=8)
+        for i, lab in enumerate(labels):
+            pg.insert_text((10, fy + 10.0 * (i + 1)), f"• {lab}", fontsize=8)
     out.save(out_pdf)
     out.close(); rec.close()
     if crop:
@@ -1144,8 +1164,12 @@ def render_bundle(record, style, crop_pdf, out_png, out_eps, out_pdf=None,
                 axR = figR.add_axes([0.02, 0.02, 0.96, 0.96])
                 _draw_residual(axR, arr, clip, dpi, resid, show_title=False)
                 figR.savefig(tmpR, format="pdf"); plt.close(figR)
+            _leg = ((style.get("text") or {}).get("legend") or {})
+            _leg_labels = [e.get("label") for e in (_leg.get("entries") or [])] \
+                or _leg.get("order")
             try:
-                _compose_pdf(crop_pdf, tmp, out_pdf, resid_pdf=tmpR)
+                _compose_pdf(crop_pdf, tmp, out_pdf, resid_pdf=tmpR,
+                             legend_labels=_leg_labels)
             finally:
                 os.remove(tmp)
                 if tmpR:

@@ -1508,6 +1508,60 @@ def recover_spans(paths, region_bbox, x_calib, y_calib) -> list[dict]:
 # Entry point: assemble the full top-level style block at parse time
 # --------------------------------------------------------------------------
 
+def _attach_legend_handle_geometry(text_style, paths, rbbox):
+    """Record each legend entry's ACTUAL swatch geometry from the source paths.
+
+    The custom legend drawer needs the original handle size to match it: the line
+    sample's LENGTH and the marker's DIAMETER, recovered from the swatch path that
+    sits just left of the entry's label. Entries with NO swatch (inline curve
+    labels written on the data, not a boxed legend) get ``handle=None`` so the
+    drawer renders the text alone — no spurious sample. Geometry is stored in axes
+    fraction (line length) / points (marker diameter), matching the drawer.
+    """
+    if not text_style:
+        return
+    leg = text_style.get("legend") or {}
+    entries = leg.get("entries") or []
+    if not entries:
+        return
+    rx0, ry0, rx1, ry1 = rbbox
+    rw = (rx1 - rx0) or 1.0
+    rh = (ry1 - ry0) or 1.0
+    for e in entries:
+        # Label's left edge + vertical centre back in PIXEL space.
+        lx = rx0 + e["x_frac"] * rw
+        cy = ry0 + (1.0 - e["y_frac"]) * rh
+        size_pt = e.get("size") or 8.0
+        rowtol = max(3.0, 0.55 * size_pt)
+        gap = 3.2 * size_pt            # swatch sits within this far left of label
+        line_len = None
+        marker_d = None
+        hcolor = None
+        for p in paths:
+            bx0, by0, bx1, by1 = p.bbox
+            pcy = 0.5 * (by0 + by1)
+            if abs(pcy - cy) > rowtol:
+                continue
+            if not (lx - gap <= bx1 <= lx + 2.0):     # right edge just left of label
+                continue
+            bw, bh = bx1 - bx0, by1 - by0
+            col = p.fill if p.fill is not None else p.stroke
+            if bh <= 1.5 and bw >= 4.0:               # a line sample
+                line_len = max(line_len or 0.0, bw)
+                hcolor = hcolor or col
+            elif 1.5 <= bw <= 0.12 * rw and 1.5 <= bh <= 0.12 * rh:  # a marker
+                marker_d = max(marker_d or 0.0, max(bw, bh))
+                hcolor = hcolor or col
+        if line_len is None and marker_d is None:
+            e["handle"] = None                        # inline label: no sample
+        else:
+            e["handle"] = {
+                "line_len_frac": round(line_len / rw, 4) if line_len else None,
+                "marker_d": round(marker_d, 2) if marker_d else None,
+                "color": list(hcolor) if hcolor else None,
+            }
+
+
 def build_chart_style(d: dict, page, fitz_page) -> dict:
     """Assemble the canonical top-level ``style`` block for one chart record.
 
@@ -1527,6 +1581,10 @@ def build_chart_style(d: dict, page, fitz_page) -> dict:
         {"x": xa.get("title"), "y": ya.get("title")},
         [s.get("label") for s in d.get("series", [])],
         ttl, tick_labels)
+    # Record each legend entry's real swatch geometry (line length / marker
+    # diameter, or handle=None for inline labels) so the drawer matches the
+    # original's sample size instead of synthesising it.
+    _attach_legend_handle_geometry(text_style, page.paths, rbbox)
     style = build_style(d, series_styles)
     style["text"] = text_style
     # Fake-title guard: drop a title the text recovery could not corroborate
