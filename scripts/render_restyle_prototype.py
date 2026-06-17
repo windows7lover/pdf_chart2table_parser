@@ -818,6 +818,27 @@ def _recon_figure(record, style, tex=False):
                      fontsize=te.get("size") or t.get("base_font_size"),
                      color=tcol or "black",
                      fontweight="bold" if te.get("bold") else "normal", **tkw)
+    # The axis titles + tick labels live in the margin band; with a fixed
+    # _CROP_MARGIN they can overflow the page and CLIP (e.g. a bottom x-title).
+    # Measure the drawn content and GROW only the sides it overflows, keeping the
+    # plot box at w x h (scale preserved) and the top/right margin at _CROP_MARGIN
+    # so the recon plot still top-aligns with the original crop side-by-side.
+    fig.canvas.draw()
+    tb = ax.get_tightbbox(fig.canvas.get_renderer())
+    k = 72.0 / fig.dpi
+    ov_l = max(0.0, -tb.x0) * k
+    ov_b = max(0.0, -tb.y0) * k
+    ov_r = max(0.0, tb.x1 - fig.bbox.width) * k
+    ov_t = max(0.0, tb.y1 - fig.bbox.height) * k
+    if max(ov_l, ov_b, ov_r, ov_t) > 0.5:
+        pad = 2.0
+        nl = m + (ov_l + pad if ov_l else 0.0)
+        nb = m + (ov_b + pad if ov_b else 0.0)
+        nr = m + (ov_r + pad if ov_r else 0.0)
+        nt = m + (ov_t + pad if ov_t else 0.0)
+        nfw, nfh = w + nl + nr, h + nb + nt
+        fig.set_size_inches(nfw / 72.0, nfh / 72.0)
+        ax.set_position([nl / nfw, nb / nfh, w / nfw, h / nfh])
     return fig
 
 
