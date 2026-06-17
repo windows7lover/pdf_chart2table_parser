@@ -66,7 +66,7 @@ def reprocess_chart(chart_json: str, scale: float = 2.0, tol: int = 2,
     ign = text_ignore_mask(record, h, w, scale)
 
     def iou() -> float:
-        recon = render_reconstruction(record, h, w)
+        recon = render_reconstruction(record, h, w, scale=scale)
         return compare(orig, recon, tol=tol, ignore_mask=ign).ink_iou
 
     base = iou()

@@ -116,9 +116,16 @@ def _apply_axis_range(ax, record: dict) -> None:
 
 
 def render_reconstruction(record: dict, h_px: int, w_px: int,
-                          dpi: int = 100) -> np.ndarray:
+                          scale: float = 2.0) -> np.ndarray:
     """Render the reconstruction as an axes filling a w_px x h_px figure, with
-    the data range mapped to the figure edges (matched to the original grid)."""
+    the data range mapped to the figure edges (matched to the original grid).
+
+    The figure dpi is ``72 * scale`` so a length in POINTS maps to ``scale`` px —
+    the SAME points->pixels factor as the original (fitz at ``scale``). Without
+    this, recovered line widths / marker sizes (stored in points) rendered
+    thinner than the original, inflating missing_frac on faithful charts.
+    """
+    dpi = 72.0 * scale
     fig = plt.figure(figsize=(w_px / dpi, h_px / dpi), dpi=dpi)
     ax = fig.add_axes([0.0, 0.0, 1.0, 1.0])
     try:
@@ -143,7 +150,7 @@ def compare_chart(chart_json: str, scale: float = 2.0, tol: int = 2,
     record = json.load(open(chart_json))
     orig = render_original(record, scale)
     h, w = orig.shape[:2]
-    recon = render_reconstruction(record, h, w)
+    recon = render_reconstruction(record, h, w, scale=scale)
     res = compare(orig, recon, tol=tol)
     out = res.as_dict()
     out["chart_id"] = os.path.basename(os.path.dirname(chart_json)) or chart_json
