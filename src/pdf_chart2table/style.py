@@ -1008,6 +1008,15 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
                 range(len(matched)),
                 key=lambda i: (round((matched[i]["bbox"][1] + matched[i]["bbox"][3]) / 12.0),
                                matched[i]["bbox"][0]))]
+            # Per-entry text COLOUR: papers often draw a legend label in its
+            # series' colour (2001.01038_p13c4 'I_D^1/2' is blue). Record only
+            # CHROMATIC entries (sat > 0.12); black/grey labels are omitted so the
+            # renderer leaves them matplotlib-default black (no cosmetic churn).
+            label_colors = {}
+            for lab, s in zip(matched_labels, matched):
+                c = s.get("color")
+                if c and (max(c) - min(c)) > 0.12:
+                    label_colors[lab] = [round(v, 3) for v in c]
             legend = {
                 "orientation": "horizontal" if horizontal else "vertical",
                 "ncol": int(ncol),
@@ -1017,6 +1026,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
                 "bold": bold_reliable and any(_is_bold(s) for s in matched),
                 "w_frac": round(wfrac, 4), "h_frac": round(hfrac, 4),
                 "order": order,
+                "label_colors": label_colors or None,
             }
 
     # In-graph text ANNOTATIONS: spans inside the plot box that are not ticks,
