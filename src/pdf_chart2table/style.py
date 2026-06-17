@@ -336,7 +336,16 @@ def match_series_styles(paths, region_bbox, series):
         # prefer paths with real 2D extent (the traced curve, not a tick/marker)
         big = [p for p in cands
                if max(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]) > 0.15 * diag]
-        best = min(big or cands, key=score)
+        # A LINE series is traced from a STROKED path. A same-colour FILL polygon
+        # (a shaded band) has an outline that runs ALONG the boundary curves, so
+        # it ties the stroke at ~0 geometric distance — but it carries no
+        # width/dash. Tie-break so a stroked path always beats a fill-only one at
+        # equal distance, recovering the curve's true dash pattern + width
+        # (2002.05937_p5c2: red dot-dash boundaries lost their dashes to the
+        # coinciding pink band fill, rendering solid).
+        def _rank(p):
+            return (score(p), p.stroke is None and p.fill is not None)
+        best = min(big or cands, key=_rank)
         # fragment-drawn dash: the curve is many short same-colour segments rather
         # than one long path -> visually dashed even though each piece is solid.
         frag = sum(1 for p in big
