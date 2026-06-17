@@ -146,6 +146,15 @@ _LOCUS_SMALL_MAX = 2  # apply strict check to groups with ≤ this many marks
 # erroneously large bbox are not discarded.
 _MAX_LEGEND_PLOT_FRAC = 0.40  # vs the region (matches labels._legend_box cap)
 
+# Legend-box filtering is group-aware: a true legend SWATCH column has (nearly)
+# all of a group's marks inside the legend box, while a genuine data series that
+# merely PASSES THROUGH the legend box has only a minority of its marks inside.
+# A group is treated as legend decoration (its in-box marks dropped) only when at
+# least this fraction of its marks fall inside the box; otherwise the series
+# crosses the legend and all its marks are kept (2006.05506_p12c1: a rising
+# scatter whose low-T points sit under the corner legend).
+_LEGEND_GROUP_DROP_FRAC = 0.75
+
 # Sparse-on-dense guard: skip an extraction if the number of extracted marker
 # points is very small relative to the region's total path count AND the region
 # contains at least a few dense (line/curve) paths.  Such regions have the real
@@ -890,6 +899,12 @@ def classify_marks(
     # run of glyph-OUTLINE text (a borderless legend whose label is drawn as vector
     # paths, invisible to the text-based swatch filter) can be detected and dropped
     # before grouping -- otherwise the letters become a spurious scatter series.
+    # NOTE: the legend-box filter is applied GROUP-WISE after grouping (below),
+    # not per-mark here. A genuine data series can pass THROUGH a corner legend
+    # box; dropping every in-box mark up front would silently truncate it. The
+    # text-aligned ``_is_legend_swatch`` check (a swatch sits left of its label)
+    # stays per-mark — it targets the swatch column specifically, not crossing
+    # data.
     cand_marks = []  # (i, cx, cy, w, h)
     for i in region.path_indices:
         p = paths[i]
@@ -898,8 +913,6 @@ def classify_marks(
         cx, cy = _centroid(p.points)
         if not _in_plot_box(cx, cy, plot_box):
             continue
-        if _in_legend_box(cx, cy, effective_legend_bbox):
-            continue
         if _is_legend_swatch(cx, cy, region_texts, plot_box):
             continue
         cand_marks.append((i, cx, cy, p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]))
@@ -907,6 +920,7 @@ def classify_marks(
     text_idx = _text_run_indices(cand_marks)
 
     groups: dict[tuple, SeriesMarks] = {}
+    in_legend: dict[tuple, list[bool]] = {}
     for i, cx, cy, _w, _h in cand_marks:
         if i in text_idx:
             continue
@@ -918,9 +932,27 @@ def classify_marks(
         if sm is None:
             sm = SeriesMarks(shape=shape, fill=p.fill, stroke=p.stroke)
             groups[key] = sm
+            in_legend[key] = []
         sm.marks.append(
             Mark(cx=cx, cy=cy, shape=shape, fill=p.fill, stroke=p.stroke, size=size)
         )
+        in_legend[key].append(_in_legend_box(cx, cy, effective_legend_bbox))
+
+    # Group-wise legend-box filter: a swatch column has (nearly) all its marks
+    # inside the legend box -> drop them (legend decoration). A data series that
+    # only crosses the box has a minority inside -> keep ALL its marks.
+    if effective_legend_bbox is not None:
+        for key, sm in list(groups.items()):
+            flags = in_legend[key]
+            n_in = sum(flags)
+            if n_in == 0:
+                continue
+            if n_in >= _LEGEND_GROUP_DROP_FRAC * len(flags):
+                kept = [m for m, f in zip(sm.marks, flags) if not f]
+                if kept:
+                    sm.marks = kept
+                else:
+                    del groups[key]
 
     # Order series by first appearance (stable, deterministic); merge groups
     # that mark identical positions (filled+stroke duplicate of one series);

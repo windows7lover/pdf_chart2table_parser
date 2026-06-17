@@ -619,6 +619,59 @@ def test_normal_legend_bbox_still_filters_marks():
     )
 
 
+def test_data_series_crossing_legend_box_kept():
+    """Regression (2006.05506_p12c1): a rising scatter series passes THROUGH a
+    corner legend box. The legend-box filter must drop only the swatch column
+    (a group almost entirely inside the box), not the minority of a real series'
+    marks that happen to cross the box. All series marks must survive.
+    """
+    region = Region(bbox=(100.0, 100.0, 400.0, 400.0),
+                    path_indices=list(range(14)), text_indices=[])
+    plot_box = (110.0, 110.0, 390.0, 390.0)
+    # Small valid legend bbox in the upper-left corner (~6% of plot area).
+    legend = (120.0, 120.0, 200.0, 200.0)
+    # A 10-mark blue series running diagonally from the upper-left (inside the
+    # legend box) down to the lower-right; the first ~3 marks fall inside the
+    # legend box (a minority of the series).
+    blue = [_square(125 + 28 * i, 125 + 28 * i, fill=(0.0, 0.0, 1.0))
+            for i in range(10)]
+    n_in = sum(1 for s in blue
+               if legend[0] <= s.bbox[0] <= legend[2]
+               and legend[1] <= s.bbox[1] <= legend[3])
+    assert n_in >= 1, "test setup: some blue marks must fall in the legend box"
+    # A genuine swatch column: 4 red marks ALL inside the legend box (decoration).
+    red = [_square(150, 130 + 15 * i, fill=(1.0, 0.0, 0.0)) for i in range(4)]
+    series = classify_marks(region, blue + red, [], plot_box=plot_box,
+                            legend_bbox=legend)
+    by_color = {tuple(round(c, 2) for c in s.fill): s for s in series
+                if s.fill is not None}
+    assert (0.0, 0.0, 1.0) in by_color, "blue crossing series must survive"
+    assert len(by_color[(0.0, 0.0, 1.0)].marks) == 10, (
+        "every blue mark (incl. those crossing the legend) must be kept, "
+        f"got {len(by_color[(0.0, 0.0, 1.0)].marks)}"
+    )
+    # The red swatch column (all inside the box) must still be dropped.
+    assert (1.0, 0.0, 0.0) not in by_color, (
+        "red swatch column inside the legend box must be filtered out"
+    )
+
+
+def test_open_diamond_shape_detected():
+    """Regression (2006.05506_p12c1): an OPEN diamond (stroke-only, fill=None)
+    must classify as 'diamond', not 'square'. Diamond geometry (top vertex at
+    x≈centroid) is the discriminator; the fill flag must not gate it.
+    """
+    from pdf_chart2table.marks import _shape_of
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(4)), text_indices=[])
+    paths = [_diamond(130 + 30 * i, 200, stroke=(1.0, 0.0, 1.0)) for i in range(4)]
+    series = classify_marks(region, paths, [])
+    assert len(series) == 1, f"expected 1 open-diamond series, got {len(series)}"
+    assert series[0].shape == "diamond", (
+        f"expected shape 'diamond' for open diamond, got '{series[0].shape}'"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests for iteration-3 fixes
 # ---------------------------------------------------------------------------

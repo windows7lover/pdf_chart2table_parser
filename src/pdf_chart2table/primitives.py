@@ -266,8 +266,6 @@ def is_diamond_geometry(p: Path) -> bool:
     Test: the vertex with the highest y-coordinate (the "top" vertex) should be
     at x ≈ centroid_x (|x_top - cx| < bbox_width / 4).
     """
-    if p.fill is None:
-        return False  # only filled paths can be diamonds
     pts = p.points
     # Remove the closing duplicate (first == last) if present.
     unique = list(dict.fromkeys(pts))  # preserves order, deduplicates
