@@ -727,8 +727,9 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
             legend_obj.get_frame().set_linewidth(frame["linewidth"])
         # Colour the legend entry TEXT to match the source (only entries the source
         # drew chromatically; black/grey labels were omitted at recovery so they
-        # stay matplotlib-default black). Keyed by the rendered (latexified) label.
-        lcs = (leg or {}).get("label_colors")
+        # stay matplotlib-default black). Keyed by the rendered (latexified) label;
+        # recorded independent of legend-layout recovery so it tints auto-legends.
+        lcs = txt.get("legend_label_colors")
         if legend_obj is not None and lcs:
             want = {L(k): tuple(v) for k, v in lcs.items()}
             for t in legend_obj.get_texts():

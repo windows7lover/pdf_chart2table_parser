@@ -965,6 +965,16 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     # are found as text inside the region; otherwise it lives on another panel
     # and must NOT be drawn on the reconstruction.
     show_legend = len(matched) >= max(1, (len(labset) + 1) // 2)
+    # Per-entry text COLOUR: papers often draw a legend label in its series'
+    # colour (2001.01038_p13c4 'I_D^1/2' is blue). Recorded INDEPENDENT of the
+    # legend-LAYOUT recovery (which a width gate may drop), keyed by the series
+    # label, so the renderer can tint even an auto-placed legend. Only CHROMATIC
+    # entries (sat > 0.12); black/grey labels omitted -> stay default black.
+    legend_label_colors = {}
+    for lab, s in zip(matched_labels, matched):
+        c = s.get("color")
+        if c and (max(c) - min(c)) > 0.12:
+            legend_label_colors[lab] = [round(v, 3) for v in c]
     legend = None
     if len(matched) >= 2:
         ys = sorted((s["bbox"][1] + s["bbox"][3]) / 2 for s in matched)
@@ -1008,15 +1018,6 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
                 range(len(matched)),
                 key=lambda i: (round((matched[i]["bbox"][1] + matched[i]["bbox"][3]) / 12.0),
                                matched[i]["bbox"][0]))]
-            # Per-entry text COLOUR: papers often draw a legend label in its
-            # series' colour (2001.01038_p13c4 'I_D^1/2' is blue). Record only
-            # CHROMATIC entries (sat > 0.12); black/grey labels are omitted so the
-            # renderer leaves them matplotlib-default black (no cosmetic churn).
-            label_colors = {}
-            for lab, s in zip(matched_labels, matched):
-                c = s.get("color")
-                if c and (max(c) - min(c)) > 0.12:
-                    label_colors[lab] = [round(v, 3) for v in c]
             legend = {
                 "orientation": "horizontal" if horizontal else "vertical",
                 "ncol": int(ncol),
@@ -1026,7 +1027,6 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
                 "bold": bold_reliable and any(_is_bold(s) for s in matched),
                 "w_frac": round(wfrac, 4), "h_frac": round(hfrac, 4),
                 "order": order,
-                "label_colors": label_colors or None,
             }
 
     # In-graph text ANNOTATIONS: spans inside the plot box that are not ticks,
@@ -1173,6 +1173,7 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         # consolidated there (the renderer reads only `elements`).
         "show_legend": show_legend,
         "legend": legend,
+        "legend_label_colors": legend_label_colors or None,  # per-entry text colour
         "annotations": annotations,  # in-graph text, NOT data or legend
         "title_ok": title_ok,        # title corroborated by a top-center span
         "elements": elements,        # unified per-element text style (color etc.)
