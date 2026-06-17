@@ -156,3 +156,41 @@ def compare(orig_rgb: np.ndarray, recon_rgb: np.ndarray,
         orig_ink=orig_ink,
         recon_ink=recon_ink,
     )
+
+
+def score(res: ComparisonResult) -> float:
+    """Scalar fidelity score in [0, 1] for ranking candidate reconstructions.
+
+    The tolerant ink_iou already balances missing (under-draw) against extra
+    (over-draw) symmetrically, so it is the score: 1.0 is a perfect overlay, and
+    both a dropped series (missing) and a phantom one (extra) push it down.
+    """
+    return res.ink_iou
+
+
+def choose_best(orig_rgb: np.ndarray, candidate_recons,
+                tol: int = 2, white_thresh: float = _WHITE_THRESH,
+                ignore_mask: np.ndarray | None = None):
+    """Pick the candidate reconstruction that best matches the original.
+
+    The analysis-by-synthesis selector: when the parser is uncertain (connection
+    order, marker-vs-line, legend-or-data, a residual hypothesis), render each
+    interpretation and keep the one whose rendered ink best overlays the original.
+
+    ``candidate_recons`` is a sequence of RGB rasters, all on the original's grid.
+    Returns ``(best_index, results)`` where ``results`` is the per-candidate list
+    of :class:`ComparisonResult` (same order as input). Ties keep the earliest
+    candidate, so callers should order candidates by prior preference (the
+    parser's default interpretation first) — a trial only wins if it is strictly
+    better, never on a tie, keeping the selector conservative.
+    """
+    results = [compare(orig_rgb, rec, tol=tol, white_thresh=white_thresh,
+                       ignore_mask=ignore_mask) for rec in candidate_recons]
+    if not results:
+        raise ValueError("choose_best needs at least one candidate")
+    best_i, best_s = 0, score(results[0])
+    for i in range(1, len(results)):
+        s = score(results[i])
+        if s > best_s:
+            best_i, best_s = i, s
+    return best_i, results

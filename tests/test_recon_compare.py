@@ -93,3 +93,24 @@ def test_ignore_mask_excludes_region():
     data = compare(orig, recon, tol=0, ignore_mask=ign)
     assert data.missing_frac == 0.0
     assert data.ink_iou == pytest.approx(1.0)
+
+
+def test_choose_best_picks_closest_candidate():
+    from pdf_chart2table.recon_compare import choose_best
+    orig = _white(20, 20)
+    orig[5:15, 10] = (0, 0, 0)          # original stroke at column 10
+    good = _white(20, 20); good[5:15, 10] = (0, 0, 0)     # exact match
+    shifted = _white(20, 20); shifted[5:15, 14] = (0, 0, 0)  # far-off stroke
+    empty = _white(20, 20)               # drew nothing
+    best, results = choose_best(orig, [shifted, good, empty], tol=0)
+    assert best == 1
+    assert len(results) == 3
+
+
+def test_choose_best_conservative_on_tie():
+    from pdf_chart2table.recon_compare import choose_best
+    orig = _white(20, 20); orig[5:15, 10] = (0, 0, 0)
+    a = _white(20, 20); a[5:15, 10] = (0, 0, 0)
+    b = _white(20, 20); b[5:15, 10] = (0, 0, 0)   # identical to a
+    best, _ = choose_best(orig, [a, b], tol=0)
+    assert best == 0                     # tie keeps the earliest (default) candidate
