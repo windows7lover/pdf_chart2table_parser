@@ -409,6 +409,78 @@ def test_order_fallback_partial_multi_blocked():
 
 
 # --------------------------------------------------------------------------
+# 5. Gradient legend: a colour-ramp legend (blue->red temperature scale) whose
+# swatch colours sit just OUTSIDE _COLOR_TOL of their series. Greedy per-series
+# matching pairs only the single nearest entry; the global 1-to-1 nearest-colour
+# assignment recovers all four in temperature order (2308.12778_p3c2: only
+# '55 mK' of four matched before the fix).
+# --------------------------------------------------------------------------
+
+def _gradient_series(color, y_px):
+    return Series(label=None, marker=None, color=color, points=[
+        {"x": 0, "y": 0, "x_px": 0, "y_px": y_px},
+    ])
+
+
+def test_gradient_legend_global_assignment():
+    """Four blue->red series matched to four ramp-coloured entries 1-to-1.
+
+    Legend swatch colours are the saturated ramp endpoints; series colours are
+    the (slightly desaturated) data hues. Only the bluest pair is within
+    _COLOR_TOL, so greedy matching alone would drop three labels. The global
+    assignment maps every series to its nearest entry unambiguously.
+    """
+    # Legend entries (top-to-bottom): coldest (blue) -> hottest (red).
+    legend = [
+        ("marker", (0.0, 0.0, 1.0), "55 mK"),
+        ("marker", (0.1255, 0.0, 0.8745), "118 mK"),
+        ("marker", (0.3333, 0.0, 0.6667), "214 mK"),
+        ("marker", (0.9961, 0.0, 0.0039), "333 mK"),
+    ]
+    # Series in PDF order (reddest first, as extracted for 2308.12778_p3c2).
+    s0 = _gradient_series((0.8863, 0.0, 0.1137), 10.0)  # red   -> 333 mK
+    s1 = _gradient_series((0.5137, 0.0, 0.4863), 20.0)  # purple-> 214 mK
+    s2 = _gradient_series((0.2118, 0.0, 0.7882), 30.0)  #        -> 118 mK
+    s3 = _gradient_series((0.0118, 0.0, 0.9882), 40.0)  # blue  -> 55 mK
+    _apply_legend_labels([s0, s1, s2, s3], legend)
+    assert s0.label == "333 mK", f"got {s0.label!r}"
+    assert s1.label == "214 mK", f"got {s1.label!r}"
+    assert s2.label == "118 mK", f"got {s2.label!r}"
+    assert s3.label == "55 mK", f"got {s3.label!r}"
+
+
+def test_gradient_assignment_bails_on_ambiguous_colours():
+    """The global-assignment helper refuses an ambiguous near-tie.
+
+    Two series sit symmetrically between two entry colours so swapping the
+    assignment costs almost nothing (margin < _GRADIENT_MARGIN). The helper
+    returns False and leaves every label None rather than risk a swap.
+    """
+    from pdf_chart2table.cli import _apply_gradient_assignment
+
+    legend = [
+        ("marker", (0.0, 0.0, 1.0), "A"),
+        ("marker", (0.0, 0.0, 0.96), "B"),
+    ]
+    s0 = _gradient_series((0.0, 0.0, 0.99), 10.0)
+    s1 = _gradient_series((0.0, 0.0, 0.97), 20.0)
+    applied = _apply_gradient_assignment([s0, s1], legend)
+    assert applied is False
+    assert s0.label is None and s1.label is None
+
+
+def test_gradient_assignment_skips_when_entry_colour_missing():
+    """Not fully coloured (an entry has no swatch colour) -> helper bails."""
+    from pdf_chart2table.cli import _apply_gradient_assignment
+
+    legend = [("marker", (0.0, 0.0, 1.0), "A"), ("marker", None, "B")]
+    s0 = _gradient_series((0.0, 0.0, 0.99), 10.0)
+    s1 = _gradient_series((1.0, 0.0, 0.0), 20.0)
+    assert _apply_gradient_assignment([s0, s1], legend) is False
+    assert s0.label is None and s1.label is None
+
+
+# --------------------------------------------------------------------------
 # Inline labels: a BLACK series labelled in plain black text, sitting in the
 # same left-aligned column as the coloured inline labels, is recovered too
 # (2005.13879_p3c3: the "θ = 21.8°" black curve was dropped from the legend).

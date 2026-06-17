@@ -219,6 +219,51 @@ def _series_style(s, region, paths):
     return "dashed" if best.dashes else "line"
 
 
+# Largest square legend the gradient fallback brute-forces (n! permutations).
+# Real legends are small; cap keeps the cost bounded (8! = 40320).
+_GRADIENT_MAX_N = 8
+# The optimal colour assignment must beat the second-best permutation by at
+# least this summed-RGB margin to be accepted (else it is an ambiguous near-tie
+# and we leave labels None). One _COLOR_TOL of separation is a conservative bar.
+_GRADIENT_MARGIN = _COLOR_TOL
+
+
+def _apply_gradient_assignment(series, legend) -> bool:
+    """Label a SQUARE, fully-coloured legend by global nearest-colour assignment.
+
+    Fires only when #series == #legend (within the size cap), every series and
+    every legend entry carries a colour, and the optimal 1-to-1 colour matching
+    is UNAMBIGUOUS (total cost beats the second-best permutation by at least
+    ``_GRADIENT_MARGIN``). Used for gradient legends whose per-entry colours sit
+    just outside ``_COLOR_TOL`` of their series. Mutates ``series`` and returns
+    True when applied, else returns False (no mutation).
+    """
+    from itertools import permutations
+
+    n = len(series)
+    if n != len(legend) or n < 2 or n > _GRADIENT_MAX_N:
+        return False
+    s_cols = [getattr(s, "color", None) for s in series]
+    e_cols = [e[1] for e in legend]
+    if any(c is None for c in s_cols) or any(c is None for c in e_cols):
+        return False
+
+    def _d(a, b):
+        return sum(abs(x - y) for x, y in zip(a, b))
+
+    costs = sorted(
+        (sum(_d(s_cols[j], e_cols[p[j]]) for j in range(n)), p)
+        for p in permutations(range(n)))
+    best_cost, best = costs[0]
+    second_cost = costs[1][0]
+    if second_cost - best_cost < _GRADIENT_MARGIN:
+        return False  # ambiguous near-tie; leave labels None
+
+    for j in range(n):
+        series[j].label = legend[best[j]][2]
+    return True
+
+
 def _apply_legend_labels(series, legend, region=None, paths=None):
     """Name each series from the legend by matching (colour, style).
 
@@ -272,6 +317,21 @@ def _apply_legend_labels(series, legend, region=None, paths=None):
 
     if n_unmatched == 0 or n_unused == 0:
         return  # nothing left to assign
+
+    # Gradient fallback: a colour-gradient legend (series sampled along a hue
+    # ramp, e.g. a blue->red temperature scale) has each entry's swatch colour
+    # close to but NOT within _COLOR_TOL of its series (the legend draws the
+    # ramp endpoints more saturated than the data), so the greedy per-series
+    # pass labels at most the one nearest pair and the partial-multi block then
+    # drops the rest (2308.12778_p3c2: only '55 mK' of four matched). When the
+    # problem is SQUARE (every series and every entry carries a colour, counts
+    # equal) we instead solve the global 1-to-1 nearest-colour assignment and
+    # apply it -- but ONLY when that assignment is UNAMBIGUOUS (its total cost
+    # is clearly below the second-best permutation). The unambiguity margin is
+    # what keeps this precision-safe: two genuinely confusable colours yield a
+    # near-tie and we bail, leaving labels None rather than risk a swap.
+    if _apply_gradient_assignment(series, legend):
+        return
 
     apply_fallback = False
     if color_matched == 0 and n_unmatched == n_unused:
