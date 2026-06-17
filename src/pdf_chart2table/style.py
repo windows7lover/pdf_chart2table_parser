@@ -824,6 +824,54 @@ def _norm(s):
     return "".join(ch for ch in (s or "").lower() if ch.isalnum())
 
 
+def _is_junk_text(text):
+    """True for text that is NEVER chart content: hidden LaTeXit/SVG metadata or
+    an encoded base64/url-safe blob. Used to drop such spans from annotations.
+
+    Two signatures (conservative -- real labels like '1560.3', 'GaAs',
+    r'$\rho_{00}$' must NOT match):
+      * literal '<latexit' / '</latexit>' marker (LaTeXit embeds editable source
+        as hidden text in many arXiv figures).
+      * a single long token (len >= 24, no spaces) made almost entirely of
+        base64/url-safe chars with no natural-language vowel structure -- i.e.
+        an encoded blob, not a word/number/formula."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if "<latexit" in t.lower():        # covers '<latexit' and '</latexit>'
+        return True
+    if len(t) >= 24 and " " not in t:
+        b64 = sum(ch.isalnum() or ch in "+/_-=" for ch in t)
+        if b64 / len(t) >= 0.95:
+            letters = [ch for ch in t if ch.isalpha()]
+            # A genuine word/identifier has vowels; an encoded blob is a random
+            # mix of upper/lower with very few vowels relative to its letters.
+            if letters:
+                vowels = sum(ch in "aeiouAEIOU" for ch in letters)
+                mixed_case = (any(ch.islower() for ch in letters) and
+                              any(ch.isupper() for ch in letters))
+                if mixed_case and vowels / len(letters) < 0.2:
+                    return True
+    return False
+
+
+def _is_prose_title(text):
+    """True for a record 'title' that is clearly a body-text sentence the
+    extractor mis-promoted, not a chart title. Conservative: a real title may be
+    multi-word ('SHG power [uW]') or hyphenated ('REGIME - II'), so we reject
+    only LONG prose -- many words AND sentence punctuation. Length alone is not
+    enough; a long technical title without sentence structure is kept."""
+    t = (text or "").strip()
+    if len(t) <= 48:
+        return False
+    words = t.split()
+    if len(words) < 6:
+        return False
+    # Sentence punctuation inside the running text (not a trailing unit/symbol).
+    has_sentence_punct = any(p in t[:-1] for p in (". ", ", ", "; ", ") "))
+    return has_sentence_punct
+
+
 def _label_match(span_norm, label_norm):
     """Does a text span belong to a legend label? Exact match, or the span
     CONTAINS the whole label, or the span is a SUBSTANTIAL chunk of it (>=4
@@ -1420,6 +1468,8 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         text = _join_group(grp)
         if len(text) > 64:           # implausibly long -> likely not one label
             continue
+        if _is_junk_text(text):      # hidden LaTeXit metadata / encoded blob
+            continue
         gx0 = min(s["bbox"][0] for s in grp)
         gx1 = max(s["bbox"][2] for s in grp)
         gy0 = min(s["bbox"][1] for s in grp)
@@ -1507,6 +1557,8 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     # any single group and is rejected.
     title_ok = False
     tkey = _norm(title_text)
+    if tkey and _is_prose_title(title_text):
+        tkey = ""                    # body-text sentence -> never a chart title
     if tkey:
         for grp in grouped:
             gtext = _join_group(grp)
