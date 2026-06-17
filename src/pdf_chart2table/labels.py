@@ -1129,6 +1129,118 @@ def _detect_glyph_legend_box(
     return (sx0, sy0, box_x1, sy1)
 
 
+# --- handle-column legend (shape/colour-independent) ---------------------
+# A matplotlib legend draws one short horizontal LINE SAMPLE ("handle") at the
+# left of every row, all identical length and left-aligned in one x-column,
+# stacked at regular y-rows — regardless of how the series differ (colour OR
+# marker shape OR dash). This is the most general legend signature: it needs
+# neither readable label text (math labels are glyph outlines) nor distinct
+# colours (a legend keyed by shape repeats two colours). We detect that handle
+# column and take the legend box as the rows extended right over their labels.
+#
+# Precision guards: require ≥ _HANDLE_MIN_ROWS handles (a vertical error-bar has
+# only 2 caps, so 3+ identical stacked segments are not an error bar), identical
+# length + left edge (data segments are not), and label evidence to the right.
+_HANDLE_MIN_ROWS = 3
+_HANDLE_X_TOL = 3.0           # handle left edges agree within this (one column)
+_HANDLE_LEN_TOL = 3.0         # handle lengths agree within this (uniform samples)
+_HANDLE_MAX_W_FRAC = 0.45     # a handle spans < this fraction of region width
+_HANDLE_ROW_PAD = 3.0         # vertical pad added around the handle row band
+
+
+def _detect_handle_legend(
+    region: Region, paths: list[Path], texts: list[TextSpan] | None = None
+) -> BBox | None:
+    """Locate a legend by its handle column (left-aligned line samples).
+
+    Returns the legend ``BBox`` or None. Fires as a fallback when the text- and
+    swatch-colour detectors find nothing (a math/glyph-outline legend keyed by
+    marker shape). The box is the handle rows extended right over their label
+    glyphs/text so the mark extractor drops the swatches and label characters.
+    """
+    rw = region.bbox[2] - region.bbox[0]
+    if rw <= 0:
+        return None
+    # Candidate handles: short horizontal line samples inside the region.
+    handles: list[BBox] = []
+    for p in paths:
+        if p.stroke is None or _swatch_style(p) not in ("line", "dashed"):
+            continue
+        if not _inside(p.bbox, region, _LEGEND_MARGIN):
+            continue
+        if (p.bbox[2] - p.bbox[0]) > _HANDLE_MAX_W_FRAC * rw:
+            continue
+        handles.append(p.bbox)
+    if len(handles) < _HANDLE_MIN_ROWS:
+        return None
+
+    # Group handles into x-columns by (left edge, length) agreement.
+    handles.sort(key=lambda b: (b[0], b[1]))
+    columns: list[list[BBox]] = []
+    for b in handles:
+        for col in columns:
+            ref = col[0]
+            if (abs(b[0] - ref[0]) <= _HANDLE_X_TOL
+                    and abs((b[2] - b[0]) - (ref[2] - ref[0])) <= _HANDLE_LEN_TOL):
+                col.append(b)
+                break
+        else:
+            columns.append([b])
+
+    for col in sorted(columns, key=len, reverse=True):
+        # Distinct y-rows (drop duplicates from a dashed handle's many dashes).
+        rows = sorted({round(0.5 * (b[1] + b[3]), 1) for b in col})
+        if len(rows) < _HANDLE_MIN_ROWS:
+            continue
+        hx0 = min(b[0] for b in col)
+        hx1 = max(b[2] for b in col)
+        y0 = min(b[1] for b in col) - _HANDLE_ROW_PAD
+        y1 = max(b[3] for b in col) + _HANDLE_ROW_PAD
+
+        # Extend right over the label characters on the handle rows, chaining by
+        # gap so it stops at the end of the legend text (never jumps to far data).
+        box_x1 = hx1
+        n_label = 0
+        glyphs = []
+        for p in paths:
+            bw = p.bbox[2] - p.bbox[0]
+            bh = p.bbox[3] - p.bbox[1]
+            if bw <= 0 or bh <= 0 or bw > _GLYPH_CHAR_MAX or bh > _GLYPH_CHAR_MAX:
+                continue
+            pcy = 0.5 * (p.bbox[1] + p.bbox[3])
+            if y0 <= pcy <= y1 and p.bbox[0] > hx1 - 2.0:
+                glyphs.append(p.bbox)
+        for gb in sorted(glyphs, key=lambda b: b[0]):
+            if gb[0] <= box_x1 + _GLYPH_LABEL_GAP:
+                box_x1 = max(box_x1, gb[2])
+                n_label += 1
+        # Also let label TEXT spans on the rows extend / confirm the box.
+        n_text = 0
+        if texts is not None:
+            for t in texts:
+                if not _horizontal(t):
+                    continue
+                tx0, ty0, tx1, ty1 = t.bbox
+                tyc = 0.5 * (ty0 + ty1)
+                if y0 <= tyc <= y1 and tx0 > hx1 - 2.0 \
+                        and tx0 <= box_x1 + _GLYPH_LABEL_GAP \
+                        and any(c.isalpha() for c in t.text):
+                    box_x1 = max(box_x1, tx1)
+                    n_text += 1
+        # Require label evidence beside the handles (a bare stack of segments is
+        # not a legend) — readable text or label-character glyphs.
+        if n_label == 0 and n_text == 0:
+            continue
+
+        box = (hx0, y0, box_x1, y1)
+        region_area = max(rw * (region.bbox[3] - region.bbox[1]), 1.0)
+        if ((box[2] - box[0]) * (box[3] - box[1])) / region_area \
+                > _LEGEND_MAX_PLOT_FRAC:
+            continue
+        return box
+    return None
+
+
 def _detect_inline_labels(
     region: Region, paths: list[Path], texts: list[TextSpan]
 ) -> list[tuple[str, Color | None, str]]:
@@ -1310,6 +1422,14 @@ def detect_labels(
     # TextSpan) leaves no entry to anchor on. Locate its bounding box from the
     # swatch column so the mark extractor drops the swatches + label glyphs.
     # Label strings stay empty (glyph outlines are unreadable without OCR).
+    # A legend keyed by marker SHAPE (only 2 colours) or with glyph-outline math
+    # labels leaves no text entry and too few distinct swatch colours for the
+    # text/colour detectors. Detect it by its handle column (the left-aligned
+    # stack of identical line samples every legend draws) — the most specific,
+    # general signal — before the looser swatch-colour-column fallback (which can
+    # misfire on a row of baseline data markers).
+    if legend_bbox is None:
+        legend_bbox = _detect_handle_legend(region, paths, texts)
     if legend_bbox is None:
         legend_bbox = _detect_glyph_legend_box(region, paths, texts)
     return Labels(
