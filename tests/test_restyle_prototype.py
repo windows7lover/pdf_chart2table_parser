@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import math  # noqa: E402
 
 from render_restyle_prototype import (  # noqa: E402
-    _dash_is_dotted, _metric_font_rc,
+    _dash_is_dotted, _metric_font_rc, _resolve_font,
     _compose_runs, _draw_residual, _effective_scale, _faithful_tick_label,
     _group_color, _group_spans, _is_italic, _join_group, _label_match,
     _marker_shape, _math_italic, _norm, _plain_num, _span_color,
@@ -118,6 +118,32 @@ def test_metric_font_rc_prefers_liberation_then_dejavu():
     assert rc["font.monospace"][0] == "Liberation Mono"
     assert "DejaVu Serif" in rc["font.serif"]
     assert "DejaVu Sans" in rc["font.sans-serif"]
+
+
+def test_resolve_font_per_element_family_and_face():
+    # per-element font: serif/sans resolve to the metric-compatible lists;
+    # a face token overrides; nothing recovered -> None (use figure default).
+    assert _resolve_font("serif", None)[0] == "Liberation Serif"
+    assert _resolve_font("sans-serif", None)[0] == "Liberation Sans"
+    assert _resolve_font("sans-serif", "verdana")[0] == "DejaVu Sans"
+    assert _resolve_font("serif", "cambria")[0] == "Caladea"
+    assert _resolve_font(None, None) is None
+
+
+def test_per_element_font_applied_to_ticks_and_labels():
+    # a serif chart with SANS-SERIF ticks must render the ticks in sans (the
+    # "several fonts depending on the text" case).
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    style["text"]["elements"] = {
+        "x_title": {"size": 10.0, "family": "serif"},
+        "y_title": {"size": 10.0, "family": "serif"},
+        "ticks": {"size": 8.0, "family": "sans-serif"},
+    }
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert ax.get_xticklabels()[0].get_fontfamily()[0] == "Liberation Sans"
+    plt.close(fig)
 
 
 def test_classify_face_picks_distinct_substitutes():

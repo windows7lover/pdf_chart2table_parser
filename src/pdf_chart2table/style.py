@@ -1127,17 +1127,30 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     # runs and rotation -- recovered from its source spans. This replaces the
     # scattered *_font_size / *_bold / *_runs fields (annotations + legend already
     # carry their own colour). The renderer applies it through one code path.
+    def _fonts_of(member_spans):
+        """Per-element font weights {font_name: chars} from its own spans, so
+        each text element recovers its OWN family/face (a serif title can sit
+        over sans-serif ticks)."""
+        fw = {}
+        for sp in member_spans:
+            fn = sp.get("font")
+            if fn:
+                fw[fn] = fw.get(fn, 0) + max(1, len(sp.get("text", "")))
+        return fw
+
     def _elem(text):
         grp = find_group(text)
         s = grp[0] if grp else find(text)
         if s is None:
             return None
+        members = grp or [s]
         # Size from the matched GROUP's median span (a multi-span title like
         # 'V_D(V)' has no single span matching the whole label, so size_of/find
         # returns None and the renderer falls back to matplotlib's oversized
         # default); fall back to the single-span size_of only when ungrouped.
         gsz = sorted(sp["size"] for sp in grp if sp.get("size")) if grp else []
         size = round(gsz[len(gsz) // 2] * scale, 2) if gsz else size_of(text)
+        efw = _fonts_of(members)
         return {
             "size": size,
             "color": _text_color(_group_color(grp) if grp else s.get("color")),
@@ -1145,14 +1158,19 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
             "italic": italic_of(text),
             "runs": runs_of(text),
             "rotation": _text_rotation(s.get("dir")),
+            "family": _classify_family(efw) if efw else None,
+            "face": _classify_face(efw) if efw else None,
         }
+    _tick_fw = _fonts_of(tick_spans)
     elements = {
         "title": _elem(title_text),
         "x_title": _elem(axis_titles.get("x")),
         "y_title": _elem(axis_titles.get("y")),
         "ticks": {"size": round(tick_size, 2) if tick_size else None,
                   "color": _text_color(_group_color(tick_spans)),
-                  "bold": tick_bold},
+                  "bold": tick_bold,
+                  "family": _classify_family(_tick_fw) if _tick_fw else None,
+                  "face": _classify_face(_tick_fw) if _tick_fw else None},
     }
     for _ax in ("x_title", "y_title"):
         if elements[_ax]:

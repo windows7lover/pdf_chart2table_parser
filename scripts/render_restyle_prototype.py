@@ -513,16 +513,25 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
         e = elems.get(name)
         return _color(e.get("color")) if e and e.get("color") else None
 
+    def _efont(name):
+        """Per-element font family list (serif/sans/face-specific) or None."""
+        e = elems.get(name) or {}
+        return _resolve_font(e.get("family"), e.get("face"))
+
     def _label_kwargs(name):
         """matplotlib text kwargs for an axis-title element (one code path)."""
         e = elems.get(name) or {}
         runs = e.get("runs")
-        return runs, {
+        kw = {
             "fontsize": _fs(e.get("size")) or _fs(base_fs),
             "fontweight": _w(e.get("bold")),
             "color": _ecolor(name) or "black",
             "fontstyle": "normal" if runs else _i(e.get("italic")),
         }
+        fam = _efont(name)
+        if fam:
+            kw["fontfamily"] = fam
+        return runs, kw
     if xa:
         _apply_ticks(ax, "x", xa.get("ticks"), x_scale, xa.get("data_range"))
         _plain_linear(ax.xaxis, x_scale, xa.get("ticks"))
@@ -599,9 +608,14 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
                 sp.set_capstyle("round")
             except (AttributeError, ValueError):
                 pass
-    if (elems.get("ticks") or {}).get("bold"):
+    _tbold = (elems.get("ticks") or {}).get("bold")
+    _tfont = _efont("ticks")
+    if _tbold or _tfont:
         for lb in ax.get_xticklabels() + ax.get_yticklabels():
-            lb.set_fontweight("bold")
+            if _tbold:
+                lb.set_fontweight("bold")
+            if _tfont:
+                lb.set_fontfamily(_tfont)
     # in-graph text annotations (recovered text that is NOT data or legend)
     for a in (txt.get("annotations") or []):
         ax.text(a["x"], a["y"], L(a.get("text") or ""), transform=ax.transAxes,
@@ -796,12 +810,14 @@ def _recon_figure(record, style, tex=False):
         t = style.get("text") or {}
         te = (t.get("elements") or {}).get("title") or {}
         tcol = _color(te.get("color")) if te.get("color") else None
+        tfam = _resolve_font(te.get("family"), te.get("face"))
+        tkw = {"fontfamily": tfam} if tfam else {}
         # Fall back to the base font size, never matplotlib's oversized default
         # title size, when the title's own size wasn't recovered.
         ax.set_title(_latexify(title) if tex else title,
                      fontsize=te.get("size") or t.get("base_font_size"),
                      color=tcol or "black",
-                     fontweight="bold" if te.get("bold") else "normal")
+                     fontweight="bold" if te.get("bold") else "normal", **tkw)
     return fig
 
 
@@ -892,34 +908,45 @@ def _draw_residual(ax, arr, clip, dpi, resid, show_title=True):
     ax.axis("off")
 
 
-# Per-face overrides layered onto the metric-font defaults, keyed by the token
-# from style._classify_face. Verdana/Tahoma are wide -> DejaVu Sans (Bitstream-
-# Vera lineage) fits better than Arial-metric Liberation Sans; Calibri -> Carlito;
-# Cambria -> Caladea (both metric-compatible); Courier is monospace though
-# _classify_family labels it "serif".
-_FACE_OVERRIDES = {
-    "verdana": {"font.sans-serif": ["DejaVu Sans", "Liberation Sans"]},
-    "calibri": {"font.sans-serif": ["Carlito", "Liberation Sans", "DejaVu Sans"]},
-    "cambria": {"font.serif": ["Caladea", "Liberation Serif", "DejaVu Serif"]},
-    "courier": {"font.family": "monospace"},
+# Metric-compatible font lists (one source of truth). DejaVu Serif/Sans glyph
+# metrics differ visibly from the papers' Times/Helvetica; Liberation Serif/Sans/
+# Mono are metric-compatible with Times New Roman / Arial / Courier. Per-FACE
+# lists: Verdana/Tahoma are wide -> DejaVu Sans (Bitstream-Vera lineage) beats
+# Arial-metric Liberation Sans; Calibri -> Carlito; Cambria -> Caladea.
+_SERIF = ["Liberation Serif", "DejaVu Serif"]
+_SANS = ["Liberation Sans", "DejaVu Sans"]
+_MONO = ["Liberation Mono", "DejaVu Sans Mono"]
+_FACE_FONTS = {
+    "verdana": ["DejaVu Sans", "Liberation Sans"],
+    "calibri": ["Carlito", "Liberation Sans", "DejaVu Sans"],
+    "cambria": ["Caladea", "Liberation Serif", "DejaVu Serif"],
+    "courier": _MONO,
 }
 
 
-def _metric_font_rc(face=None):
-    """Prefer metric-compatible faces over matplotlib's stock DejaVu.
+def _resolve_font(family, face):
+    """Concrete ordered font list for a text element's recovered family + face,
+    or None when neither is recovered (use the figure default)."""
+    if face in _FACE_FONTS:
+        return _FACE_FONTS[face]
+    if family == "sans-serif":
+        return _SANS
+    if family == "serif":
+        return _SERIF
+    return None
 
-    DejaVu Serif/Sans glyph metrics differ visibly from the papers' Times/
-    Helvetica. Liberation Serif/Sans/Mono are metric-compatible with Times New
-    Roman / Arial / Courier, so the recovered "serif"/"sans-serif" family
-    defaults to them (falling back to DejaVu when Liberation isn't installed).
-    `face` (style._classify_face) layers a specific substitute via
-    _FACE_OVERRIDES when the generic default mismatches that face's metrics."""
-    rc = {
-        "font.serif": ["Liberation Serif", "DejaVu Serif"],
-        "font.sans-serif": ["Liberation Sans", "DejaVu Sans"],
-        "font.monospace": ["Liberation Mono", "DejaVu Sans Mono"],
-    }
-    rc.update(_FACE_OVERRIDES.get(face, {}))
+
+def _metric_font_rc(face=None):
+    """Global font rc: resolve the recovered "serif"/"sans-serif" family through
+    the metric-compatible lists (fallback to DejaVu when Liberation is absent);
+    `face` layers a specific substitute. Used for the figure default (legend,
+    annotations); per-element title/axis/ticks fonts are set individually."""
+    rc = {"font.serif": _SERIF, "font.sans-serif": _SANS, "font.monospace": _MONO}
+    if face in _FACE_FONTS:
+        rc["font.sans-serif" if face in ("verdana", "calibri") else "font.serif"] = \
+            _FACE_FONTS[face]
+    if face == "courier":
+        rc["font.family"] = "monospace"
     return rc
 
 
