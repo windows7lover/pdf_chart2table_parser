@@ -318,6 +318,35 @@ def test_disjoint_same_color_tiles_one_curve():
     assert len(series[0].points) == 6
 
 
+def test_split_keeps_x_overlapping_disjoint_y_bands_apart():
+    # Two same-colour pieces that SHARE x (their x-ranges overlap) but sit in
+    # DISJOINT horizontal y-bands (e.g. a DOS plot's stacked density curves:
+    # x=density, y=energy, each band a vertical x-multivalued curve at its own
+    # energy). _split_into_curves must NOT cluster them into one group -- merging
+    # then x-sorts them into a zigzag fold (the 2309.02305_p4c1 red artifact).
+    # x-ranges overlap only PARTIALLY (below _OVERLAP_FRAC, so _x_overlap reads
+    # them as separable) yet they belong to different energy bands -- this is the
+    # exact geometry that fooled the old greedy split.
+    from pdf_chart2table.lines import _split_into_curves
+    lower = _poly([(110, 280), (150, 270), (130, 260), (120, 250)], (1.0, 0.0, 0.0))
+    upper = _poly([(140, 208), (190, 200), (165, 190), (150, 180)], (1.0, 0.0, 0.0))
+    # lower x-range [110,150] (w=40), upper [140,190] (w=50): overlap 10 / 40 = 0.25 < 0.5
+    groups = _split_into_curves([lower, upper])
+    assert len(groups) == 2  # each band its own group, not folded into one
+    assert all(len(g) == 1 for g in groups)
+
+
+def test_split_still_tiles_x_disjoint_continuous_curve():
+    # Regression guard: x-DISJOINT pieces that are y-continuous at the seam are
+    # tiles of ONE curve and must still cluster together (band guard only fires
+    # when the pieces share x yet jump y-bands).
+    from pdf_chart2table.lines import _split_into_curves
+    a = _poly([(120, 250), (160, 220), (200, 200)], (0.0, 0.0, 1.0))
+    b = _poly([(205, 190), (245, 180), (285, 175)], (0.0, 0.0, 1.0))
+    groups = _split_into_curves([a, b])
+    assert len(groups) == 1 and len(groups[0]) == 2
+
+
 def test_same_color_solid_and_dashed_distinct_trajectories_both_kept():
     # A solid Testing curve and a dashed Training curve in the SAME colour but on
     # different y-trajectories: both are genuine curves and must be kept.

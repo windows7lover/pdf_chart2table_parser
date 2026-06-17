@@ -154,6 +154,15 @@ _MIN_CLOUD_YSPAN = 2.0
 # Two same-colour curves "overlap" (and so cannot be cleanly separated) if their
 # x-ranges share more than this fraction of the smaller range.
 _OVERLAP_FRAC = 0.5
+# When deciding whether two x-compatible parts tile ONE curve, their y-ranges
+# must be continuous at the seam (a real curve does not teleport in y between
+# tiles). A genuine x-tiled curve's pieces abut in x (the next piece starts
+# where the previous ends). Two pieces that share x (their x-ranges OVERLAP,
+# even partially) yet sit in DISJOINT y-ranges are not tiles of one curve but
+# different horizontal bands (e.g. a DOS plot's stacked density curves, all
+# sharing the same x range but each at its own energy); merging then x-sorting
+# would fold the bands into a zigzag. So a y-gap is only fatal when the pieces
+# also overlap in x.
 # A filled path whose bbox width spans at least this fraction of the region width
 # is treated as a shaded background band (DOS envelope, confidence region, etc.).
 # A stroked path whose colour matches the fill colour of such a band is the
@@ -612,6 +621,31 @@ def _merge_long(parts: list[Path]) -> list[tuple[float, float]] | None:
     return pts
 
 
+def _x_ranges_overlap(a: tuple[float, float], b: tuple[float, float]) -> bool:
+    """True when intervals ``a`` and ``b`` share any x (raw overlap, no margin)."""
+    return min(a[1], b[1]) > max(a[0], b[0])
+
+
+def _y_band_disjoint(p: Path, cluster: list[Path]) -> bool:
+    """True when ``p`` sits in a different horizontal band than ``cluster``.
+
+    Two x-compatible parts tile ONE curve only if they are y-continuous at the
+    seam. When ``p`` shares x with a cluster member (their x-ranges overlap) yet
+    its y-range is disjoint from that member's, they are different horizontal
+    bands (e.g. stacked DOS density curves), NOT tiles of one curve -- merging
+    then x-sorts them into a zigzag fold, so keep them apart.
+    """
+    pxr = (p.bbox[0], p.bbox[2])
+    pyr = (p.bbox[1], p.bbox[3])
+    for c in cluster:
+        if not _x_ranges_overlap(pxr, (c.bbox[0], c.bbox[2])):
+            continue
+        cyr = (c.bbox[1], c.bbox[3])
+        if min(pyr[1], cyr[1]) <= max(pyr[0], cyr[0]):  # y-ranges do not overlap
+            return True
+    return False
+
+
 def _split_into_curves(parts: list[Path]) -> list[list[Path]]:
     """Split a set of possibly x-overlapping same-colour paths into groups where
     each group's paths tile the x-axis without overlap (i.e. each group can be
@@ -619,18 +653,23 @@ def _split_into_curves(parts: list[Path]) -> list[list[Path]]:
 
     This handles the case where a colour carries multiple distinct curves, each
     drawn as several x-disjoint segments. The greedy assignment places each path
-    into the first existing group that has no x-overlap with it, or starts a new
-    group. The result is a list of groups, each ready for ``_merge_long``.
+    into the first existing group that has no x-overlap with it AND is
+    y-continuous with it (so it tiles the same curve rather than landing in a
+    different horizontal band), or starts a new group. The result is a list of
+    groups, each ready for ``_merge_long``.
     """
     clusters: list[list[Path]] = []
     for p in parts:
         xr = (p.bbox[0], p.bbox[2])
         placed = False
         for cluster in clusters:
-            if not any(_x_overlap(xr, (c.bbox[0], c.bbox[2])) for c in cluster):
-                cluster.append(p)
-                placed = True
-                break
+            if any(_x_overlap(xr, (c.bbox[0], c.bbox[2])) for c in cluster):
+                continue
+            if _y_band_disjoint(p, cluster):
+                continue
+            cluster.append(p)
+            placed = True
+            break
         if not placed:
             clusters.append([p])
     return clusters
