@@ -42,22 +42,36 @@ def _fragment_curve(on, off, *, n=60, y=50.0, x0=100.0):
     return frags
 
 
+def _approx(a, b, tol=0.4):
+    return abs(a - b) <= tol
+
+
 def test_classify_dashed():
-    # uniform moderate on-runs (~3.8pt) with ~3.9pt gaps -> dashed
-    frags = _fragment_curve(3.8, 3.9, n=60)
-    assert _classify_fragment_dash(frags, 0.85) == "--"
+    # uniform moderate on-runs (~3.8pt) with ~3.9pt gaps -> dashed, and the
+    # emitted tuple carries the MEASURED on/off period (not a bare "--").
+    ls = _classify_fragment_dash(_fragment_curve(3.8, 3.9, n=60), 0.85)
+    assert isinstance(ls, tuple) and ls[0] == 0.0
+    on, off = ls[1]
+    assert _approx(on, 3.8) and _approx(off, 3.9)
 
 
 def test_classify_dotted():
-    # tiny on-runs (~0.59pt, ~ a stroke width) with gaps -> dotted
-    frags = _fragment_curve(0.59, 3.5, n=80)
-    assert _classify_fragment_dash(frags, 0.85) == ":"
+    # tiny on-runs (~0.59pt, ~ a stroke width) with ~3.5pt gaps -> dotted: a
+    # short on and the measured gap.
+    ls = _classify_fragment_dash(_fragment_curve(0.59, 3.5, n=80), 0.85)
+    assert isinstance(ls, tuple) and len(ls[1]) == 2
+    on, off = ls[1]
+    assert on <= 1.6 and _approx(off, 3.5, tol=0.6)
 
 
 def test_classify_dashdot():
-    # alternating long dash (4.6pt) + short dot (0.6pt) -> dash-dot
-    frags = _fragment_curve((4.6, 0.6), 3.0, n=60)
-    assert _classify_fragment_dash(frags, 0.85) == "-."
+    # alternating long dash (4.6pt) + short dot (0.6pt) -> dash-dot: a 4-entry
+    # tuple (long, gap, dot, gap) at the measured lengths.
+    ls = _classify_fragment_dash(_fragment_curve((4.6, 0.6), 3.0, n=60), 0.85)
+    assert isinstance(ls, tuple) and len(ls[1]) == 4
+    long_on, off1, dot_on, off2 = ls[1]
+    assert _approx(long_on, 4.6) and dot_on <= 1.6
+    assert _approx(off1, 3.0, tol=0.6) and _approx(off2, 3.0, tol=0.6)
 
 
 def test_solid_in_contiguous_pieces_stays_solid():
@@ -96,4 +110,5 @@ def test_match_series_styles_recovers_dashed_from_fragments():
             "y_px": 0.5 * (p.bbox[1] + p.bbox[3])} for p in frags]
     series = [{"color": [1.0, 0.0, 0.0], "points": pts}]
     styles, _ = match_series_styles(frags, region, series)
-    assert styles[0].get("linestyle") == "--"
+    ls = styles[0].get("linestyle")
+    assert isinstance(ls, tuple) and ls[0] == 0.0 and len(ls[1]) == 2

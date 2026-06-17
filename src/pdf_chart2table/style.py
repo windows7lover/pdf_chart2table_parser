@@ -410,10 +410,13 @@ def _frag_len(p) -> float:
 def _classify_fragment_dash(cands, width):
     """Classify a fragment-drawn line style from same-colour fragment paths.
 
-    Returns a matplotlib linestyle string ``"--"`` / ``":"`` / ``"-."`` when the
-    fragments form a clear dashed / dotted / dash-dot pattern, else ``None``
-    (caller keeps the curve solid). ``cands`` are the same-colour stroked paths
-    of one series; ``width`` is the series' stroke width (for the dot threshold).
+    Returns a matplotlib dash TUPLE ``(offset, (on, off[, on, off]))`` in absolute
+    PDF points -- the MEASURED on/off period of the original -- when the fragments
+    form a clear dashed / dotted / dash-dot pattern, else ``None`` (caller keeps
+    the curve solid). Emitting the measured period (not a bare "--"/":"/"-." whose
+    default period is far too sparse) makes the reconstruction match the original
+    dash density. ``cands`` are the same-colour stroked paths of one series;
+    ``width`` is the series' stroke width (for the dot threshold).
 
     Method: keep only the short sub-stroke fragments, order them along the curve
     (by midpoint x, the curves here are x-monotone), chain end-to-end-touching
@@ -467,15 +470,24 @@ def _classify_fragment_dash(cands, width):
     dot_thresh = max(_DOT_MAX_LEN, 1.6 * (width or 0.0))
     p10 = runs_s[max(0, int(0.1 * (len(runs_s) - 1)))]
     p90 = runs_s[int(0.9 * (len(runs_s) - 1))]
-    # dash-dot: a clearly BIMODAL on-run distribution (short dots + long dashes).
+    # Emit the MEASURED on/off period (absolute PDF points) as a matplotlib dash
+    # tuple, NOT a bare "--"/":"/"-." string: those use matplotlib's default
+    # period, which renders dense fine dashing far too sparse (2001.01928: the red
+    # dashed / green dotted curves lost ~2/3 of their ink, recon_ink 9170->3346).
+    # The renderer sets lines.scale_dashes=False, so a tuple renders at its
+    # absolute recovered length and the reconstruction matches the original dash
+    # DENSITY. (Pixel-IoU still under-scores dashes -- dash PHASE is unrecoverable
+    # -- but the curve no longer looks anemic.) ``on`` floored so a sub-point dot
+    # still renders (with the round cap it becomes a ~linewidth dot).
+    off = med_gap
+    # dash-dot: a clearly BIMODAL on-run distribution (short dots + long dashes)
+    # -> alternate long dash and dot, each followed by the measured gap.
     if p10 <= dot_thresh and p90 >= _DASHDOT_RATIO * max(p10, 1e-6) \
             and p90 > dot_thresh:
-        return "-."
-    # dotted: all on-runs tiny (dots).
-    if med_run <= dot_thresh and p90 <= 1.5 * dot_thresh:
-        return ":"
-    # dashed: uniform moderate on-runs with gaps.
-    return "--"
+        return (0.0, (max(p90, 0.1), off, max(p10, 0.1), off))
+    # dashed / dotted: one on/off period at the measured lengths (dotted naturally
+    # has a tiny on-run, dashed a moderate one).
+    return (0.0, (max(med_run, 0.1), off))
 
 
 def match_series_styles(paths, region_bbox, series):

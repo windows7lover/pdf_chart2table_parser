@@ -409,6 +409,25 @@ def _draw_legend_manual(ax, record, style, txt, L, _fs, font_scale=1.0):
     if not entries:
         return False
 
+    # Guard against an INCOHERENT recovered legend. A mis-assembled OCR / glyph
+    # legend can fling one entry across the plot (2001.01928: r_00 landed at
+    # (-0.04,-0.05) while r_11/r_22 sit top-right). Drawing it not only looks
+    # wrong but, because the handle/text artists use clip_on=False, it expands the
+    # saved figure extent and HIDES the data curves. A genuine legend is a COMPACT
+    # column (vertical) or row (horizontal) INSIDE the plot, so if the entries are
+    # out of bounds or scattered, skip the custom legend entirely (draw none) --
+    # never let a bad legend harm the data reconstruction.
+    _xs = [e.get("x_frac") for e in entries if e.get("x_frac") is not None]
+    _ys = [e.get("y_frac") for e in entries if e.get("y_frac") is not None]
+    if _xs and _ys:
+        if min(_xs) < -0.1 or max(_xs) > 1.1 or min(_ys) < -0.1 or max(_ys) > 1.1:
+            return False
+        if len(entries) >= 2:
+            _horiz = leg.get("orientation") == "horizontal"
+            _xspread, _yspread = max(_xs) - min(_xs), max(_ys) - min(_ys)
+            if (not _horiz and _xspread > 0.3) or (_horiz and _yspread > 0.3):
+                return False
+
     def _key(s):
         return (s or "").strip()
 

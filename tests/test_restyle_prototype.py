@@ -526,6 +526,42 @@ def test_legend_frame_style_applied_to_renderer():
     plt.close(fig)
 
 
+def test_incoherent_legend_skipped_to_protect_data():
+    # 2001.01928_p5c1: a mis-assembled OCR/glyph legend flung one entry to
+    # (-0.04,-0.05) while the others sat top-right, so the entries spanned the
+    # whole plot. Drawing it (handle/text artists use clip_on=False) expanded the
+    # saved figure and HID the data curves (data_iou 0.85 -> 0.29). The drawer must
+    # SKIP an incoherent legend (return False) so the reconstruction is never
+    # harmed; a compact column still draws.
+    from render_restyle_prototype import _draw_legend_manual, plt
+    record, style = _legend_record_style(None)
+    txt = style["text"]
+    L = lambda x: x                       # noqa: E731 (test stub)
+    _fs = lambda v: v or 8.0              # noqa: E731
+
+    # compact column (entries share an x) -> drawn
+    fig, ax = plt.subplots()
+    assert _draw_legend_manual(ax, record, style, txt, L, _fs) is True
+    plt.close(fig)
+
+    # scattered: one entry bottom-left, others top-right -> skipped (no legend)
+    txt["legend"]["entries"] = [
+        {"label": "A", "x_frac": -0.04, "y_frac": -0.05, "size": 8.0},
+        {"label": "B", "x_frac": 0.92, "y_frac": 0.85, "size": 8.0},
+        {"label": "C", "x_frac": 0.92, "y_frac": 0.77, "size": 8.0}]
+    fig, ax = plt.subplots()
+    assert _draw_legend_manual(ax, record, style, txt, L, _fs) is False
+    plt.close(fig)
+
+    # an entry far out of bounds (top alone) is also incoherent -> skipped
+    txt["legend"]["entries"] = [
+        {"label": "A", "x_frac": 0.2, "y_frac": 0.9, "size": 8.0},
+        {"label": "B", "x_frac": 0.2, "y_frac": 1.6, "size": 8.0}]
+    fig, ax = plt.subplots()
+    assert _draw_legend_manual(ax, record, style, txt, L, _fs) is False
+    plt.close(fig)
+
+
 def test_text_rotation_recovers_diagonal_and_snaps_horizontal():
     # 2006.14257_p10c1: curve labels drawn diagonally (~24 deg up-right). PDF y is
     # DOWN, so an up-right baseline is dir=(cos, -sin) -> positive matplotlib deg.
