@@ -146,6 +146,51 @@ def test_per_element_font_applied_to_ticks_and_labels():
     plt.close(fig)
 
 
+def _count_arrow_patches(ax):
+    # ax.annotate("", ...) creates an Annotation (in ax.texts) carrying a
+    # FancyArrowPatch in .arrow_patch -- count those.
+    return sum(getattr(t, "arrow_patch", None) is not None for t in ax.texts)
+
+
+def test_replot_draws_annotation_arrow_when_present():
+    # An arrow persisted in DATA coords is re-drawn as a FancyArrowPatch.
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    record["arrows"] = [{"tail": [0.5, 0.9], "head": [0.5, 0.6],
+                         "color": [1.0, 0.5, 0.0]}]
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert _count_arrow_patches(ax) == 1
+    plt.close(fig)
+
+
+def test_replot_draws_no_arrow_when_absent():
+    # No arrows key / empty list -> no arrow patches (no spurious arrows).
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert _count_arrow_patches(ax) == 0
+    record["arrows"] = []
+    fig2, ax2 = plt.subplots()
+    _replot(ax2, record, style, font_scale=1.0)
+    assert _count_arrow_patches(ax2) == 0
+    plt.close(fig)
+    plt.close(fig2)
+
+
+def test_replot_skips_arrow_without_data_coords():
+    # An arrow with only pixel coords (uncalibrated) is not renderable -> skipped.
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    record["arrows"] = [{"tail_px": [200.0, 110.0], "head_px": [200.0, 130.0],
+                         "color": None}]
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert _count_arrow_patches(ax) == 0
+    plt.close(fig)
+
+
 def test_classify_face_picks_distinct_substitutes():
     # dominant face by char count -> canonical token (real corpus font names)
     assert _classify_face({"Verdana": 50, "ArialMT": 5}) == "verdana"

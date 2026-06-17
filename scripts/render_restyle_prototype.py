@@ -741,6 +741,17 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
             ax.grid(True, axis=axis, which="major", zorder=0, linestyle=gls,
                     color=gcolor, linewidth=glw, alpha=galpha)
         ax.set_axisbelow(True)
+    # Annotation arrows (decoration the extractor detected + removed from the
+    # data). Redraw each at its recovered DATA position so the reconstruction
+    # keeps the source's pointer (e.g. an arrow marking a peak), in its colour.
+    for a in (record.get("arrows") or []):
+        tail, head = a.get("tail"), a.get("head")
+        if not tail or not head:
+            continue  # only data-coord arrows are renderable
+        ax.annotate("", xy=tuple(head), xytext=tuple(tail),
+                    arrowprops=dict(arrowstyle="->",
+                                    color=_color(a.get("color")) or "black",
+                                    lw=0.8, shrinkA=0, shrinkB=0))
     # Draw a legend only when it is actually present on THIS panel.
     if has_label and txt.get("show_legend", True):
         leg = txt.get("legend")

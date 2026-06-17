@@ -500,6 +500,22 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
             if arrow_idx:
                 region.path_indices = [i for i in region.path_indices
                                        if i not in arrow_idx]
+            # Convert each arrow's tip/tail from PIXEL coords to DATA coords so the
+            # renderer can re-draw it at the right place (like grid lines). Needs
+            # both axes calibrated; drop any arrow that cannot be placed.
+            if arrow_recs:
+                from .calibrate import to_data as _to_data
+                if (x_axis.calibration is not None
+                        and y_axis.calibration is not None):
+                    for a in arrow_recs:
+                        tx, ty = a["tail_px"]
+                        hx, hy = a["head_px"]
+                        a["tail"] = [float(_to_data(x_axis.calibration, tx)),
+                                     float(_to_data(y_axis.calibration, ty))]
+                        a["head"] = [float(_to_data(x_axis.calibration, hx)),
+                                     float(_to_data(y_axis.calibration, hy))]
+                else:
+                    arrow_recs = []
             # Error-bar whiskers + caps are decoration anchored to the markers,
             # not a data series; drop their paths so they are not traced as a
             # jagged marker-less polyline through the data points.
