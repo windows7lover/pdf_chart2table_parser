@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import math  # noqa: E402
 
 from render_restyle_prototype import (  # noqa: E402
-    _dash_is_dotted,
+    _dash_is_dotted, _metric_font_rc,
     _compose_runs, _draw_residual, _effective_scale, _faithful_tick_label,
     _group_color, _group_spans, _is_italic, _join_group, _label_match,
     _marker_shape, _math_italic, _norm, _plain_num, _span_color,
@@ -107,6 +107,17 @@ def test_real_legend_chunks_match():
     label = _norm("X (x100)")
     assert _label_match(_norm("(x100)"), label)      # substantial chunk
     assert _label_match(_norm("Sideband"), _norm("Sideband"))
+
+
+# --- metric-compatible faces: "serif"/"sans" must resolve to Liberation -------
+def test_metric_font_rc_prefers_liberation_then_dejavu():
+    rc = _metric_font_rc()
+    # Times-metric serif and Arial-metric sans must come first; DejaVu is fallback.
+    assert rc["font.serif"][0] == "Liberation Serif"
+    assert rc["font.sans-serif"][0] == "Liberation Sans"
+    assert rc["font.monospace"][0] == "Liberation Mono"
+    assert "DejaVu Serif" in rc["font.serif"]
+    assert "DejaVu Sans" in rc["font.sans-serif"]
 
 
 def test_italic_detected_from_flag_and_font_name():
