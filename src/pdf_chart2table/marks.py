@@ -146,6 +146,20 @@ _LOCUS_SMALL_MAX = 2  # apply strict check to groups with ≤ this many marks
 # erroneously large bbox are not discarded.
 _MAX_LEGEND_PLOT_FRAC = 0.40  # vs the region (matches labels._legend_box cap)
 
+# Stroke-connectivity orphan filter.
+# In a line-with-markers series the connecting stroke (the matplotlib line) passes
+# through EVERY data point, so each real marker sits ON that stroke. An orphan
+# marker — a legend swatch, an annotation glyph — shares the series' colour+shape
+# but is NOT on the data stroke (at most a short legend handle, which traces no
+# other marker, sits near it). When a series is genuinely connected (a same-colour
+# stroke covers a strong majority of its marks), drop the few marks no connector
+# stroke reaches: they are not part of the drawn curve, only spuriously stitched
+# into it by the marker-order polyline. Pure scatter (no connector stroke) is
+# untouched — no candidate covers ≥ _CONN_MIN_COVER marks, so every mark is kept.
+_CONN_COVER_TOL = 4.0      # px: a mark lies "on" a stroke within this distance
+_CONN_MIN_COVER = 3        # a connector stroke must pass through ≥ this many marks
+_CONN_SUPPORT_FRAC = 0.6   # only filter when ≥ this fraction of marks are supported
+
 # Legend-box filtering is group-aware: a true legend SWATCH column has (nearly)
 # all of a group's marks inside the legend box, while a genuine data series that
 # merely PASSES THROUGH the legend box has only a minority of its marks inside.
@@ -840,6 +854,92 @@ def _in_legend_box(cx: float, cy: float, legend_bbox: tuple | None) -> bool:
     return lx0 <= cx <= lx1 and ly0 <= cy <= ly1
 
 
+def _pt_seg_dist(px: float, py: float,
+                 ax: float, ay: float, bx: float, by: float) -> float:
+    """Distance from point (px,py) to the segment a->b."""
+    dx, dy = bx - ax, by - ay
+    seg2 = dx * dx + dy * dy
+    if seg2 <= 0:
+        return ((px - ax) ** 2 + (py - ay) ** 2) ** 0.5
+    t = ((px - ax) * dx + (py - ay) * dy) / seg2
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    qx, qy = ax + t * dx, ay + t * dy
+    return ((px - qx) ** 2 + (py - qy) ** 2) ** 0.5
+
+
+def _pt_polyline_dist(px: float, py: float,
+                      verts: list[tuple[float, float]]) -> float:
+    """Minimum distance from (px,py) to a polyline's segments."""
+    if not verts:
+        return float("inf")
+    if len(verts) == 1:
+        return ((px - verts[0][0]) ** 2 + (py - verts[0][1]) ** 2) ** 0.5
+    best = float("inf")
+    for (ax, ay), (bx, by) in zip(verts, verts[1:]):
+        d = _pt_seg_dist(px, py, ax, ay, bx, by)
+        if d < best:
+            best = d
+    return best
+
+
+def _drop_unstroked_orphans(
+    groups: list[SeriesMarks],
+    region: Region,
+    paths: list[Path],
+    large_fills: list[Path] | None,
+) -> list[SeriesMarks]:
+    """Drop marks that no same-colour connector stroke reaches (see _CONN_*).
+
+    For each series, the candidate connector strokes are the region's stroked
+    paths whose colour matches the series colour and that are NOT themselves data
+    markers (a marker glyph is excluded so it cannot pose as its own connector).
+    A path is a *connector* for the series when it passes within _CONN_COVER_TOL
+    of ≥ _CONN_MIN_COVER of the series' marks. If at least one connector exists
+    and it supports ≥ _CONN_SUPPORT_FRAC of the marks (so the series is genuinely
+    a connected line-with-markers, not a scatter), the unsupported marks are
+    orphans (legend swatches / stray glyphs) and are removed; otherwise the
+    series is left untouched."""
+    # Index candidate connector strokes by rounded colour, once per region.
+    by_color: dict[tuple, list[list[tuple[float, float]]]] = defaultdict(list)
+    for i in region.path_indices:
+        p = paths[i]
+        if p.stroke is None or len(p.points) < 2:
+            continue
+        if _is_data_mark(p, region, large_fills):
+            continue  # a marker glyph is not a connector
+        col = _round_color(p.stroke)
+        if col is not None:
+            by_color[col].append(p.points)
+    if not by_color:
+        return groups
+
+    for sm in groups:
+        if len(sm.marks) < _CONN_MIN_COVER:
+            continue
+        colors = {_round_color(sm.fill or sm.stroke), _round_color(sm.stroke)}
+        colors.discard(None)
+        cand = [pts for c in colors for pts in by_color.get(c, [])]
+        if not cand:
+            continue
+        connectors = [
+            pts for pts in cand
+            if sum(1 for m in sm.marks
+                   if _pt_polyline_dist(m.cx, m.cy, pts) <= _CONN_COVER_TOL)
+            >= _CONN_MIN_COVER
+        ]
+        if not connectors:
+            continue
+        supported = [
+            m for m in sm.marks
+            if any(_pt_polyline_dist(m.cx, m.cy, pts) <= _CONN_COVER_TOL
+                   for pts in connectors)
+        ]
+        if len(supported) < len(sm.marks) \
+                and len(supported) >= _CONN_SUPPORT_FRAC * len(sm.marks):
+            sm.marks = supported
+    return groups
+
+
 def classify_marks(
     region: Region,
     paths: list[Path],
@@ -991,7 +1091,11 @@ def classify_marks(
     result = _merge_duplicate_series(all_groups)
     result = _merge_stroke_optional(result)
     result = _merge_hue_gradient_singles(result)
-    return _merge_colormap_scatter(result)
+    result = _merge_colormap_scatter(result)
+    # Stroke-connectivity: drop orphan marks not on any same-colour connector
+    # (legend swatches / stray glyphs stitched into a connected line-with-markers
+    # series). Runs last so it sees the final merged series.
+    return _drop_unstroked_orphans(result, region, paths, large_fills)
 
 
 def is_sparse_on_dense(

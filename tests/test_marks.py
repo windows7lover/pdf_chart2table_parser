@@ -1202,3 +1202,44 @@ def test_closed_circles_still_a_marker_series():
     paths = [_closed_circle(150 + 20 * i, 200 + 5 * i) for i in range(5)]
     series = classify_marks(region, paths, [], plot_box=plot_box)
     assert sum(len(s.marks) for s in series) == 5
+
+
+def _polyline(verts, *, stroke):
+    xs = [p[0] for p in verts]
+    ys = [p[1] for p in verts]
+    return VPath(points=list(verts), stroke=stroke, fill=None, width=1.0,
+                 dashes=None, closed=False,
+                 bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def test_orphan_legend_marker_off_connector_dropped():
+    # A line-with-markers series: 5 data squares each ON a same-colour connector
+    # stroke, plus ONE orphan square (a legend swatch) far from the connector.
+    # The orphan is stitched into the marker-order polyline as a spurious link;
+    # stroke-connectivity drops it because no connector stroke reaches it.
+    region = Region(bbox=(100.0, 100.0, 400.0, 400.0),
+                    path_indices=list(range(7)), text_indices=[])
+    blue = (0.0, 0.0, 1.0)
+    centers = [(130, 250), (160, 200), (190, 230), (220, 190), (250, 210)]
+    paths = [_square(cx, cy, fill=blue) for cx, cy in centers]
+    paths.append(_square(310, 320, fill=blue))                 # orphan (off line)
+    paths.append(_polyline(centers, stroke=blue))              # connector
+    series = classify_marks(region, paths, [])
+    assert len(series) == 1
+    assert len(series[0].marks) == 5
+    assert all(m.cy < 300 for m in series[0].marks)            # orphan removed
+
+
+def test_scatter_without_connector_keeps_all_marks():
+    # Same geometry but NO connector stroke -> a pure scatter. The far point is a
+    # legitimate scatter datum, not an orphan: every mark is kept (the filter is
+    # a no-op when no same-colour stroke covers the series).
+    region = Region(bbox=(100.0, 100.0, 400.0, 400.0),
+                    path_indices=list(range(6)), text_indices=[])
+    blue = (0.0, 0.0, 1.0)
+    centers = [(130, 250), (160, 200), (190, 230), (220, 190), (250, 210)]
+    paths = [_square(cx, cy, fill=blue) for cx, cy in centers]
+    paths.append(_square(310, 320, fill=blue))
+    series = classify_marks(region, paths, [])
+    assert len(series) == 1
+    assert len(series[0].marks) == 6
