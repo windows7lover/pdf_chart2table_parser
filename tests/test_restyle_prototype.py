@@ -341,6 +341,44 @@ def test_title_span_match_rejects_short_fragments():
     assert _title_span_match("x" + key, key)        # whole label inside a bigger span
 
 
+def test_error_bar_caps_only_on_points_with_yerr():
+    # Regression (2005.03896_p4c1): matplotlib draws a CAP at EVERY supplied
+    # point, so passing a whole series with most errors zeroed littered the
+    # curve with spurious caps. Only points that carry a y_err must be drawn.
+    from render_restyle_prototype import _replot, plt
+    record = {"series": [{"points": [
+        {"x": 0.0, "y": 0.5}, {"x": 0.25, "y": 0.5},
+        {"x": 0.5, "y": 0.5, "y_err": 0.1},
+        {"x": 0.75, "y": 0.5}, {"x": 1.0, "y": 0.5}]}],
+        "x_axis": {"data_range": [0.0, 1.0]},
+        "y_axis": {"data_range": [0.0, 1.0]},
+        "xticks": [], "yticks": []}
+    style = {"series": [{"color": [0.0, 0.0, 0.0], "label": None}],
+             "x_axis": {"title": "X", "ticks": []},
+             "y_axis": {"title": "Y", "ticks": []},
+             "text": {"base_font_size": 10.0, "elements": {}}}
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    # exactly one error-bar container, with caps only at the single y_err x.
+    assert len(ax.containers) == 1
+    _dl, caps, _bars = ax.containers[0]
+    assert caps, "expected error-bar caps for the y_err point"
+    for cap in caps:
+        assert list(cap.get_xdata()) == [0.5], \
+            "caps must appear only at the point that carries a y_err"
+    plt.close(fig)
+
+
+def test_no_error_bars_when_no_yerr():
+    # A plain curve (no y_err anywhere) must draw NO error-bar container.
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert len(ax.containers) == 0
+    plt.close(fig)
+
+
 def test_font_scale_multiplies_recovered_label_size():
     from render_restyle_prototype import _replot, plt
     record, style = _mini_record_style()

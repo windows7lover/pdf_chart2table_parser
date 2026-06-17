@@ -111,13 +111,24 @@ def _attach_error_bars(series, whiskers, y_axis):
     """
     from .calibrate import to_data as _to_data
     cal = y_axis.calibration
+    # An error bar is the uncertainty on a *plotted datum* (a marker). It is
+    # attached to a MARKER series, never to a marker-less continuous curve: a
+    # smooth fitted line does not carry per-point whiskers. Restricting the
+    # candidate points to marker-bearing series stops a vertical decoration
+    # (e.g. a dashed annotation arrow) whose x happens to fall on a dense
+    # curve's vertices from being mis-recorded as that curve's error bars
+    # (2005.03896_p4c1). Genuine error-bar series are scatter/marker series, so
+    # they are unaffected.
+    marker_series = [s for s in series if getattr(s, "marker", None) is not None]
+    if not marker_series:
+        return
     for cx, top, bot in whiskers:
         yerr = abs(_to_data(cal, top) - _to_data(cal, bot)) / 2.0
         if yerr <= 0:
             continue
         lo, hi = min(top, bot), max(top, bot)
         best, best_dx = None, 3.0
-        for s in series:
+        for s in marker_series:
             for p in getattr(s, "points", []) or []:
                 xp, yp = p.get("x_px"), p.get("y_px")
                 if xp is None or yp is None:

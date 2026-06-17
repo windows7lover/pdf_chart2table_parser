@@ -449,10 +449,16 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
                     linewidth=(st.get("linewidth") or 1.2) * font_scale,
                     linestyle=ls, **_capkw)
         # Recovered per-point error bars (vertical whiskers): draw the bars only
-        # (fmt="none"), on top of the markers/line already drawn above.
-        yerr = [p.get("y_err") for p in pts]
-        if any(e is not None for e in yerr):
-            ax.errorbar(xs, ys, yerr=[e or 0.0 for e in yerr], fmt="none",
+        # (fmt="none"), on top of the markers/line already drawn above. matplotlib
+        # draws a CAP at every supplied point -- including points with a 0/None
+        # error -- so passing the whole series with most errors zeroed litters the
+        # curve with spurious caps. Draw error bars ONLY for the points that
+        # actually carry a y_err.
+        eb = [(x, y, p.get("y_err")) for x, y, p in zip(xs, ys, pts)
+              if p.get("y_err") is not None]
+        if eb:
+            ex, ey, ee = zip(*eb)
+            ax.errorbar(ex, ey, yerr=ee, fmt="none",
                         ecolor=col, alpha=alpha, zorder=1.5,
                         elinewidth=0.8 * font_scale, capsize=2.0 * font_scale,
                         capthick=0.8 * font_scale)
