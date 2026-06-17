@@ -878,6 +878,30 @@ def _detect_legend(
     if len(out) == 1 and _is_numeric(out[0][2]):
         out, entry_boxes, pick_cols = [], [], []
 
+    # Drop ISOLATED outlier entries that are not part of the legend's vertical
+    # stack. A peak/data annotation in the plot interior (e.g. "EH3", "Z1/2")
+    # can sit beside a real DATA marker that gets read as a swatch, emitting a
+    # spurious legend entry far from the true legend rows (2503.09016_p4c1). Left
+    # in, that outlier (a) widens the recovery sweep's x-column so it chains
+    # through the data markers, bloating legend_bbox past the plot-fraction cap
+    # (it then returns None and the real legend swatches leak into the data), and
+    # (b) duplicates a series colour, defeating the colour-keyed label->series
+    # match. Only prune when a STRICTLY-dominant multi-row cluster exists: cluster
+    # the emitted rows, and if one cluster has more rows than all others combined,
+    # keep only entries whose row is in (or merges with) it. A 1- or 2-row legend
+    # with no dominant cluster is left untouched (precision over recall).
+    if len(out) >= 3:
+        groups = _cluster_rows(entry_boxes)
+        merged = _merge_close_clusters(
+            [(gi, _union([entry_boxes[i] for i in g])) for gi, g in enumerate(groups)])
+        clusters = [sorted(i for gi in ids for i in groups[gi]) for ids in merged]
+        clusters.sort(key=len, reverse=True)
+        if len(clusters) >= 2 and len(clusters[0]) > sum(len(c) for c in clusters[1:]):
+            keep = set(clusters[0])
+            out = [out[i] for i in range(len(out)) if i in keep]
+            entry_boxes = [entry_boxes[i] for i in range(len(entry_boxes)) if i in keep]
+            pick_cols = [pick_cols[i] for i in range(len(pick_cols)) if i in keep]
+
     # Entries whose LABEL is mangled (e.g. LaTeX math: tildes/subscripts rendered
     # as glyph paths) emit no row, so their swatches would leak into the data as
     # fake marker/curve series. Recover them: any swatch aligned in the emitted

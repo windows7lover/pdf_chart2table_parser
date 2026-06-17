@@ -59,3 +59,46 @@ def test_data_markers_in_label_column_not_swept_into_legend():
     assert bbox is not None
     # The box must stay at the label row, NOT extend down over the data markers.
     assert bbox[3] <= label_y + 12, f"legend box swept over data: {bbox}"
+
+
+def _cswatch(cx, cy, color):  # small filled coloured marker (a real data marker)
+    return Path(points=[(cx - 1.5, cy), (cx, cy - 1.5), (cx + 1.5, cy),
+                        (cx, cy + 1.5), (cx - 1.5, cy)],
+                stroke=None, fill=color, width=None, dashes=None,
+                closed=False, bbox=(cx - 1.5, cy - 1.5, cx + 1.5, cy + 1.5))
+
+
+def test_isolated_annotation_entry_dropped_from_legend():
+    """Regression (2503.09016_p4c1): a peak ANNOTATION label in the plot interior
+    ("EH3") sits beside a real DATA marker that is read as a swatch, emitting a
+    spurious legend entry far below the two real, tightly-stacked legend rows.
+
+    Left in, that outlier (a) widens the recovery sweep's x-column so it chains
+    through the data markers, bloating legend_bbox past the plot-fraction cap (it
+    then returns None and the real legend swatches leak into the data), and (b)
+    duplicates a series colour, breaking the colour-keyed label->series match.
+    The isolated entry must be culled: only the two clustered rows remain, and a
+    compact legend box forms.
+    """
+    region = Region(bbox=(362.0, 78.0, 538.0, 246.0),
+                    path_indices=[], text_indices=[])
+    green = (0.18, 0.59, 0.31)
+    blue = (0.18, 0.49, 0.73)
+    # Two genuine legend rows, tightly stacked at the top with coloured swatches.
+    paths = [
+        _cswatch(385, 98, green), _cswatch(385, 113, blue),
+        # A green data marker in the plot interior beside the "EH3" annotation.
+        _cswatch(497, 180, green),
+    ]
+    texts = [
+        _text("before irradiation", 397, 98),
+        _text("dose", 397, 113),
+        _text("EH3", 505, 180),  # peak annotation far below the legend stack
+    ]
+    entries, bbox = _detect_legend(region, paths, texts)
+    labels = [e[2] for e in entries]
+    assert "EH3" not in labels, f"isolated annotation kept as legend entry: {labels}"
+    assert len(entries) == 2, f"expected 2 legend rows, got {labels}"
+    assert bbox is not None, "compact legend box should form once outlier is dropped"
+    # Box stays on the two top rows, not stretched down to the annotation.
+    assert bbox[3] <= 130, f"legend box swept down to annotation: {bbox}"
