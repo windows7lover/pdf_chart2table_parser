@@ -64,6 +64,39 @@ def test_tight_rows_pair_with_closest_swatch():
     assert got == {"H10": BLACK, "H30": RED, "H60": GREEN, "H70": BLUE}
 
 
+def _neutral_marker(cx, cy):
+    """A small black filled marker swatch (a triangle-ish blob) on a row."""
+    b = (cx - 2.5, cy - 2.7, cx + 2.5, cy + 2.7)
+    pts = [(cx - 2.5, cy + 2.7), (cx + 2.5, cy + 2.7), (cx, cy - 2.7),
+           (cx - 2.5, cy + 2.7)]
+    return Path(points=pts, stroke=None, fill=BLACK, width=0.0, dashes=None,
+                closed=True, bbox=b)
+
+
+def test_chromatic_line_wins_over_neutral_marker_same_row():
+    # 2408.03315_p13c2: each legend row draws a COLOURED line sample plus a small
+    # BLACK marker glyph sitting on it (the marker cy a hair off the line cy, both
+    # within the same visual row). The closest-cy pick grabbed the black marker,
+    # collapsing every entry's colour to black; the downstream colour-keyed
+    # label->series match then failed and a positional fallback REVERSED the
+    # labels. The tie-break now prefers the CHROMATIC swatch within a row band, so
+    # each label keeps its own hue.
+    region = Region(bbox=(180.0, 60.0, 260.0, 130.0), path_indices=[],
+                    text_indices=[])
+    cys = [70.0, 81.2, 92.4, 103.6]
+    cols = [BLUE, GREEN, RED, (1.0, 0.5, 0.05)]
+    names = ["2.0nm", "12.0nm", "25.0nm", "30.0nm"]
+    texts = [_lab(n, 240, cy - 0.3) for n, cy in zip(names, cys)]
+    paths = []
+    for c, cy in zip(cols, cys):
+        paths.append(_line(207, 223, cy, c))         # coloured line sample
+        paths.append(_neutral_marker(235, cy - 0.45))  # black marker, same row
+    entries, _ = _detect_legend(region, paths, texts)
+    got = {label: tuple(round(c, 2) for c in color) for _, color, label in entries}
+    assert got == {"2.0nm": BLUE, "12.0nm": GREEN, "25.0nm": RED,
+                   "30.0nm": (1.0, 0.5, 0.05)}
+
+
 def test_swatch_on_left_still_default():
     # [green] Tc   [blue] Pc  (the common case: swatch to the LEFT) -> unchanged.
     texts = [_lab("Tc", 227, 74), _lab("Pc", 227, 83)]

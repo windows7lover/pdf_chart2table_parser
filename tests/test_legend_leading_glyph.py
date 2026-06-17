@@ -65,6 +65,41 @@ def test_leading_glyph_prepended_with_recognizer():
     assert labels == ["μ=0", "μ=0.83"], labels
 
 
+def _triangle_glyph(cx, cy, w=5.0, h=5.4, color=(0.0, 0.0, 0.0)):
+    # A SIMPLE filled triangle outline (~9 vertices) standing in for a capital
+    # Greek glyph like Δ. 2408.03315_p13c2 draws the leading Δ as such a path; the
+    # old _GLYPH_MIN_POINTS=20 cut rejected it before the recognizer ran, dropping
+    # the Δ from every label ('$y$ = 2.0nm' instead of 'Δ$y$ = 2.0nm').
+    pts = [(cx - w / 2, cy + h / 2), (cx, cy - h / 2), (cx + w / 2, cy + h / 2),
+           (cx - w / 4, cy), (cx, cy - h / 4), (cx + w / 4, cy),
+           (cx - w / 2, cy + h / 2), (cx, cy + h / 2), (cx - w / 2, cy + h / 2)]
+    return Path(points=pts, stroke=None, fill=color, width=0.0, dashes=None,
+                closed=True, bbox=(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2))
+
+
+def test_leading_simple_glyph_recovered():
+    # The leading glyph is a SIMPLE (~9-vertex) filled triangle (Δ), not a complex
+    # 24-point outline. It must still be offered to the recognizer and prepended.
+    blue = (0.0, 0.0, 1.0)
+    paths = [
+        _line(40.0, 84.8, 56.0, blue),
+        _triangle_glyph(60.0, 86.0),
+        _line(40.0, 99.8, 56.0, blue),
+        _triangle_glyph(60.0, 101.0),
+    ]
+    texts = [
+        _txt("y = 2.0nm", 63.0, 82.0, 95.0, 88.0),
+        _txt("y = 12.0nm", 63.0, 97.0, 95.0, 103.0),
+    ]
+
+    def stub(bbox):
+        return (r"\Delta", "Δ", 0.67)
+
+    entries, _box = _detect_legend(REGION, paths, texts, glyph_recognize=stub)
+    labels = sorted(e[2] for e in entries)
+    assert labels == ["Δy = 12.0nm", "Δy = 2.0nm"], labels
+
+
 def test_no_recognizer_is_noop():
     paths, texts = _legend_inputs()
     entries, _box = _detect_legend(REGION, paths, texts)  # glyph_recognize=None

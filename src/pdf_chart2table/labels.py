@@ -66,6 +66,12 @@ _SWATCH_GAP = 18.0
 _SWATCH_OVERLAP = 2.5
 # Vertical overlap tolerance for pairing a swatch with its label row.
 _ROW_TOL = 6.0
+# Two swatches whose cy differ by less than this are treated as drawn on the SAME
+# visual row (e.g. a coloured line sample with a small marker sitting on it). The
+# swatch-pick tie-break prefers the chromatic one within this band, but uses
+# closest-cy across wider gaps. Kept below the tightest legal row pitch
+# (~5.6pt, 2502.18732_p6c3) so distinct stacked rows are never merged.
+_SAME_ROW_BAND = 2.5
 # Tighter vertical tolerance for matching a continuation span to a label's row;
 # legend rows can be stacked only ~5pt apart, so a loose tol grabs the next
 # row's text. Half the typical row pitch keeps rows separate.
@@ -649,7 +655,11 @@ def _legend_box(
 _GLYPH_LEAD_MAXSIDE = 14.0   # a label-character glyph is small (points)
 _GLYPH_LEAD_MINSIDE = 0.8
 _GLYPH_LEAD_GAP = 6.0        # max gap between glyph right edge and the next span
-_GLYPH_MIN_POINTS = 20       # a real glyph outline is complex (markers are ~4-8)
+_GLYPH_MIN_POINTS = 8        # a glyph outline has several vertices; simple filled
+                             # markers (square ~4-5, triangle ~4) stay below this.
+                             # A capital-Greek glyph like Δ is ~9 vertices. The
+                             # recognizer's IoU + margin gate (glyph_match) is the
+                             # real precision filter; this is only a cheap pre-cut.
 _GLYPH_LEAD_MAX_CHAIN = 3    # at most this many leading glyphs (e.g. a 2-letter prefix)
 
 
@@ -808,13 +818,33 @@ def _detect_legend(
         # label is admitted here.
         if not label or _is_proxy_label(label):
             continue
-        # Pick the swatch CLOSEST in row to this label (tie-break: prefer a marker
-        # glyph). Tightly-stacked legends (row pitch < _ROW_TOL) put several swatch
-        # rows inside the tolerance band, so taking the first would grab an adjacent
-        # row's colour (2502.18732_p6c3: H=30/60/70 each took the swatch one row up,
-        # mis-colouring every entry). Closest-cy pairs each label with its own row.
-        pick = min(row, key=lambda p: (abs(_cy(p.bbox) - ty),
-                                       0 if _swatch_style(p) == "marker" else 1))
+        # Pick the swatch CLOSEST in row to this label. Tightly-stacked legends
+        # (row pitch < _ROW_TOL) put several swatch rows inside the tolerance band,
+        # so taking the first would grab an adjacent row's colour (2502.18732_p6c3:
+        # H=30/60/70 each took the swatch one row up, mis-colouring every entry).
+        # Closest-cy pairs each label with its own row.
+        # Tie-break for swatches on the SAME row (a coloured line sample plus a
+        # marker on it): prefer the CHROMATIC swatch — its hue is the reliable
+        # series-identity key. 2408.03315_p13c2 draws a coloured line with a small
+        # BLACK marker per row; preferring the marker collapsed every entry to
+        # black, so the colour-keyed label->series match failed and a positional
+        # fallback reversed the labels. Among equally-chromatic (or equally-neutral)
+        # swatches, prefer a marker glyph (it carries shape for marker series).
+        # The chroma preference must dominate cy-distance only for swatches that
+        # are co-located on the SAME visual row (a line + a marker drawn together).
+        # Across DISTINCT rows, closest-cy still rules (2502.18732_p6c3 rows are
+        # ~5.6pt apart). So we bucket cy-distance to a band narrower than the
+        # tightest legal row pitch: same-band swatches are tie-broken by chroma,
+        # different-band swatches by their (binned then exact) cy distance.
+        def _pick_key(p):
+            col = p.stroke if p.stroke is not None else p.fill
+            d = abs(_cy(p.bbox) - ty)
+            band = 0 if d <= _SAME_ROW_BAND else 1
+            return (band,
+                    1 if _is_neutral(col) else 0,
+                    0 if _swatch_style(p) == "marker" else 1,
+                    d)
+        pick = min(row, key=_pick_key)
         color = pick.stroke if pick.stroke is not None else pick.fill
         # Recover a leading math-symbol glyph-path (font-less, dropped from text)
         # sitting immediately left of the label's first span, e.g. "=0.83" ->
@@ -898,6 +928,21 @@ def _detect_legend(
 
 def _color_dist(a: Color, b: Color) -> float:
     return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2) ** 0.5
+
+
+# A swatch colour is "neutral" (carries no hue) when its RGB channels are nearly
+# equal — black, white and greys. The series-identity key is the chromatic
+# swatch, so when a row has both a coloured line sample and a neutral marker (a
+# common pgfplots legend: a short coloured line with a small black marker on it),
+# the line's hue must win — pairing on the black marker collapses every entry to
+# the same colour and defeats the colour-keyed label->series match downstream.
+_NEUTRAL_CHROMA = 0.12
+
+
+def _is_neutral(c: Color | None) -> bool:
+    if c is None:
+        return True
+    return (max(c) - min(c)) <= _NEUTRAL_CHROMA
 
 
 # --- glyph-path legend (no TextSpan labels) -------------------------------
