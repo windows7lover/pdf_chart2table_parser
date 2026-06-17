@@ -107,3 +107,65 @@ def test_log_decade_label_not_read_as_multiplier():
         spans.append(TextSpan(text="10", bbox=(x0 - 22, yc - 3, x0 - 12, yc + 3)))
         spans.append(TextSpan(text=exp, bbox=(x0 - 11, yc - 6, x0 - 6, yc)))  # raised
     assert _y_axis_multiplier(spans, REGION, spans) == 1.0
+
+
+# --------------------------------------------------------------------------
+# Rotated y-title with a sub/superscript (2509.16916_p47c1: 'P_0(E)').
+# The subscript '0' and the trailing '(E)' were dropped (title truncated to 'P'):
+# the '0' span is numeric and '(E)' looks like a panel enumerator, so the per-span
+# guards in _y_title discarded both. A rotated title reads along Y and a subscript
+# is offset PERPENDICULAR along X, so the script must be detected from the X offset.
+# --------------------------------------------------------------------------
+
+# region whose spine is at x0=220 so the title column (cx ~204) sits just left.
+_ROT_REGION = Region(bbox=(220.0, 230.0, 360.0, 260.0), path_indices=[], text_indices=[])
+
+
+def test_rotated_y_title_subscript_grouped_and_marked():
+    """A 90deg-rotated 'P_0(E)' groups its full text and marks the subscript.
+
+    Spans (dir (0,-1), reads bottom->top): base 'P' (full size), then a SMALLER
+    '0' offset to the right of the rotated baseline (the subscript), then '(E)'."""
+    texts = [
+        TextSpan(text="P", bbox=(199.3, 250.7, 209.6, 256.4), size=10.31, dir=(0.0, -1.0)),
+        TextSpan(text="0", bbox=(205.8, 247.1, 213.1, 250.7), size=7.28, dir=(0.0, -1.0)),
+        TextSpan(text="(E)", bbox=(199.3, 233.9, 209.6, 247.1), size=10.31, dir=(0.0, -1.0)),
+    ]
+    assert _y_title(texts, _ROT_REGION) == "P$_{0}$(E)"
+
+
+def test_rotated_y_title_plain_unchanged_when_no_script():
+    """A plain rotated y-title (no sub/superscript) is joined word-by-word exactly
+    as before -- the script path must not alter ordinary titles."""
+    texts = [
+        TextSpan(text="Decay ", bbox=(199.3, 250.0, 209.6, 256.4), size=10.0, dir=(0.0, -1.0)),
+        TextSpan(text="rate", bbox=(199.3, 233.9, 209.6, 248.0), size=10.0, dir=(0.0, -1.0)),
+    ]
+    assert _y_title(texts, _ROT_REGION) == "Decay rate"
+
+
+def test_rotated_y_title_superscript_unit_recovered():
+    """A rotated unit-exponent title ('ns^{-1}') recovers the superscript instead
+    of dropping it (2210.13870_p12c1: 'Decay rate (ns )' -> 'Decay rate (ns-1)')."""
+    texts = [
+        TextSpan(text="(ns", bbox=(199.3, 248.0, 209.6, 256.4), size=10.0, dir=(0.0, -1.0)),
+        # superscript '-1': SMALLER and offset perpendicular to the LEFT of the
+        # rotated baseline (smaller cx -> raised above the baseline = superscript).
+        TextSpan(text="-1", bbox=(196.0, 242.0, 203.0, 248.0), size=6.5, dir=(0.0, -1.0)),
+        TextSpan(text=")", bbox=(199.3, 235.0, 209.6, 242.0), size=10.0, dir=(0.0, -1.0)),
+    ]
+    out = _y_title(texts, _ROT_REGION)
+    assert out is not None and "^{-1}" in out and out.startswith("(ns")
+
+
+def test_horizontal_x_title_subscript_still_works():
+    """A HORIZONTAL x-title subscript ('T_j', 2003.09710-style) is unaffected: the
+    script is detected from the vertical offset and marked as before."""
+    from pdf_chart2table.axes import _title_from_rows
+    # row just below the ticks; 'T' full size, lowered smaller 'j' to its right.
+    cands = [
+        TextSpan(text="T", bbox=(300.0, 440.0, 308.0, 450.0), size=10.0, dir=(1.0, 0.0)),
+        TextSpan(text="j", bbox=(308.0, 444.0, 312.0, 451.0), size=6.5, dir=(1.0, 0.0)),
+    ]
+    out = _title_from_rows(cands, 435.0, 460.0, center=306.0, span=120.0, along=1)
+    assert out == "T$_{\\mathrm{j}}$"

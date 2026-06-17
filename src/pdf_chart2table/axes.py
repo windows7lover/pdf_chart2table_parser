@@ -825,20 +825,74 @@ def _y_title(texts: list[TextSpan], region: Region) -> str | None:
             continue
         if cy < y0 - 0.1 * h or cy > y1 + 0.1 * h:  # must overlap region height
             continue
-        if _is_subcaption(t.text) or _is_numeric_span(t.text.replace(" ", "")):
-            continue
-        cands.append((cx, cy, t.dir[1], t.text))
+        # A numeric / sub-caption-looking span is dropped only if it is NOT a
+        # plausible sub/superscript FRAGMENT of the title -- a script sits to the
+        # side of the (rotated) baseline, so it is offset PERPENDICULAR (in cx)
+        # rather than aligned with its neighbours. A stray '0' subscript or '(E)'
+        # in 'P_0(E)' would otherwise be dropped per-span, truncating the title to
+        # 'P'. The joined result is re-checked against these guards below.
+        junk = _is_subcaption(t.text) or _is_numeric_span(t.text.replace(" ", ""))
+        cands.append((cx, cy, t.dir[1], t, junk))
     if not cands:
         return None
-    # innermost column (closest to the axis) = the y-title of THIS panel
-    inner_cx = max(c[0] for c in cands)
-    col = [c for c in cands if abs(c[0] - inner_cx) <= 6.0]
-    # dir (0,-1) reads bottom->top (sort cy desc); dir (0,+1) reads top->bottom.
-    col.sort(key=lambda c: c[1], reverse=(col[0][2] < 0))
-    # join spans, then collapse any whitespace runs (spans may carry trailing
-    # spaces -> "Integrated  PL  intensity" would otherwise have double spaces)
-    title = " ".join(" ".join(c[3].split()) for c in col)
-    title = " ".join(title.split())
+    # innermost column (closest to the axis) = the y-title of THIS panel. Anchor
+    # the column on a NON-junk span so a stray tick/caption does not define it; a
+    # script fragment (offset perpendicular) still falls within the column band.
+    nonjunk = [c for c in cands if not c[4]]
+    if not nonjunk:
+        return None
+    inner_cx = max(c[0] for c in nonjunk)
+    # The body column is anchored on the innermost NON-junk spans (so a stray tick /
+    # caption never defines the column); their mean cx is the rotated baseline
+    # reference and their max size is the body font size.
+    body = [c for c in nonjunk if abs(c[0] - inner_cx) <= 6.0]
+    base_cx = sum(c[0] for c in body) / len(body)
+    base_sz = max((c[3].size or 0.0) for c in body)
+    # A sub/superscript fragment of a ROTATED title sits OFF the baseline: it is
+    # SMALLER than the body text and offset PERPENDICULAR to the reading direction
+    # (i.e. its cx differs from the baseline cx). Admit such a junk-looking span
+    # ('P'+subscript'0'+'(E)') into the column; require both the size drop AND the
+    # perpendicular offset so an aligned full-size tick is never pulled in.
+    def _script_frag(c):
+        cx, sz = c[0], (c[3].size or 0.0)
+        return (c[4] and base_sz and sz < 0.92 * base_sz
+                and abs(cx - base_cx) > 0.20 * base_sz)
+    # A full-size junk span sitting ON the baseline (same size, aligned cx) is a
+    # body fragment the per-token heuristic mis-flagged, NOT a stray tick/caption:
+    # e.g. '(E)' in 'P_0(E)' trips _is_subcaption. Admit it (alongside genuine
+    # script fragments) only when this column ALSO contains a script -- i.e. it is
+    # already a scripted title -- so plain columns keep the conservative per-span
+    # drop unchanged.
+    def _body_aligned(c):
+        cx, sz = c[0], (c[3].size or 0.0)
+        return (c[4] and base_sz and sz >= 0.92 * base_sz
+                and abs(cx - base_cx) <= 0.20 * base_sz)
+    raw_scripts = any(_script_frag(c) for c in cands if abs(c[0] - inner_cx) <= 6.0)
+    col = [c for c in cands if abs(c[0] - inner_cx) <= 6.0
+           and (not c[4] or _script_frag(c)
+                or (raw_scripts and _body_aligned(c)))]
+    dn = col[0][2]
+    has_script = any(_script_frag(c) for c in col)
+    if not has_script:
+        # No rotated sub/superscript -> plain reading-order space-join (UNCHANGED
+        # behaviour for every ordinary y-title). dir (0,-1) reads bottom->top
+        # (sort cy desc); dir (0,+1) reads top->bottom.
+        col.sort(key=lambda c: c[1], reverse=(dn < 0))
+        title = " ".join(" ".join(c[3].text.split()) for c in col)
+        return " ".join(title.split()) or None
+    # A rotated title WITH a script: remap the rotated coords to join_scripts'
+    # horizontal convention -- reading axis -> x0/x1, perpendicular (cx) -> the
+    # script-offset axis. A subscript 'P_0' sits at LARGER cx (right of the rotated
+    # baseline) -> LARGER cy = lowered, which join_scripts marks as '_'.
+    items = []
+    for cx, cy, _d, t, _j in col:
+        along0, along1 = (-t.bbox[3], -t.bbox[1]) if dn < 0 else (t.bbox[1], t.bbox[3])
+        # Explicit WHITESPACE spans render inter-word spacing; keep a single space
+        # so join_scripts sees the along-gap (collapsing to "" gave "PLintensity").
+        txt = " " if t.text and not t.text.strip() else " ".join(t.text.split())
+        items.append((txt, t.size, cx, along0, along1))
+    title = _join_scripts(items)
+    title = _re.sub(r"\s+", " ", title).strip()
     return title or None
 
 
