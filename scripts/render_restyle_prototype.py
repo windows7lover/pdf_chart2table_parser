@@ -796,8 +796,10 @@ def _recon_figure(record, style, tex=False):
         t = style.get("text") or {}
         te = (t.get("elements") or {}).get("title") or {}
         tcol = _color(te.get("color")) if te.get("color") else None
+        # Fall back to the base font size, never matplotlib's oversized default
+        # title size, when the title's own size wasn't recovered.
         ax.set_title(_latexify(title) if tex else title,
-                     fontsize=te.get("size"),
+                     fontsize=te.get("size") or t.get("base_font_size"),
                      color=tcol or "black",
                      fontweight="bold" if te.get("bold") else "normal")
     return fig

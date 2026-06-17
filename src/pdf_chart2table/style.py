@@ -1132,8 +1132,14 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         s = grp[0] if grp else find(text)
         if s is None:
             return None
+        # Size from the matched GROUP's median span (a multi-span title like
+        # 'V_D(V)' has no single span matching the whole label, so size_of/find
+        # returns None and the renderer falls back to matplotlib's oversized
+        # default); fall back to the single-span size_of only when ungrouped.
+        gsz = sorted(sp["size"] for sp in grp if sp.get("size")) if grp else []
+        size = round(gsz[len(gsz) // 2] * scale, 2) if gsz else size_of(text)
         return {
-            "size": size_of(text),
+            "size": size,
             "color": _text_color(_group_color(grp) if grp else s.get("color")),
             "bold": bold_of(text),
             "italic": italic_of(text),

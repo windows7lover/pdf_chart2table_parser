@@ -345,6 +345,21 @@ def test_text_element_color_applied_to_labels_and_ticks():
     plt.close(fig)
 
 
+def test_recon_title_size_falls_back_to_base_not_mpl_default():
+    # A multi-span title may have no recovered size; it must fall back to the
+    # base font size, NOT matplotlib's oversized default title size.
+    from render_restyle_prototype import _recon_figure, plt
+    record = {"source": {"region_bbox": [0.0, 0.0, 150.0, 120.0]},
+              "series": [{"points": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]}]}
+    style = {"title": "V D (V)", "series": [{"color": [0, 0, 0], "label": None}],
+             "x_axis": {"ticks": []}, "y_axis": {"ticks": []},
+             "text": {"base_font_size": 9.0,
+                      "elements": {"title": {"size": None}}}}
+    fig = _recon_figure(record, style)
+    assert fig.axes[0].title.get_fontsize() == 9.0
+    plt.close(fig)
+
+
 def test_text_element_no_color_defaults_black():
     from render_restyle_prototype import _replot, plt
     record, style = _mini_record_style()  # elements x/y_title have no colour
