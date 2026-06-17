@@ -168,6 +168,35 @@ def score(res: ComparisonResult) -> float:
     return res.ink_iou
 
 
+def order_xsort(coords) -> list[int]:
+    """Index permutation that orders points left-to-right by x (a function-of-x
+    curve). ``coords`` is a sequence of (x, y)."""
+    return sorted(range(len(coords)), key=lambda i: coords[i][0])
+
+
+def order_nearest(coords) -> list[int]:
+    """Greedy nearest-neighbour index permutation starting from the leftmost
+    point. Recovers a smooth curve whose draw order the extractor scrambled (a
+    merged multi-path curve emitted with no usable order): a high path-length /
+    x-span ratio collapses to a short, smooth traversal. Candidate only — the
+    synthesis selector keeps it solely when it overlays the original better."""
+    n = len(coords)
+    if n <= 2:
+        return list(range(n))
+    remaining = set(range(n))
+    cur = min(remaining, key=lambda i: coords[i][0])
+    remaining.discard(cur)
+    order = [cur]
+    while remaining:
+        cx, cy = coords[cur]
+        nxt = min(remaining,
+                  key=lambda i: (coords[i][0] - cx) ** 2 + (coords[i][1] - cy) ** 2)
+        remaining.discard(nxt)
+        order.append(nxt)
+        cur = nxt
+    return order
+
+
 def choose_best(orig_rgb: np.ndarray, candidate_recons,
                 tol: int = 2, white_thresh: float = _WHITE_THRESH,
                 ignore_mask: np.ndarray | None = None):

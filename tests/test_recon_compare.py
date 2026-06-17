@@ -114,3 +114,28 @@ def test_choose_best_conservative_on_tie():
     b = _white(20, 20); b[5:15, 10] = (0, 0, 0)   # identical to a
     best, _ = choose_best(orig, [a, b], tol=0)
     assert best == 0                     # tie keeps the earliest (default) candidate
+
+
+def test_order_xsort_and_nearest():
+    from pdf_chart2table.recon_compare import order_xsort, order_nearest
+    # points of y=x^2-ish sampled out of order
+    coords = [(2, 4), (0, 0), (3, 9), (1, 1)]
+    assert [coords[i] for i in order_xsort(coords)] == [(0, 0), (1, 1), (2, 4), (3, 9)]
+    # nearest-neighbour from leftmost recovers the smooth left-to-right traversal
+    nn = order_nearest(coords)
+    assert nn[0] == 1                      # leftmost (x=0) first
+    assert [coords[i] for i in nn] == [(0, 0), (1, 1), (2, 4), (3, 9)]
+
+
+def test_order_nearest_collapses_scrambled_path():
+    from pdf_chart2table.recon_compare import order_nearest
+    import math
+    # a smooth line sampled then shuffled: NN order has far smaller path length
+    pts = [(x, x) for x in range(20)]
+    scrambled = [pts[i] for i in (0, 10, 1, 11, 2, 12, 3, 13, 4, 14, 5, 15,
+                                  6, 16, 7, 17, 8, 18, 9, 19)]
+    def plen(seq):
+        return sum(math.dist(seq[k], seq[k - 1]) for k in range(1, len(seq)))
+    nn = [scrambled[i] for i in order_nearest(scrambled)]
+    assert plen(nn) < plen(scrambled)
+    assert plen(nn) == pytest.approx(plen(pts))
