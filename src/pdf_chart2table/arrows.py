@@ -117,7 +117,7 @@ def detect_arrows(region: Region, paths: list[Path]):
             continue
         hc = _centroid(hp.points)
         hsz = _bmax(hp.bbox)
-        best, best_d = None, hsz * 1.5
+        best, best_d, best_end = None, hsz * 1.5, None
         for i in idxs:
             if i == hi or i in used:
                 continue
@@ -127,7 +127,19 @@ def detect_arrows(region: Region, paths: list[Path]):
             for end in (p.points[0], p.points[-1]):
                 d = abs(end[0] - hc[0]) + abs(end[1] - hc[1])
                 if d < best_d:
-                    best, best_d = i, d
+                    best, best_d, best_end = i, d, end
+        # A real arrowhead's BASE sits on the shaft tip: some head vertex
+        # touches the shaft endpoint. A *legend* line-sample (short horizontal
+        # handle) paired with an adjacent text glyph (e.g. a '<...>' bracket of
+        # the legend label) only matches on centroid distance -- the glyph
+        # stands clear of the handle, so no head vertex reaches the shaft end.
+        # Require contact (gap < 0.8*head-size) to reject that false positive;
+        # genuine arrows connect with gap well under half the head size.
+        if best is not None:
+            gap = min((q[0] - best_end[0]) ** 2 + (q[1] - best_end[1]) ** 2
+                      for q in hp.points) ** 0.5
+            if gap > 0.8 * hsz:
+                best = None
         if best is not None:
             used.add(hi)
             used.add(best)

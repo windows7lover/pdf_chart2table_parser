@@ -169,6 +169,41 @@ def test_many_complete_arrows_not_bailed_but_bare_heads_are():
     assert idxs == set(range(n_complete))
 
 
+def _bracket(cx, cy, *, w=1.8, h=7.2):
+    """A filled '<'-bracket text glyph: a thin chevron (few corners, narrow
+    aspect ~0.25). Mimics the leading angle bracket of a legend label like
+    '<100>' -- small, elongated, ~7 corners, so it passes the arrowhead shape
+    test by corner count and aspect. Vertex (apex) points LEFT."""
+    return _path([(cx, cy), (cx + w, cy - h / 2), (cx + w * 1.3, cy - h / 2),
+                  (cx + w * 0.3, cy), (cx + w * 1.3, cy + h / 2),
+                  (cx + w, cy + h / 2), (cx, cy)], fill=(0.0, 0.0, 0.0))
+
+
+def test_legend_handle_plus_bracket_glyph_not_an_arrow():
+    """A legend LINE-SAMPLE (short horizontal handle) next to the label's
+    leading '<'-bracket glyph must NOT be paired into an arrow (regression for
+    2311.00787 p21c1). The glyph stands clear of the handle, so no head vertex
+    touches the shaft end -- the contact guard rejects the pairing."""
+    # Handle: short horizontal stroke ending at x=271.7 (like the blue sample).
+    handle = _path([(255.7, 201.2), (271.7, 201.2)], stroke=(0.0, 0.0, 0.8))
+    # Bracket glyph centred at x~279.8 -- ~7px clear of the handle end.
+    glyph = _bracket(278.8, 200.6)
+    region = Region(bbox=(230.0, 123.0, 416.0, 211.0),
+                    path_indices=[0, 1], text_indices=[])
+    idxs, recs = detect_arrows(region, [handle, glyph])
+    assert recs == []
+    assert idxs == set()
+
+
+def test_connected_shaft_and_head_still_an_arrow():
+    """Positive control for the contact guard: a genuine in-plot arrow whose
+    head BASE touches the shaft tip is still recovered."""
+    region, paths = _region_with_arrow()
+    idxs, recs = detect_arrows(region, paths)
+    assert len(recs) == 1
+    assert idxs == {0, 1}
+
+
 def test_cli_persists_arrows_in_data_coords(tmp_path):
     """parse_pdf must store each detected arrow's tip/tail in DATA coords."""
     import json
