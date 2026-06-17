@@ -483,7 +483,9 @@ def _draw_legend_manual(ax, record, style, txt, L, _fs, font_scale=1.0):
                         markeredgecolor=edge,
                         markeredgewidth=((st.get("marker_edge_width") if st else None)
                                          or 0.6) * font_scale)
-        tcol = _color(lcs.get(e["label"])) or "black"
+        # Text colour: prefer the vector legend's per-label colour map; else the
+        # entry's own recovered colour (OCR legends carry no label_colors map).
+        tcol = _color(lcs.get(e["label"])) or _color(e.get("text_color")) or "black"
         ax.text(x, y, L(e["label"]), transform=tr, fontsize=size,
                 va="center", ha="left", color=tcol, zorder=6, clip_on=False,
                 fontweight="bold" if (e.get("bold") or leg.get("bold")) else "normal",

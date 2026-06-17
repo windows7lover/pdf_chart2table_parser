@@ -142,6 +142,11 @@ _LEGEND_MAX_PLOT_FRAC = 0.40
 # This stops a data marker series whose points span the label's x-column from
 # being swept in (which would snap the legend box onto a row of real data).
 _LEGEND_RECOVER_VGAP_FRAC = 1.6
+# Box-based outlier pruning fires only when the detected legend_bbox already
+# encloses at least this many emitted entries (a well-established multi-row
+# legend). Below it, a sparse legend whose box covers only the densest row is
+# left untouched (never drop a real entry sitting just outside an under-sized box).
+_PRUNE_MIN_IN_BOX = 4
 # A legend frame is a stroked, (near-)unfilled rectangle inside the region whose
 # area is at most this fraction of the region (it is a sub-box, not the axes
 # patch / spine frame which fills most of the region).
@@ -777,11 +782,11 @@ def _merge_dash_handles(region: Region, paths: list[Path]) -> list[Path]:
         x0 = min(g.bbox[0] for g in grp)
         x1 = max(g.bbox[2] for g in grp)
         span = x1 - x0
-        # The merged handle must look like a SHORT line sample (a real handle),
-        # not a spine/gridline or scattered data points: small fraction of the
-        # plot width, and the segments must actually be spread out (a genuine
-        # dashed run, not two coincident specks).
-        if span < _DASH_SEG_MAXLEN or span > _LEGEND_SWATCH_MAX_WFRAC * rw:
+        # The merged handle must look like a SHORT line sample (a real handle ~
+        # 10-15pt), not a data curve / spine: a dashed DATA curve also breaks into
+        # collinear same-colour segments but spans a large fraction of the plot.
+        # Bound the span to a swatch size so only a compact legend handle merges.
+        if span < _DASH_SEG_MAXLEN or span > _SWATCH_MAX:
             continue
         cy = sum(_cy(g.bbox) for g in grp) / len(grp)
         bbox = (x0, cy - 0.5, x1, cy + 0.5)
@@ -825,6 +830,11 @@ def _detect_legend(
         and not (_swatch_style(p) in ("line", "dashed")
                  and (p.bbox[2] - p.bbox[0]) > _LEGEND_SWATCH_MAX_WFRAC * _rw)
     ]
+    # A dashed legend handle is drawn as short collinear segments that each fall
+    # below the line-swatch length, so the row's COLOURED handle is otherwise
+    # lost and the entry pairs only with a neutral marker. Add one synthetic
+    # "dashed" swatch per such row so the picker keys on the real colour.
+    swatches += _merge_dash_handles(region, paths)
 
     out: list[tuple[str, Color | None, str]] = []
     used: set[int] = set()
@@ -1014,7 +1024,31 @@ def _detect_legend(
                     col_swatches.remove(p)
                     added = True
 
+    # Per-entry row boxes, parallel to ``out`` (snapshot before the recovery
+    # sweep below appends swatch-only boxes to ``entry_boxes``).
+    out_boxes = list(entry_boxes[:len(out)])
+
     box = _legend_box(entry_boxes, region, paths)
+    # When a compact legend box is found, DROP entries whose row sits outside it.
+    # Axis tick labels / a title that happen to pick up a stray marker swatch
+    # (2001.01928: '0.0π'..'3.0π' x-ticks, 'REGIME - II' title) emit entries far
+    # from the true legend stack; they are not legend rows. The clustering-based
+    # _legend_box already localised the real legend, so any entry whose row centre
+    # falls outside that box (with a small margin) is spurious. General and
+    # precision-safe: only prunes when a box exists, and only entries it excludes.
+    if box is not None and len(out) == len(out_boxes):
+        bx0, by0, bx1, by1 = box
+        keep = [i for i, eb in enumerate(out_boxes)
+                if bx0 - _LEGEND_MARGIN <= _cx(eb) <= bx1 + _LEGEND_MARGIN
+                and by0 - _LEGEND_MARGIN <= _cy(eb) <= by1 + _LEGEND_MARGIN]
+        # Only prune when the box already contains a well-established multi-row
+        # legend (>= _PRUNE_MIN_IN_BOX entries). A sparse 1-/2-row legend whose
+        # rows are pitched wide enough that _legend_box covers only the densest
+        # cluster (test_multi_span_label_assembly) must NOT have its outer row
+        # dropped; requiring a populated box keeps that case untouched.
+        if len(keep) >= _PRUNE_MIN_IN_BOX and len(keep) < len(out):
+            out = [out[i] for i in keep]
+
     # A real legend's rows cluster into a compact box (that is exactly what
     # _legend_box detects). When NO box forms, the "entries" are scattered, not
     # stacked rows — and scattered PURELY-NUMERIC entries are axis / colorbar tick
@@ -1415,11 +1449,49 @@ def recover_glyph_legend(region: Region, paths: list[Path],
                                 and abs(p.bbox[1] - hb[1]) < 0.1):
                 scol = p.stroke or p.fill
                 break
+        # Dominant colour of the label's glyph-outline paths in this row band.
+        # The label characters are small filled vector paths; a coloured label
+        # (e.g. a blue I_D^1/2) carries the series hue. Recorded so the OCR
+        # legend can tint its text instead of always drawing black. Gated to
+        # CHROMATIC only by the caller (style._text_color), matching the vector
+        # legend's text-colour rule, so black/grey labels stay default.
+        text_color = _label_glyph_color(paths, band)
         entries.append({"label": label, "label_x0": hx1 + 2.0, "cy": cy,
                         "line_len": (hb[2] - hb[0]), "marker_d": marker_d,
                         "marker": _MARKER_CODE.get(marker_shape) if marker_shape else None,
-                        "color": list(scol) if scol else None})
+                        "color": list(scol) if scol else None,
+                        "text_color": text_color})
     return entries or None
+
+
+def _label_glyph_color(paths: list[Path], band: BBox) -> list[float] | None:
+    """Dominant fill colour of the small glyph-outline paths inside ``band``.
+
+    The label text in a glyph-outline legend is drawn as small filled character
+    paths. We tally their fill colours (weighted by glyph area) within the row's
+    label band and return the most common one, so a coloured label keeps its hue.
+    Returns an ``[r, g, b]`` list or None when no glyph paths are present.
+    """
+    bx0, by0, bx1, by1 = band
+    tally: dict[tuple, float] = {}
+    for p in paths:
+        col = p.fill if p.fill is not None else p.stroke
+        if col is None:
+            continue
+        w = p.bbox[2] - p.bbox[0]
+        h = p.bbox[3] - p.bbox[1]
+        if w <= 0 or h <= 0 or w > _GLYPH_CHAR_MAX or h > _GLYPH_CHAR_MAX:
+            continue
+        pcx = 0.5 * (p.bbox[0] + p.bbox[2])
+        pcy = 0.5 * (p.bbox[1] + p.bbox[3])
+        if not (bx0 <= pcx <= bx1 and by0 <= pcy <= by1):
+            continue
+        key = tuple(round(c, 3) for c in col)
+        tally[key] = tally.get(key, 0.0) + w * h
+    if not tally:
+        return None
+    best = max(tally, key=tally.get)
+    return list(best)
 
 
 def _detect_inline_labels(

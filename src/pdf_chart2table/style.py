@@ -1191,7 +1191,11 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     for lab, s in zip(matched_labels, matched):
         tc = _text_color(s.get("color"))
         if tc is not None:
-            legend_label_colors[lab] = tc
+            # Key by the CLEANED label, matching the render entry's label
+            # (render_entries below store _clean(label)); the drawer looks up
+            # legend_label_colors by the entry label, so an uncleaned key (e.g.
+            # one with a trailing control glyph) would silently miss.
+            legend_label_colors[_clean(lab)] = tc
     legend = None
     if len(matched) >= 1:
         # Measure geometry from the FULL legend ENTRY, not the single matched
@@ -1722,6 +1726,9 @@ def _recover_ocr_legend(text_style, d, page, fitz_page):
             "x_frac": round((e["label_x0"] - rx0) / rw, 4),
             "y_frac": round(1.0 - (e["cy"] - ry0) / rh, 4),
             "size": size, "bold": False, "italic": False,
+            # Per-entry label TEXT colour (chromatic only; black/grey -> None),
+            # so a coloured OCR-legend label renders in its hue instead of black.
+            "text_color": _text_color(e.get("text_color")),
             "handle": {
                 "line_len_frac": round(e["line_len"] / rw, 4) if e.get("line_len") else None,
                 "marker_d": round(e["marker_d"], 2) if e.get("marker_d") else None,

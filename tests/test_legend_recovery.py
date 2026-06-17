@@ -561,3 +561,107 @@ def test_legend_order_strips_control_chars_top_to_bottom():
     # Control char stripped (matches the cleaned series labels), top-to-bottom.
     assert order == ["A = 1", "A = 2"], order
     assert all("\x07" not in o for o in order)
+
+
+# --------------------------------------------------------------------------
+# Fragmented dashed-handle recovery + box-based outlier pruning
+# --------------------------------------------------------------------------
+def _frag(x0, y, x1, color):
+    """A short collinear dash fragment (sub-swatch-length line piece)."""
+    return Path(points=[(x0, y), (x1, y)], stroke=color, fill=None, width=1.0,
+                dashes=None, closed=False, bbox=(x0, y, x1, y))
+
+
+def _marker(cx, cy, color, d=3.0):
+    """A small filled marker glyph swatch."""
+    return Path(points=[(cx - d / 2, cy)] * 4, stroke=None, fill=color,
+                width=None, dashes=None, closed=True,
+                bbox=(cx - d / 2, cy - d / 2, cx + d / 2, cy + d / 2))
+
+
+GREEN = (0.0, 0.5, 0.0)
+BLACK = (0.0, 0.0, 0.0)
+
+
+def test_fragmented_dash_handle_carries_row_colour():
+    """A coloured dashed handle drawn as short collinear segments (each below the
+    line-swatch length) is coalesced into one swatch so its row's entry keeps the
+    true colour instead of collapsing onto a co-drawn neutral marker.
+
+    Mirrors 2001.01928: ρ_00 (solid black), ρ_11/ρ_22 (red/green dashed), each
+    row also carrying a small black marker beside the handle."""
+    region = _region((40.0, 40.0, 300.0, 200.0))
+    paths = []
+    # Row 1: a SOLID black handle + black marker. Label "r" + subscript "00".
+    paths.append(_line(60.0, 50.0, 78.0, BLACK))
+    paths.append(_marker(82.0, 50.0, BLACK))
+    # Row 2: a RED dashed handle as two short fragments (each w<5) + black marker.
+    paths.append(_frag(60.0, 60.0, 64.0, RED))
+    paths.append(_frag(70.0, 60.0, 78.0, RED))
+    paths.append(_marker(82.0, 60.0, BLACK))
+    # Row 3: a GREEN dashed handle as three tiny fragments + black marker.
+    paths.append(_frag(60.0, 70.0, 61.0, GREEN))
+    paths.append(_frag(68.0, 70.0, 69.0, GREEN))
+    paths.append(_frag(76.0, 70.0, 78.0, GREEN))
+    paths.append(_marker(82.0, 70.0, BLACK))
+    texts = [
+        _span("r", 86.0, 47.0, w=4.0), _span("00", 90.0, 49.0, w=4.0, size=4.0),
+        _span("r", 86.0, 57.0, w=4.0), _span("11", 90.0, 59.0, w=4.0, size=4.0),
+        _span("r", 86.0, 67.0, w=4.0), _span("22", 90.0, 69.0, w=4.0, size=4.0),
+    ]
+    res = detect_labels(region, paths, texts)
+    by_label = {lab: col for _, col, lab in res.legend}
+    assert set(by_label) == {"r$_{00}$", "r$_{11}$", "r$_{22}$"}, res.legend
+    # The fragmented rows kept their chromatic handle colour (not the black marker).
+    assert by_label["r$_{11}$"] == RED, res.legend
+    assert by_label["r$_{22}$"] == GREEN, res.legend
+
+
+def test_legend_box_prunes_far_outlier_entry():
+    """An axis-tick / annotation span that picks up a stray marker swatch far
+    from the legend stack is dropped once a >=4-entry legend box is established."""
+    region = _region((40.0, 40.0, 300.0, 260.0))
+    paths = []
+    cols = [BLACK, RED, GREEN, BLUE]
+    for i, c in enumerate(cols):
+        y = 50.0 + 10.0 * i
+        paths.append(_line(60.0, y, 78.0, c))          # handle
+        paths.append(_marker(82.0, y, BLACK))          # co-drawn marker
+    # A far-below "tick" text with its own stray marker (outside the legend box).
+    paths.append(_marker(82.0, 240.0, BLACK))
+    texts = [_span("Aa", 86.0, 47.0 + 10.0 * i, w=10.0) for i in range(4)]
+    texts.append(_span("Tick", 86.0, 237.0, w=12.0))
+    # Make the four legend labels distinct so all four entries emit.
+    for i, t in enumerate(texts[:4]):
+        texts[i] = _span(f"S{i}", 86.0, 47.0 + 10.0 * i, w=10.0)
+    res = detect_labels(region, paths, texts)
+    found = {lab for _, _, lab in res.legend}
+    assert found == {"S0", "S1", "S2", "S3"}, res.legend
+    assert "Tick" not in found
+
+
+# --------------------------------------------------------------------------
+# OCR-legend label text colour (Part B)
+# --------------------------------------------------------------------------
+def test_ocr_legend_label_glyph_colour_chromatic_vs_neutral():
+    """recover_glyph_legend captures the dominant label-glyph fill colour per row;
+    style._text_color then keeps it only when CHROMATIC (a blue label) and drops a
+    black/grey label to None so it renders matplotlib-default."""
+    from pdf_chart2table.labels import _label_glyph_color
+    from pdf_chart2table.style import _text_color
+
+    band = (100.0, 40.0, 160.0, 52.0)
+    # Two small glyph paths in the band, both blue -> chromatic dominant colour.
+    blue_glyphs = [_marker(110.0, 46.0, BLUE), _marker(116.0, 46.0, BLUE)]
+    col = _label_glyph_color(blue_glyphs, band)
+    assert col == list(BLUE), col
+    assert _text_color(col) == [0.0, 0.0, 1.0]  # chromatic -> kept
+
+    # Black glyph label -> captured, but the chromatic gate drops it to None.
+    black_glyphs = [_marker(110.0, 46.0, BLACK), _marker(116.0, 46.0, BLACK)]
+    bcol = _label_glyph_color(black_glyphs, band)
+    assert bcol == list(BLACK), bcol
+    assert _text_color(bcol) is None  # neutral -> not recorded
+
+    # No glyph paths in the band -> None.
+    assert _label_glyph_color([], band) is None
