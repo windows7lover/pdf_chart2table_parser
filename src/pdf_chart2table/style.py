@@ -1132,15 +1132,26 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
         # each entry's label with its series to draw the handle). One entry per
         # matched label: the label's left-edge anchor + vertical centre in axes
         # fraction, its font size, and bold/italic. Drawn top-to-bottom in `order`.
+        def _entry_size(m):
+            # BASE label size = the largest span in the entry's group; the matched
+            # span may be a small sub/superscript fragment ('I_D^1/2' matched on
+            # '1/2'), whose size would render the whole entry tiny (2001.01038).
+            for g in groups:
+                if any(s is m for s in g):
+                    szs = [s.get("size") for s in g if s.get("size")]
+                    if szs:
+                        return max(szs)
+            return m.get("size")
         render_entries = []
         for i, m in enumerate(matched):
             bx0, by0, bx1, by1 = ent[i]
             lx, lyc = to_frac(bx0, (by0 + by1) / 2)
+            esz = _entry_size(m)
             render_entries.append({
                 "label": _clean(matched_labels[i]),
                 "x_frac": round(lx, 4),
                 "y_frac": round(lyc, 4),
-                "size": (round(m["size"] * scale, 2) if m.get("size") else base),
+                "size": (round(esz * scale, 2) if esz else base),
                 "bold": bool(bold_reliable and _is_bold(m)),
                 "italic": bool(italic_reliable and _is_italic(m)),
             })
@@ -1539,6 +1550,8 @@ def _attach_legend_handle_geometry(text_style, paths, rbbox):
         line_len = None
         marker_d = None
         hcolor = None
+        sx0 = sx1 = None     # the line sample's actual x-span (for spacing fidelity)
+        dashes = None        # the line sample's dash pattern (for line-style fidelity)
         for p in paths:
             bx0, by0, bx1, by1 = p.bbox
             pcy = 0.5 * (by0 + by1)
@@ -1549,6 +1562,8 @@ def _attach_legend_handle_geometry(text_style, paths, rbbox):
             bw, bh = bx1 - bx0, by1 - by0
             col = p.fill if p.fill is not None else p.stroke
             if bh <= 1.5 and bw >= 4.0:               # a line sample
+                if bw >= (line_len or 0.0):           # widest sample = the handle
+                    sx0, sx1, dashes = bx0, bx1, p.dashes
                 line_len = max(line_len or 0.0, bw)
                 hcolor = hcolor or col
             elif 1.5 <= bw <= 0.12 * rw and 1.5 <= bh <= 0.12 * rh:  # a marker
@@ -1559,6 +1574,11 @@ def _attach_legend_handle_geometry(text_style, paths, rbbox):
         else:
             e["handle"] = {
                 "line_len_frac": round(line_len / rw, 4) if line_len else None,
+                # the sample's ACTUAL x-span in axes fraction -> the drawer keeps
+                # the original handle position and handle->text gap (spacing).
+                "x0_frac": round((sx0 - rx0) / rw, 4) if sx0 is not None else None,
+                "x1_frac": round((sx1 - rx0) / rw, 4) if sx1 is not None else None,
+                "dashes": dashes,                     # line-style fidelity
                 "marker_d": round(marker_d, 2) if marker_d else None,
                 "color": list(hcolor) if hcolor else None,
             }

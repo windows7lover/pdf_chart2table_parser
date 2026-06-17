@@ -451,11 +451,19 @@ def _draw_legend_manual(ax, record, style, txt, L, _fs, font_scale=1.0):
                 or (st is not None and ((not is_scatter) or st.get("connect")))
             draws_marker = (hd.get("marker") is not None) \
                 or (hd.get("marker_d") is not None) or is_scatter
-            hx1 = x - 0.012
-            llen = hd.get("line_len_frac") or min(0.12, max(0.03, 2.0 * size / 216.0))
-            hx0 = max(0.0, hx1 - llen)
+            # Prefer the swatch's ACTUAL x-span (keeps the original handle position
+            # and handle->text gap); else synthesise just left of the label.
+            if hd.get("x0_frac") is not None and hd.get("x1_frac") is not None:
+                hx0, hx1 = hd["x0_frac"], hd["x1_frac"]
+            else:
+                hx1 = x - 0.012
+                llen = hd.get("line_len_frac") or min(0.12, max(0.03, 2.0 * size / 216.0))
+                hx0 = max(0.0, hx1 - llen)
             if draws_line:
-                ls = (st.get("linestyle") if st else None) or "-"
+                ls = (st.get("linestyle") if st else None)
+                if ls is None and hd.get("dashes"):   # OCR entry: swatch was dashed
+                    ls = "--"
+                ls = ls or "-"
                 if isinstance(ls, list):       # JSON dash tuple [offset,[on,off]]
                     ls = (ls[0], tuple(ls[1]))
                 ax.plot([hx0, hx1], [y, y], transform=tr, color=col,
