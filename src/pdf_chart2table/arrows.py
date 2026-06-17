@@ -41,10 +41,18 @@ def _aspect(b):
 
 
 def _is_head(p: Path, diag: float) -> bool:
-    """A small filled arrowhead/arrow-patch glyph.
+    """A small filled arrowhead or single-polygon arrow patch.
 
     Elongated (aspect ~0.25-0.9) excludes circle/square markers (~1.0) and thin
-    lines (<0.25); arrowheads and single-polygon arrows fall in between."""
+    lines (<0.25); arrowheads and single-polygon arrows fall in between.
+
+    A real arrowhead is a *tight triangle/wedge* with few corners (~3-9). A
+    filled TEXT GLYPH (letter/digit drawn as a curved outline) is also a small
+    elongated filled polygon, but its curved outline flattens to MANY corners
+    (~30-80) -- so a head with many corners is only accepted when it is also
+    thin/shaft-like (aspect <= 0.5), which a (roughly square) glyph never is.
+    This keeps the single-polygon arrow branch (head+shaft as one >=10-corner
+    patch) while rejecting glyphs that would otherwise inflate the head count."""
     if p.fill is None:
         return False
     sz = _bmax(p.bbox)
@@ -52,7 +60,14 @@ def _is_head(p: Path, diag: float) -> bool:
         return False
     if not (0.22 <= _aspect(p.bbox) <= 0.9):
         return False
-    return len(_distinct(p.points)) >= 3
+    nc = len(_distinct(p.points))
+    if nc < 3:
+        return False
+    if nc <= 9:
+        return True  # simple triangle/wedge arrowhead
+    # Many-cornered filled polygon: a genuine single-polygon arrow is thin
+    # (the shaft dominates one dimension); a text glyph is roughly square.
+    return _aspect(p.bbox) <= 0.5
 
 
 def _is_shaft(p: Path, headsz: float, diag: float) -> bool:

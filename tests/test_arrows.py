@@ -61,6 +61,49 @@ def test_no_arrows_no_records():
     assert idxs == set()
 
 
+def _glyph(cx, cy, *, w=5.0, h=6.3, n=40):
+    """A filled TEXT-GLYPH-like polygon: small, roughly square, MANY corners.
+
+    Mimics a digit/letter outline (curved, so it flattens to ~30-80 distinct
+    points). Such glyphs sit in the same size/aspect band as an arrowhead and
+    used to be mis-counted as arrowheads, inflating the head count past the
+    >3 bail and dropping a real arrow on the same chart (2006.13263)."""
+    import math
+    pts = [(cx + (w / 2) * math.cos(2 * math.pi * k / n),
+            cy + (h / 2) * math.sin(2 * math.pi * k / n)) for k in range(n + 1)]
+    return _path(pts, fill=(0.0, 0.0, 0.0))
+
+
+def test_text_glyph_not_counted_as_arrowhead():
+    """A many-cornered, roughly-square filled glyph is NOT an arrowhead, but a
+    small few-cornered triangle wedge IS -- so glyphs cannot inflate the head
+    count and trip the >3 bail that would drop a real arrow."""
+    from pdf_chart2table.arrows import _is_head, _bmax
+
+    region = Region(bbox=(120.0, 100.0, 300.0, 300.0))
+    diag = _bmax(region.bbox)
+    # Glyph: aspect ~0.79 (square-ish), ~40 corners -> rejected.
+    glyph = _glyph(200.0, 150.0)
+    assert not _is_head(glyph, diag)
+    # Arrowhead: a small tight wedge, few corners -> accepted.
+    head = _arrowhead((200.0, 130.0))
+    assert _is_head(head, diag)
+
+
+def test_glyphs_do_not_trip_head_bail_and_drop_arrow():
+    """One real arrow plus four text glyphs on the same chart: the arrow is
+    still detected (the glyphs are not heads, so the head count stays <=3)."""
+    head = _arrowhead((200.0, 130.0))
+    shaft = _shaft(200.0, 110.0, 123.0)
+    glyphs = [_glyph(150.0 + 12 * i, 150.0) for i in range(4)]
+    paths = [shaft, head] + glyphs
+    region = Region(bbox=(120.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(len(paths))), text_indices=[])
+    idxs, recs = detect_arrows(region, paths)
+    assert len(recs) == 1
+    assert idxs == {0, 1}
+
+
 def test_cli_persists_arrows_in_data_coords(tmp_path):
     """parse_pdf must store each detected arrow's tip/tail in DATA coords."""
     import json
