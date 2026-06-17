@@ -724,6 +724,73 @@ def _recover_leading_glyphs(anchor, paths, exclude, glyph_recognize):
     return "".join(reversed(found))
 
 
+# --- fragmented dash-handle recovery -------------------------------------
+# A DASHED legend handle is drawn as several short collinear segments on one row
+# (e.g. "- - -"). Each segment is too short for _swatch_style to accept as a line
+# sample (w < 5pt), so the row's COLOURED handle is lost and the entry pairs only
+# with a neutral marker drawn beside it — collapsing every entry to one colour
+# and breaking the colour-keyed label->series match (2001.01928: ρ_11/22/33 are
+# red/green/blue dashed lines reduced to a black marker). We coalesce same-row,
+# same-colour, horizontally-collinear short segments that share the SOLID
+# handle's x-column into one synthetic "dashed" line swatch carrying the true
+# colour. General: keyed on geometry (collinear short segments in the handle
+# column), never on this chart's strings.
+_DASH_SEG_MAXLEN = 5.0       # a fragment shorter than a real line swatch (<5pt)
+_DASH_SEG_MAXH = 1.5         # a fragment is a thin horizontal stroke
+_DASH_ROW_TOL = 1.5          # fragments on one row share cy within this
+_DASH_MIN_SEGS = 2           # need >=2 fragments to call it a dashed handle
+
+
+def _merge_dash_handles(region: Region, paths: list[Path]) -> list[Path]:
+    """Synthesise one "dashed" line swatch per row of fragmented dash segments.
+
+    Looks for short (< _DASH_SEG_MAXLEN), thin, horizontal stroked segments that
+    share a cy-row and a stroke colour and are clustered in x (a dashed handle
+    broken into pieces). Returns a list of synthetic ``Path`` line swatches (one
+    per such row) so the legend swatch picker sees the row's true colour. Empty
+    when no fragmented handle is present (the common solid-handle case)."""
+    rw = region.bbox[2] - region.bbox[0]
+    if rw <= 0:
+        return []
+    frags: list[Path] = []
+    for p in paths:
+        if p.stroke is None:
+            continue
+        w = p.bbox[2] - p.bbox[0]
+        h = p.bbox[3] - p.bbox[1]
+        if h > _DASH_SEG_MAXH or w >= _DASH_SEG_MAXLEN or w <= 0:
+            continue
+        if not _inside(p.bbox, region, _LEGEND_MARGIN):
+            continue
+        frags.append(p)
+    if len(frags) < _DASH_MIN_SEGS:
+        return []
+    # Group by (rounded cy, stroke colour).
+    groups: dict[tuple, list[Path]] = {}
+    for p in frags:
+        key = (round(_cy(p.bbox) / _DASH_ROW_TOL), p.stroke)
+        groups.setdefault(key, []).append(p)
+    out: list[Path] = []
+    for grp in groups.values():
+        if len(grp) < _DASH_MIN_SEGS:
+            continue
+        x0 = min(g.bbox[0] for g in grp)
+        x1 = max(g.bbox[2] for g in grp)
+        span = x1 - x0
+        # The merged handle must look like a SHORT line sample (a real handle),
+        # not a spine/gridline or scattered data points: small fraction of the
+        # plot width, and the segments must actually be spread out (a genuine
+        # dashed run, not two coincident specks).
+        if span < _DASH_SEG_MAXLEN or span > _LEGEND_SWATCH_MAX_WFRAC * rw:
+            continue
+        cy = sum(_cy(g.bbox) for g in grp) / len(grp)
+        bbox = (x0, cy - 0.5, x1, cy + 0.5)
+        out.append(Path(points=[(x0, cy), (x1, cy)], stroke=grp[0].stroke,
+                        fill=None, width=None, dashes="dashed", closed=False,
+                        bbox=bbox))
+    return out
+
+
 def _detect_legend(
     region: Region, paths: list[Path], texts: list[TextSpan],
     glyph_recognize=None,
