@@ -706,6 +706,13 @@ def _recover_leading_glyphs(anchor, paths, exclude, glyph_recognize):
         hit = glyph_recognize(best[1].bbox)
         if not hit:
             break  # unconfident -> stop (never prepend a guess)
+        # Leading glyph-path recovery exists for non-extractable MATH SYMBOLS
+        # (Greek, ℓ, ℏ, ∞). A plain ASCII DIGIT result is the false-positive
+        # class: rounded Greek capitals collide with digit templates (Ω vs 0 by
+        # ~0.06 IoU on 2504.03081_p8c4), and a real digit would have been
+        # extracted as a text span, not a font-less path. Never prepend a digit.
+        if hit[1].isascii() and hit[1].isdigit():
+            break
         found.append(hit[1])  # unicode
         exclude = exclude | {tuple(best[1].bbox)}
         left_edge = best[1].bbox[0]

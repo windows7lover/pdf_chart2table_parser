@@ -113,3 +113,19 @@ def test_recognizer_returning_none_is_noop():
                                    glyph_recognize=lambda b: None)
     labels = sorted(e[2] for e in entries)
     assert labels == ["=0", "=0.83"], labels
+
+
+def test_leading_digit_match_is_not_prepended():
+    # A leading glyph-path whose bitmap match is a plain ASCII DIGIT is the
+    # false-positive class (e.g. a Computer-Modern capital-Greek Ω whose rounded
+    # outline matches the '0' template by a hair, 2504.03081_p8c4). The leading-
+    # glyph recovery is for non-extractable MATH SYMBOLS only; a real digit would
+    # be an extractable text span, not a font-less path. Never prepend the digit.
+    paths, texts = _legend_inputs()
+
+    def stub(bbox):  # recognizer mis-reads the Ω glyph as the digit '0'
+        return ("0", "0", 0.59)
+
+    entries, _box = _detect_legend(REGION, paths, texts, glyph_recognize=stub)
+    labels = sorted(e[2] for e in entries)
+    assert labels == ["=0", "=0.83"], labels  # '0' NOT prepended (no "0=0" etc.)
