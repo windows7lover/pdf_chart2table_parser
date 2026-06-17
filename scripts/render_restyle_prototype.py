@@ -194,20 +194,6 @@ def _dash_is_dotted(dashes) -> bool:
     return bool(nums) and nums[0] <= 1.5
 
 
-def _anchor_loc(a):
-    """Map a normalized (x, y) legend anchor to a matplotlib loc string."""
-    x, y = a
-    h = "left" if x < 0.4 else "right" if x > 0.6 else "center"
-    v = "upper" if y > 0.6 else "lower" if y < 0.4 else "center"
-    if h == "center" and v == "center":
-        return "center"
-    if v == "center":
-        return f"center {h}"
-    if h == "center":
-        return f"{v} center"
-    return f"{v} {h}"
-
-
 def _fit_pix_to_value(pairs, scale):
     """Least-squares pixel->value map from labeled (pixel, value) ticks, so the
     UNLABELED detected ticks (minor ticks) can be placed at their true values."""
