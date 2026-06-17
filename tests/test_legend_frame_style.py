@@ -117,3 +117,25 @@ def test_round_caps_flag_minority_stays_false():
     paths = [_stroked(True), _stroked(False), _stroked(False)]
     _, meta = match_series_styles(paths, REGION, [])
     assert meta["round_caps"] is False
+
+
+# --- OUTWARD top/right ticks sit just OUTSIDE the region; tick detection uses a
+#     margin so they aren't clipped away (2001.01801) ----------------------------
+def _vtick(x, y0, y1):  # short vertical stroke (a horizontal-axis tick)
+    return Path(points=[(x, y0), (x, y1)], stroke=(0, 0, 0), fill=None, width=0.5,
+                dashes=None, closed=False, bbox=(x, y0, x, y1))
+
+
+def _htick(y, x0, x1):  # short horizontal stroke (a vertical-axis tick)
+    return Path(points=[(x0, y), (x1, y)], stroke=(0, 0, 0), fill=None, width=0.5,
+                dashes=None, closed=False, bbox=(x0, y, x1, y))
+
+
+def test_outward_top_right_ticks_detected_via_margin():
+    # REGION top spine y=0, right spine x=200. Outward ticks sit ABOVE y=0 /
+    # RIGHT of x=200 -- outside the region box -- yet must be recovered.
+    top = [_vtick(x, -6.0, -2.0) for x in (40, 80, 120, 160)]
+    right = [_htick(y, 202.0, 206.0) for y in (40, 80, 120, 160)]
+    _, meta = match_series_styles(top + right, REGION, [])
+    assert meta["ticks"]["top"] is True
+    assert meta["ticks"]["right"] is True

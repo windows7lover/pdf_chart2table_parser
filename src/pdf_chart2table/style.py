@@ -296,6 +296,13 @@ def match_series_styles(paths, region_bbox, series):
     inreg = [p for p in paths
              if not (p.bbox[2] < x0 or p.bbox[0] > x1 or
                      p.bbox[3] < y0 or p.bbox[1] > y1)]
+    # Tick detection needs a small margin BEYOND the region: OUTWARD ticks on the
+    # top/right spines sit just outside the region box, so region-clipped `inreg`
+    # drops them and top/right ticks are never recovered (2001.01801).
+    _tm = 10.0
+    inreg_ticks = [p for p in paths
+                   if not (p.bbox[2] < x0 - _tm or p.bbox[0] > x1 + _tm or
+                           p.bbox[3] < y0 - _tm or p.bbox[1] > y1 + _tm)]
     out = []
     for s in series:
         col = s.get("color")
@@ -495,7 +502,7 @@ def match_series_styles(paths, region_bbox, series):
     round_caps = bool(capped) and sum(p.round_cap for p in capped) > 0.5 * len(capped)
     meta = {"axis_linewidth": _median(spine_w),
             "axis_color": axis_color,
-            "ticks": recover_tick_style(inreg, region_bbox),
+            "ticks": recover_tick_style(inreg_ticks, region_bbox),
             "round_caps": round_caps,
             "legend_box": legend_frame is not None,
             "legend_frame": legend_frame}
