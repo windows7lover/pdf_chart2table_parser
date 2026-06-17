@@ -173,6 +173,42 @@ def _marker_shape(p):
     return "o"
 
 
+def _position_faces(glyph_paths):
+    """One face vote per marker POSITION (not per path).
+
+    A marker glyph may be drawn as a fill-only path plus a coincident stroke-only
+    outline at the same centre. These are ONE marker: cluster paths by centre and
+    return, per cluster, the fill colour of any filled member (the marker's face)
+    or ``None`` when the whole cluster is stroke-only (a genuinely open marker).
+    Clustering uses the median glyph size as the coincidence tolerance, so the two
+    halves of one marker land in the same cluster while distinct data points (which
+    are spaced apart) stay separate."""
+    if not glyph_paths:
+        return []
+    sizes = [max(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]) for p in glyph_paths]
+    tol = max(1.0, 0.5 * (sorted(sizes)[len(sizes) // 2]))
+    centres = [(0.5 * (p.bbox[0] + p.bbox[2]), 0.5 * (p.bbox[1] + p.bbox[3]))
+               for p in glyph_paths]
+    used = [False] * len(glyph_paths)
+    faces = []
+    for i, p in enumerate(glyph_paths):
+        if used[i]:
+            continue
+        used[i] = True
+        cluster = [p]
+        cx, cy = centres[i]
+        for j in range(i + 1, len(glyph_paths)):
+            if used[j]:
+                continue
+            qx, qy = centres[j]
+            if (qx - cx) ** 2 + (qy - cy) ** 2 <= tol ** 2:
+                used[j] = True
+                cluster.append(glyph_paths[j])
+        fill = next((q.fill for q in cluster if q.fill is not None), None)
+        faces.append(tuple(_round_color(fill)) if fill is not None else None)
+    return faces
+
+
 def _seg_dist_sq(px, py, ax, ay, bx, by):
     """Squared distance from point ``(px, py)`` to the segment ``a``--``b``."""
     dx, dy = bx - ax, by - ay
@@ -444,8 +480,17 @@ def match_series_styles(paths, region_bbox, series):
         # a couple of incidental filled glyphs (e.g. a filled legend sample) must
         # stay open by majority, not be flipped to filled (2503.07760_p4c1: 20 open
         # '○' + 2 filled glyphs were read as a black face). None wins -> open.
-        _faces = [tuple(_round_color(p.fill)) if p.fill is not None else None
-                  for p in glyph_paths]
+        #
+        # A FILLED non-circular marker (triangle/square/diamond) is frequently
+        # emitted as TWO coincident paths -- a fill-only glyph + a stroke-only
+        # outline at the same centre (2011.13523_p7c2: red '^' = 11 filled + 11
+        # outline paths). Counting each path as a separate face vote then ties
+        # fill-vs-None and collapses the marker to OPEN. So vote ONCE per marker
+        # POSITION: cluster the glyph paths by centre, and a position is FILLED if
+        # any coincident member carries a fill (its outline twin does not cancel
+        # the fill). A genuinely-open marker (stroke-only, no coincident fill twin)
+        # still votes None (2006.10101_p37c1: open '^' is one stroke-only path).
+        _faces = _position_faces(glyph_paths)
         _mf = max(set(_faces), key=_faces.count) if _faces else None
         m_face = list(_mf) if _mf is not None else None
         m_edge = _modal([_round_color(p.stroke) for p in glyph_paths if p.stroke is not None])
