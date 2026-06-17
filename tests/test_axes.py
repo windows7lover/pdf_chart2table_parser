@@ -197,7 +197,9 @@ def test_x_title_marks_subscript_as_mathtext():
         _span("j", 211, 165, 215, 171, size=5.5),   # smaller + lowered -> subscript
         _span(" (C)", 216, 162, 232, 170, size=8.0),
     ]
-    assert _x_title(texts, region, labels) == "Temperature, T$_{j}$ (C)"
+    # roman (non-italic) subscript 'j' stays upright -> \mathrm (mathtext would
+    # otherwise italicise a bare '$_{j}$').
+    assert _x_title(texts, region, labels) == r"Temperature, T$_{\mathrm{j}}$ (C)"
 
 
 def test_x_title_none_when_only_caption():

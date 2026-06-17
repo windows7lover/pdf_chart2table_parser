@@ -20,27 +20,29 @@ def test_superscript_exponent():
 
 
 def test_subscript():
-    # 'P'(base) + 'in'(smaller, lowered) -> 'P$_{in}$'.
+    # 'P'(base) + 'in'(smaller, lowered, ROMAN) -> 'P$_{\mathrm{in}}$' (a roman
+    # letter subscript stays upright; mathtext would italicise a bare '$_{in}$').
     items = [_it("P", 10.0, 50.0, 0, 8), _it("in", 7.0, 53.0, 8, 18)]
-    assert join_scripts(items) == "P$_{in}$"
+    assert join_scripts(items) == r"P$_{\mathrm{in}}$"
 
 
 def test_near_full_size_subscript_with_large_offset():
-    # 2001.01038 legend 'V_D = 1V': the 'D' subscript is rendered at ~0.90x base
-    # (8.15 vs 9.04) -- above the 0.82x cutoff -- but is clearly lowered. Its big
-    # vertical offset must still mark it as a subscript.
+    # 2001.01038 legend 'V_D = 1V': 'V' and the 'D' subscript are Times-BOLD,
+    # roman (flags=20). The 'D' (~0.90x, above the 0.82x cutoff) is still detected
+    # as a subscript by its large offset, and rendered BOLD UPRIGHT (\mathbf), not
+    # mathtext-italic.
     items = [("V", 9.04, 657.8, 0, 6, False, True),
-             ("D", 8.15, 663.3, 6, 11, False, False),
+             ("D", 8.15, 663.3, 6, 11, False, True),
              ("= 1V", 8.20, 658.0, 14, 32, False, False)]
-    assert join_scripts(items) == r"$\mathbf{V}$$_{D}$ = 1V"
+    assert join_scripts(items) == r"$\mathbf{V}$$_{\mathbf{D}}$ = 1V"
 
 
 def test_stacked_sub_and_superscript():
-    # 'I' with subscript 'D' AND superscript '1/2' (I_D^{1/2}); both recovered.
+    # 'I' with bold-roman subscript 'D' AND superscript '1/2'; both recovered.
     items = [("I", 8.99, 675.4, 0, 5, False, True),
-             ("D", 8.04, 680.1, 5, 10, False, False),
+             ("D", 8.04, 680.1, 5, 10, False, True),
              ("1/2", 4.47, 671.7, 6, 10, False, False)]
-    assert join_scripts(items) == r"$\mathbf{I}$$_{D}$$^{1/2}$"
+    assert join_scripts(items) == r"$\mathbf{I}$$_{\mathbf{D}}$$^{1/2}$"
 
 
 def test_near_full_size_inline_token_not_a_script():
@@ -73,7 +75,7 @@ def test_italic_base_wrapped_in_mathtext():
     # 2003.11050: an italic variable 'M' (6th item field) + lowered 's' -> the M
     # is slanted: '$M$$_{s}$'. The subscript path is unchanged.
     items = [("M", 10.0, 50.0, 0, 8, True), ("s", 7.0, 53.0, 8, 12, False)]
-    assert join_scripts(items) == "$M$$_{s}$"
+    assert join_scripts(items) == r"$M$$_{\mathrm{s}}$"
 
 
 def test_italic_only_on_safe_variable_tokens():
@@ -88,13 +90,13 @@ def test_italic_only_on_safe_variable_tokens():
 
 def test_five_tuple_items_still_supported():
     # Back-compat: items without the italic field behave exactly as before.
-    assert join_scripts([_it("P", 10.0, 50.0, 0, 8), _it("in", 7.0, 53.0, 8, 18)]) == "P$_{in}$"
+    assert join_scripts([_it("P", 10.0, 50.0, 0, 8), _it("in", 7.0, 53.0, 8, 18)]) == r"P$_{\mathrm{in}}$"
 
 
 def test_bold_and_bold_italic_base_runs():
     # 2003.11050: a bold-italic variable 'M' -> '$\\boldsymbol{M}$'; bold-only ->
     # '$\\mathbf{M}$'. (text, size, cy, x0, x1, italic, bold)
     bi = [("M", 10.0, 50.0, 0, 8, True, True), ("s", 7.0, 53.0, 8, 12, False, False)]
-    assert join_scripts(bi) == r"$\boldsymbol{M}$$_{s}$"
+    assert join_scripts(bi) == r"$\boldsymbol{M}$$_{\mathrm{s}}$"
     bold_only = [("R", 10.0, 50.0, 0, 8, False, True), ("e", 10.0, 50.0, 8, 14, False, True)]
     assert join_scripts(bold_only) == r"$\mathbf{Re}$"

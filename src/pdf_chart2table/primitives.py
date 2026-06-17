@@ -66,8 +66,21 @@ def join_scripts(items) -> str:
         nonlocal buf, cur, cur_it, cur_bd
         if buf:
             seg = "".join(buf)
-            if cur:
-                out.append("$%s{%s}$" % (cur, seg))
+            if cur:  # sub/superscript: honour the SOURCE emphasis of the script
+                # glyphs. mathtext italicises bare letters by default (math-var
+                # convention), but a roman subscript like 'D' in 'V_D' must stay
+                # upright -> \mathrm; a bold-roman one -> \mathbf; only a genuinely
+                # ITALIC source span keeps the bare (italic) form. Digits/symbols
+                # render upright already, so leave them bare.
+                inner = seg
+                has_alpha = any(c.isalpha() for c in seg)
+                if cur_bd and cur_it:
+                    inner = r"\boldsymbol{%s}" % seg
+                elif cur_bd:
+                    inner = r"\mathbf{%s}" % seg
+                elif not cur_it and has_alpha:
+                    inner = r"\mathrm{%s}" % seg
+                out.append("$%s{%s}$" % (cur, inner))
             elif (cur_it or cur_bd) and _SAFE_ITALIC.match(seg.strip()):
                 s = seg.strip()
                 if cur_it and cur_bd:
@@ -97,8 +110,8 @@ def join_scripts(items) -> str:
                 script = "^"
             elif cy > base_cy + thr:            # lowered
                 script = "_"
-        eff_it = italic and script is None       # emphasis applies to base runs only
-        eff_bd = bold and script is None
+        eff_it = italic       # emphasis now tracked for scripts AND base runs
+        eff_bd = bold
         if script != cur or eff_it != cur_it or eff_bd != cur_bd:
             flush()
             cur, cur_it, cur_bd = script, eff_it, eff_bd
