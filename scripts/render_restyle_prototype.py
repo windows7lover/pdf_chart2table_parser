@@ -1219,6 +1219,12 @@ def _select(root: str, n: int, exclude=frozenset(), seed=None):
     return picked
 
 
+# Connection-order reprocessing toggle (set from main's --reprocess-order flag,
+# read by the fork-inherited Pool workers in _render_one). Default ON: the pass
+# is strict-gain gated, so it only ever improves a bundle.
+_REPROCESS_ORDER = True
+
+
 def _render_one(task):
     """Render a single bundle (top-level so it is picklable for a process Pool)."""
     r, extract_out, outdir = task
@@ -1229,6 +1235,19 @@ def _render_one(task):
         # Style is now written by the EXTRACTOR into the chart JSON; the renderer
         # is a pure replayer and never re-parses the PDF for style.
         style = d["style"]
+        # Analysis-by-synthesis reprocessing: correct a line series' scrambled
+        # connection order by rendering candidate orderings and keeping the one
+        # that best overlays the original (strict-gain gated -> never degrades).
+        # Lazy import avoids a module cycle (recon_compare imports _replot here).
+        reproc_msg = ""
+        if _REPROCESS_ORDER:
+            try:
+                from recon_reprocess import reprocess_record
+                _, _changes = reprocess_record(d)
+                if _changes:
+                    reproc_msg = f" [reordered {len(_changes)} series]"
+            except Exception as _e:
+                reproc_msg = f" [reprocess skipped: {str(_e)[:40]}]"
         bundle = os.path.join(outdir, cid)
         os.makedirs(bundle, exist_ok=True)
         with open(os.path.join(bundle, "chart.json"), "w") as f:
@@ -1247,7 +1266,7 @@ def _render_one(task):
         crop_svg = crop_pdf[:-4] + ".svg"
         if os.path.exists(crop_svg):
             shutil.copy(crop_svg, os.path.join(bundle, f"{cid}_original.svg"))
-        return (cid, f"ok {cid} (nser={r['n_series']} npts={r['n_points']})")
+        return (cid, f"ok {cid} (nser={r['n_series']} npts={r['n_points']}){reproc_msg}")
     except Exception as e:
         return (None, f"ERR {cid}: {e}")
 
@@ -1265,7 +1284,13 @@ def main():
                     help="comma-separated chart_ids to render exactly (re-render)")
     ap.add_argument("--jobs", type=int, default=len(os.sched_getaffinity(0)),
                     help="parallel render workers (default: all available CPUs)")
+    ap.add_argument("--reprocess-order", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="fix scrambled line-series connection order by "
+                         "synthesis-selection before rendering (default: on)")
     args = ap.parse_args()
+    global _REPROCESS_ORDER
+    _REPROCESS_ORDER = args.reprocess_order
     extract_out = os.path.join(args.root, "extract_out")
     outdir = args.outdir or os.path.join(args.root, "restyle_prototype")
     os.makedirs(outdir, exist_ok=True)

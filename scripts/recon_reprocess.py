@@ -58,9 +58,15 @@ def _reordered(points: list[dict], order: list[int]) -> list[dict]:
     return [points[i] for i in order]
 
 
-def reprocess_chart(chart_json: str, scale: float = 2.0, tol: int = 2,
-                    min_gain: float = _MIN_GAIN, write: bool = False) -> dict:
-    record = json.load(open(chart_json))
+def reprocess_record(record: dict, scale: float = 2.0, tol: int = 2,
+                     min_gain: float = _MIN_GAIN) -> tuple[dict, list[dict]]:
+    """Reorder line-series points IN PLACE in ``record`` (a loaded chart.json) to
+    the connection order that best overlays the original, via synthesis-selection.
+
+    Returns ``(record, changes)``; ``changes`` lists the adopted reorderings (one
+    per series that strictly improved). No file I/O — usable mid-pipeline by the
+    renderer. Mutates ``record['series'][i]['points']`` for improved series only.
+    """
     orig = render_original(record, scale)
     h, w = orig.shape[:2]
     ign = text_ignore_mask(record, h, w, scale)
@@ -69,36 +75,39 @@ def reprocess_chart(chart_json: str, scale: float = 2.0, tol: int = 2,
         recon = render_reconstruction(record, h, w, scale=scale)
         return compare(orig, recon, tol=tol, ignore_mask=ign).ink_iou
 
-    base = iou()
-    cur = base
+    cur = iou()
     changes: list[dict] = []
-
     for i, ser in enumerate(record["series"]):
         pts = ser.get("points") or []
         if len(pts) < 4 or not _is_line_series(record, i):
             continue
         coords = [(p["x_px"], p["y_px"]) for p in pts]
-        candidates = {
-            "xsort": order_xsort(coords),
-            "nearest": order_nearest(coords),
-        }
+        candidates = {"xsort": order_xsort(coords),
+                      "nearest": order_nearest(coords)}
         best_key, best_iou, best_pts = "stored", cur, pts
         for key, order in candidates.items():
-            new_pts = _reordered(pts, order)
-            record["series"][i]["points"] = new_pts          # try
+            record["series"][i]["points"] = _reordered(pts, order)   # try
             s = iou()
             if s > best_iou + min_gain:
-                best_key, best_iou, best_pts = key, s, new_pts
-        record["series"][i]["points"] = best_pts              # commit best/restore
+                best_key, best_iou, best_pts = key, s, record["series"][i]["points"]
+        record["series"][i]["points"] = best_pts                     # commit/restore
         if best_key != "stored":
             changes.append({"series": i, "order": best_key,
                             "iou_before": round(cur, 4), "iou_after": round(best_iou, 4)})
             cur = best_iou
+    return record, changes
 
+
+def reprocess_chart(chart_json: str, scale: float = 2.0, tol: int = 2,
+                    min_gain: float = _MIN_GAIN, write: bool = False) -> dict:
+    record = json.load(open(chart_json))
+    base_iou = None
+    record, changes = reprocess_record(record, scale=scale, tol=tol,
+                                       min_gain=min_gain)
     out = {
         "chart_id": os.path.basename(os.path.dirname(chart_json)) or chart_json,
-        "iou_before": round(base, 4),
-        "iou_after": round(cur, 4),
+        "iou_before": changes[0]["iou_before"] if changes else None,
+        "iou_after": changes[-1]["iou_after"] if changes else None,
         "changes": changes,
     }
     if changes and write:
