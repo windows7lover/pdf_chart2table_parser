@@ -232,6 +232,17 @@ class SeriesMarks:
 # data label, not a legend entry, so the swatch check is skipped for it.
 _LEGEND_BORDER_FRAC = 0.20
 
+# A legend ENTRY has exactly ONE swatch glyph immediately left of its label.
+# A dense data series, however, can run a ROW of many same-shaped marks that
+# happens to pass just left of an in-plot annotation label ("I", "III", phase
+# labels). When MORE than this many candidate marks fall in a text span's swatch
+# band, that band is a data row, not a swatch — the text is an annotation, not a
+# legend entry, so it must NOT trigger swatch culling (2001.08430_p4c1: dense red
+# 'o' rows under "I"/"III" labels lost ~46 of 100 points). A genuine legend
+# swatch column is vertical (one swatch per entry at a given y), so a single
+# entry's band never holds more than one mark at the entry's y-level.
+_SWATCH_MAX_BAND_MARKS = 1
+
 
 def _is_legend_swatch(
     cx: float,
@@ -286,6 +297,39 @@ def _is_legend_swatch(
                     continue
         return True
     return False
+
+
+def _in_swatch_band(cx: float, cy: float, t: TextSpan) -> bool:
+    """True when (cx, cy) sits in the swatch band immediately left of text ``t``
+    (the positional gate ``_is_legend_swatch`` uses, without the letter/edge
+    filters)."""
+    tx0, ty0, _, ty1 = t.bbox
+    th = ty1 - ty0
+    ty_center = 0.5 * (ty0 + ty1)
+    return (abs(cy - ty_center) <= 0.6 * th + 2
+            and tx0 - _LEGEND_GAP <= cx <= tx0 + 2)
+
+
+def _swatch_label_texts(
+    candidate_centroids: list[tuple[float, float]],
+    texts: list[TextSpan],
+) -> list[TextSpan]:
+    """Texts eligible to act as legend labels for the swatch filter.
+
+    A genuine legend entry has a SINGLE swatch glyph to the left of its label.
+    A dense data series can run a horizontal ROW of many same-shaped marks that
+    happens to pass just left of an in-plot annotation label; treating that label
+    as a legend entry would cull the whole row as swatches. So a text span is
+    excluded (treated as an annotation, not a legend label) when more than
+    ``_SWATCH_MAX_BAND_MARKS`` candidate marks fall in its swatch band: that band
+    is a data row, not a one-swatch legend entry.
+    """
+    out: list[TextSpan] = []
+    for t in texts:
+        n = sum(1 for cx, cy in candidate_centroids if _in_swatch_band(cx, cy, t))
+        if n <= _SWATCH_MAX_BAND_MARKS:
+            out.append(t)
+    return out
 
 
 def _in_plot_box(cx: float, cy: float, plot_box: tuple | None) -> bool:
@@ -1010,6 +1054,22 @@ def classify_marks(
     # text-aligned ``_is_legend_swatch`` check (a swatch sits left of its label)
     # stays per-mark — it targets the swatch column specifically, not crossing
     # data.
+    # Pre-pass: centroids of every in-plot data-mark candidate, so the swatch
+    # filter can tell a one-swatch legend entry from a dense data ROW that merely
+    # passes left of an in-plot annotation label. A text span whose swatch band
+    # holds MORE than one such mark is a data row, not a legend entry, and is
+    # excluded from the swatch filter (see _swatch_label_texts).
+    prepass_centroids: list[tuple[float, float]] = []
+    for i in region.path_indices:
+        p = paths[i]
+        if not _is_data_mark(p, region, large_fills):
+            continue
+        cx, cy = _centroid(p.points)
+        if not _in_plot_box(cx, cy, plot_box):
+            continue
+        prepass_centroids.append((cx, cy))
+    swatch_texts = _swatch_label_texts(prepass_centroids, region_texts)
+
     cand_marks = []  # (i, cx, cy, w, h)
     for i in region.path_indices:
         p = paths[i]
@@ -1018,7 +1078,7 @@ def classify_marks(
         cx, cy = _centroid(p.points)
         if not _in_plot_box(cx, cy, plot_box):
             continue
-        if _is_legend_swatch(cx, cy, region_texts, plot_box):
+        if _is_legend_swatch(cx, cy, swatch_texts, plot_box):
             continue
         # Swatch INSIDE a confirmed legend box: cull per-mark. The group-aware
         # box filter below only drops a group when ≥_LEGEND_GROUP_DROP_FRAC of its
@@ -1033,7 +1093,7 @@ def classify_marks(
         # plateau gap).
         if effective_legend_bbox is not None and _in_legend_box(
             cx, cy, effective_legend_bbox
-        ) and _is_legend_swatch(cx, cy, region_texts, None):
+        ) and _is_legend_swatch(cx, cy, swatch_texts, None):
             continue
         cand_marks.append((i, cx, cy, p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]))
 

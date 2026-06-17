@@ -1281,3 +1281,97 @@ def test_swatch_column_in_legend_box_dropped():
                             legend_bbox=legend_bbox)
     assert len(series) == 1
     assert len(series[0].marks) == 1            # column culled, only outside datum kept
+
+
+def test_dense_marker_row_left_of_annotation_label_not_culled():
+    """Regression (2001.08430_p4c1): a dense ROW of same-shape open markers that
+    runs just left of an in-plot annotation label ("I", "III" phase labels) must
+    NOT be culled as legend swatches.
+
+    A legend ENTRY has a single swatch left of its label; a dense data series
+    produces many collinear marks in that band. Before the fix, every mark left
+    of the label fell in the swatch band and was dropped, losing ~half a 100-point
+    series. A lone swatch (one mark in the band) must still be culled.
+    """
+    region = Region(bbox=(100.0, 60.0, 300.0, 130.0),
+                    path_indices=[], text_indices=[0])
+    plot_box = (104.0, 63.0, 296.0, 127.0)
+    # In-plot annotation label "III" near the top edge, with a dense row of red
+    # open circles running just left of it at the label's y-level.
+    label = TextSpan(text="III", bbox=(200.0, 64.0, 210.0, 71.0), size=7.0)
+    red = (1.0, 0.0, 0.0)
+    row = [_circle(120.0 + 4.0 * i, 67.5, stroke=red, r=1.5) for i in range(20)]
+    paths = list(row)
+    region.path_indices = list(range(len(paths)))
+    series = classify_marks(region, paths, [label], plot_box=plot_box)
+    red_series = [s for s in series if s.stroke == red]
+    assert red_series, "the dense red row must survive as a series"
+    assert len(red_series[0].marks) == 20, (
+        "a dense data row left of an annotation label must not be swatch-culled, "
+        f"got {len(red_series[0].marks)}"
+    )
+
+
+def test_lone_swatch_left_of_label_still_culled():
+    """Guard: the band-row relaxation must not break the single-swatch case.
+
+    A genuine legend entry has ONE swatch left of its label; that lone swatch
+    (the only mark in the band) must still be dropped, while the real curve that
+    is nowhere near the label is kept.
+    """
+    region = Region(bbox=(100.0, 60.0, 300.0, 130.0),
+                    path_indices=[], text_indices=[0])
+    plot_box = (104.0, 63.0, 296.0, 127.0)
+    label = TextSpan(text="Series", bbox=(200.0, 64.0, 230.0, 71.0), size=7.0)
+    red = (1.0, 0.0, 0.0)
+    # A real curve of red circles well below the label (different y-level).
+    curve = [_circle(120.0 + 8.0 * i, 110.0, stroke=red, r=1.5) for i in range(8)]
+    # One lone swatch immediately left of the label, at the label's y-level.
+    swatch = _circle(190.0, 67.5, stroke=red, r=1.5)
+    paths = curve + [swatch]
+    region.path_indices = list(range(len(paths)))
+    series = classify_marks(region, paths, [label], plot_box=plot_box)
+    red_series = [s for s in series if s.stroke == red]
+    assert red_series and len(red_series[0].marks) == 8, (
+        "the lone legend swatch must still be culled, leaving the 8-point curve, "
+        f"got {len(red_series[0].marks) if red_series else 0}"
+    )
+
+
+def test_near_but_distinct_centres_and_coincident_twins():
+    """Near-but-distinct overlapping markers are kept as separate points, while
+    coincident fill+outline TWINS of one glyph collapse to a single point.
+
+    Distinguishes "two markers that overlap" (distinct centres) from "one marker
+    drawn twice" (a fill plus a coincident outline at the SAME centre)."""
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=[], text_indices=[])
+    red = (1.0, 0.0, 0.0)
+    # 6 overlapping open circles whose centres are 2px apart (markers ~3px wide,
+    # so they overlap) but are genuinely distinct data points.
+    overlap = [_circle(150.0 + 2.0 * i, 200.0, stroke=red, r=1.5) for i in range(6)]
+    paths = list(overlap)
+    region.path_indices = list(range(len(paths)))
+    series = classify_marks(region, paths, [])
+    assert len(series) == 1
+    assert len(series[0].marks) == 6, (
+        "near-but-distinct overlapping markers must each be kept, "
+        f"got {len(series[0].marks)}"
+    )
+
+    # Now: each of 4 points drawn as a filled blob PLUS a coincident stroke
+    # outline at the SAME centre -> one marker per point, not two.
+    region2 = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                     path_indices=[], text_indices=[])
+    centres = [(150, 200), (170, 210), (190, 205), (210, 215)]
+    twins = []
+    for cx, cy in centres:
+        twins.append(_circle(cx, cy, fill=red))            # filled blob
+        twins.append(_circle(cx, cy, stroke=red))          # coincident outline
+    region2.path_indices = list(range(len(twins)))
+    series2 = classify_marks(region2, twins, [])
+    assert len(series2) == 1
+    assert len(series2[0].marks) == 4, (
+        "coincident fill+outline twins of one glyph must collapse to one point, "
+        f"got {len(series2[0].marks)}"
+    )
