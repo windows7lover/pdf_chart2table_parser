@@ -540,6 +540,31 @@ def test_connect_false_when_only_path_misses_markers():
     assert not _threads_markers([fit], pts, tol=4.0)
 
 
+def test_connect_false_for_filled_scatter_grazed_by_sibling_line():
+    # 2006.09651_p5c1/p5c2: two same-colour series share the SAME x-grid and
+    # overlap in y -- an OPEN-circle line series and a FILLED-circle pure scatter.
+    # The open series' connector runs just BESIDE the filled markers, grazing them
+    # at a scattered ~2-7px offset. A loose vertex-distance test collapsed the
+    # filled scatter into a (spurious) connected line. The line genuinely threads
+    # only its OWN (open) markers; the filled scatter must stay unconnected.
+    line_pts = [(float(x), 100.0) for x in range(0, 60, 4)]      # open series
+    connector = _path(line_pts)                                  # drawn ON them
+    # Filled scatter: same x-grid, sitting a few px ABOVE the line (different data).
+    filled = [(float(x), 100.0 - 3.5) for x in range(0, 60, 4)]
+    tol = max(2.0, 0.5 * 4.0)                                    # marker size ~4px
+    assert _threads_markers([connector], line_pts, tol)          # open -> connect
+    assert not _threads_markers([connector], filled, tol)        # filled -> scatter
+
+
+def test_connect_true_for_coarsely_sampled_connector():
+    # A real connector sampled COARSELY: its vertices are not all ON the markers,
+    # but every marker lies on a SEGMENT of the polyline. Segment-distance (not
+    # nearest-vertex) keeps such a genuine line+marker plot connected.
+    pts = [(float(x), 2.0 * x) for x in range(0, 41, 4)]         # markers
+    connector = _path([(0.0, 0.0), (40.0, 80.0)])               # 2 vertices only
+    assert _threads_markers([connector], pts, tol=2.0)
+
+
 # --- Bug C: a single mis-extracted tick must not collapse the view -------------
 def test_outlier_tick_dropped_from_range():
     # 2204.11743_p19c4: ticks 0.03..0.09 plus a spurious '680.18'. Forcing 680.18

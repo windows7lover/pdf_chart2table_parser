@@ -173,22 +173,47 @@ def _marker_shape(p):
     return "o"
 
 
+def _seg_dist_sq(px, py, ax, ay, bx, by):
+    """Squared distance from point ``(px, py)`` to the segment ``a``--``b``."""
+    dx, dy = bx - ax, by - ay
+    dd = dx * dx + dy * dy
+    if dd == 0.0:
+        return (px - ax) ** 2 + (py - ay) ** 2
+    t = ((px - ax) * dx + (py - ay) * dy) / dd
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    qx, qy = ax + t * dx, ay + t * dy
+    return (px - qx) ** 2 + (py - qy) ** 2
+
+
 def _threads_markers(paths, pts, tol, frac=0.8):
     """Does any same-colour ``paths`` (the candidate connectors) thread the marker
     ``pts``? True when >= ``frac`` of the marker points lie within ``tol`` of a
-    single path -- i.e. that path is the line drawn THROUGH the markers. A
-    separate fit/curve that does not pass through the markers threads ~none, so it
-    does not trigger a connection."""
+    single path -- i.e. that path is the line drawn THROUGH the markers. Distance
+    is to the nearest SEGMENT of the polyline (not just a vertex), so a coarsely
+    sampled connector whose markers fall mid-segment still counts.
+
+    A separate fit/curve that does not pass through the markers threads ~none, so
+    it does not trigger a connection. Crucially, ``tol`` must stay TIGHT: a genuine
+    connector is drawn ON the markers (sub-pixel offset), whereas a sibling
+    same-colour series' connector (e.g. the OPEN-circle line running just beside a
+    FILLED-circle scatter that shares the same x-grid and overlaps in y) merely
+    grazes them at a scattered, larger distance. A loose ``tol`` collapsed such a
+    pure scatter into a connected line (2006.09651_p5c1/p5c2: the filled circles/
+    squares were threaded by the open series' line)."""
     if not paths or not pts:
         return False
     need = max(2, int(round(frac * len(pts))))
+    tol2 = tol * tol
     for p in paths:
         pp = p.points
         if len(pp) < 2:
             continue
         near = 0
         for sx, sy in pts:
-            if min((sx - qx) ** 2 + (sy - qy) ** 2 for qx, qy in pp) <= tol * tol:
+            d2 = min(_seg_dist_sq(sx, sy, pp[i][0], pp[i][1],
+                                  pp[i + 1][0], pp[i + 1][1])
+                     for i in range(len(pp) - 1))
+            if d2 <= tol2:
                 near += 1
         if near >= need:
             return True
@@ -398,7 +423,10 @@ def match_series_styles(paths, region_bbox, series):
         # while leaving pure scatter unconnected, where the only same-colour long
         # path is a separate fit/curve that MISSES the markers (2205, 2410: 0
         # threaded) or a model curve that grazes just a few (2102: 3/9).
-        tol = max(4.0, 1.5 * (msize or 0.0))
+        # TIGHT tolerance (~half a marker): a real connector is drawn ON the
+        # markers (seg-distance <1px), so a sibling same-colour series' line that
+        # merely grazes a filled-circle scatter (2006.09651_p5c1/p5c2) is rejected.
+        tol = max(2.0, 0.5 * (msize or 0.0))
         connect = _threads_markers(big, pts, tol)
         # Transparency: the traced path's stroke alpha (fall back to a same-colour
         # marker's fill alpha). None when fully opaque -> renderer leaves it solid.
