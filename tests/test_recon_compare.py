@@ -76,3 +76,20 @@ def test_compare_tolerance_absorbs_small_shift():
 def test_compare_shape_mismatch_raises():
     with pytest.raises(ValueError):
         compare(_white(10, 10), _white(10, 12))
+
+
+def test_ignore_mask_excludes_region():
+    # Original has a stroke in a "text" region the recon never draws. Without a
+    # mask it shows as missing; masking that region removes it from scoring.
+    orig = _white(20, 20)
+    orig[2:5, 2:8] = (0, 0, 0)     # "text" block (not reproduced)
+    orig[10:18, 10] = (0, 0, 0)    # a data stroke (reproduced)
+    recon = _white(20, 20)
+    recon[10:18, 10] = (0, 0, 0)   # recon draws only the data stroke
+    full = compare(orig, recon, tol=0)
+    assert full.missing_frac > 0.0
+    ign = np.zeros((20, 20), bool)
+    ign[2:5, 2:8] = True
+    data = compare(orig, recon, tol=0, ignore_mask=ign)
+    assert data.missing_frac == 0.0
+    assert data.ink_iou == pytest.approx(1.0)

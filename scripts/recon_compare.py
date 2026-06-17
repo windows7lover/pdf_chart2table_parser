@@ -44,6 +44,40 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 from pdf_chart2table.recon_compare import compare, ink_mask  # noqa: E402
 
 
+def text_ignore_mask(record: dict, h_px: int, w_px: int,
+                     scale: float, pad: int = 1) -> np.ndarray | None:
+    """Boolean mask (HxW) of the original's TEXT regions within the plot box.
+
+    Loads the source page's text spans (via the parser's pdf loader), keeps those
+    overlapping region_bbox, and paints their boxes (in clip-pixel coords) so the
+    comparison can EXCLUDE labels/titles/legend text — leaving a data-ink metric.
+    Returns None if the loader is unavailable (the caller then scores full ink).
+    """
+    try:
+        from pdf_chart2table.pdf_vector import load_pdf
+    except Exception:
+        return None
+    bb = record["source"]["region_bbox"]
+    try:
+        page = load_pdf(record["source"]["pdf"], [record["source"]["page"]])[0]
+    except Exception:
+        return None
+    mask = np.zeros((h_px, w_px), bool)
+    for t in page.texts:
+        tx0, ty0, tx1, ty1 = t.bbox
+        if tx1 < bb[0] or tx0 > bb[2] or ty1 < bb[1] or ty0 > bb[3]:
+            continue
+        x0 = int((tx0 - bb[0]) * scale) - pad
+        y0 = int((ty0 - bb[1]) * scale) - pad
+        x1 = int((tx1 - bb[0]) * scale) + pad
+        y1 = int((ty1 - bb[1]) * scale) + pad
+        x0 = max(0, x0); y0 = max(0, y0)
+        x1 = min(w_px, x1); y1 = min(h_px, y1)
+        if x1 > x0 and y1 > y0:
+            mask[y0:y1, x0:x1] = True
+    return mask
+
+
 def render_original(record: dict, scale: float) -> np.ndarray:
     """Rasterise the source PDF page clipped to the plot box (region_bbox)."""
     bb = record["source"]["region_bbox"]
@@ -72,7 +106,13 @@ def _apply_axis_range(ax, record: dict) -> None:
         # second data_range entry is the BOTTOM value.
         ax.set_ylim(yr[1], yr[0])
     ax.set_aspect("auto")
-    ax.axis("off")
+    # Keep the SPINES (the plot frame sits at the region edges = figure edges, so
+    # it aligns with the original's frame) but drop tick MARKS and tick LABELS:
+    # labels are text scored separately, and unaligned ticks would only add noise.
+    # Removing axis('off') here was the fix for a systematic missing-ink bias (the
+    # original's frame/ticks were all counted as missing).
+    ax.set_xticks([])
+    ax.set_yticks([])
 
 
 def render_reconstruction(record: dict, h_px: int, w_px: int,
@@ -107,6 +147,14 @@ def compare_chart(chart_json: str, scale: float = 2.0, tol: int = 2,
     res = compare(orig, recon, tol=tol)
     out = res.as_dict()
     out["chart_id"] = os.path.basename(os.path.dirname(chart_json)) or chart_json
+    # Data-ink metrics: re-score with the original's text regions excluded, so
+    # the numbers reflect curves/markers/fills (not un-reproduced label glyphs).
+    ign = text_ignore_mask(record, h, w, scale)
+    if ign is not None:
+        dres = compare(orig, recon, tol=tol, ignore_mask=ign)
+        out["data_missing_frac"] = dres.missing_frac
+        out["data_extra_frac"] = dres.extra_frac
+        out["data_iou"] = dres.ink_iou
     if dump_prefix:
         Image.fromarray(orig).save(dump_prefix + "_orig.png")
         Image.fromarray(recon).save(dump_prefix + "_recon.png")

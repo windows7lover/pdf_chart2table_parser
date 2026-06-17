@@ -103,13 +103,19 @@ class ComparisonResult:
 
 
 def compare(orig_rgb: np.ndarray, recon_rgb: np.ndarray,
-            tol: int = 2, white_thresh: float = _WHITE_THRESH) -> ComparisonResult:
+            tol: int = 2, white_thresh: float = _WHITE_THRESH,
+            ignore_mask: np.ndarray | None = None) -> ComparisonResult:
     """Compare two equally-sized RGB rasters of the same plot box.
 
     ``tol`` is the dilation radius (px) granting alignment / anti-aliasing slack:
     original ink is "covered" if any reconstruction ink lies within ``tol`` px,
     and vice-versa. Both rasters MUST already be aligned to the same grid (same
     shape, same data->pixel mapping); alignment is the caller's responsibility.
+
+    ``ignore_mask`` (bool, same HxW) marks pixels to EXCLUDE from both ink masks
+    before scoring — used to drop the original's text regions (axis/tick labels,
+    titles, legend text rendered as math glyphs we don't reproduce) so the
+    metrics reflect DATA-ink fidelity (curves / markers / fills / arrows).
     """
     o = np.asarray(orig_rgb)
     r = np.asarray(recon_rgb)
@@ -120,6 +126,10 @@ def compare(orig_rgb: np.ndarray, recon_rgb: np.ndarray,
         )
     om = ink_mask(o, white_thresh)
     rm = ink_mask(r, white_thresh)
+    if ignore_mask is not None:
+        keep = ~np.asarray(ignore_mask, bool)
+        om = om & keep
+        rm = rm & keep
     om_d = dilate(om, tol)
     rm_d = dilate(rm, tol)
 

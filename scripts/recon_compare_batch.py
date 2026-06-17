@@ -65,6 +65,7 @@ def main() -> int:
 
     ok = [r for r in rows if "error" not in r]
     cols = ["chart_id", "missing_frac", "extra_frac", "ink_iou",
+            "data_missing_frac", "data_extra_frac", "data_iou",
             "orig_ink", "recon_ink", "path", "error"]
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w", newline="") as f:
@@ -74,15 +75,24 @@ def main() -> int:
             w.writerow({c: r.get(c, "") for c in cols})
 
     if ok:
-        mean_missing = sum(r["missing_frac"] for r in ok) / len(ok)
-        mean_extra = sum(r["extra_frac"] for r in ok) / len(ok)
-        mean_iou = sum(r["ink_iou"] for r in ok) / len(ok)
-        print(f"\n{len(ok)} compared | mean missing={mean_missing:.3f} "
-              f"extra={mean_extra:.3f} iou={mean_iou:.3f}")
-        print("\nworst (highest missing_frac):")
-        for r in sorted(ok, key=lambda r: -r["missing_frac"])[:15]:
-            print(f"  {r['chart_id']:24} missing={r['missing_frac']:.3f} "
-                  f"extra={r['extra_frac']:.3f} iou={r['ink_iou']:.3f}")
+        def _mean(key):
+            vals = [r[key] for r in ok if isinstance(r.get(key), (int, float))]
+            return sum(vals) / len(vals) if vals else float("nan")
+        has_data = any("data_missing_frac" in r for r in ok)
+        # Rank by the actionable data-ink metric when available, else full ink.
+        rank_key = "data_missing_frac" if has_data else "missing_frac"
+        print(f"\n{len(ok)} compared | full: missing={_mean('missing_frac'):.3f} "
+              f"extra={_mean('extra_frac'):.3f} iou={_mean('ink_iou'):.3f}")
+        if has_data:
+            print(f"{'':13}  data: missing={_mean('data_missing_frac'):.3f} "
+                  f"extra={_mean('data_extra_frac'):.3f} "
+                  f"iou={_mean('data_iou'):.3f}")
+        print(f"\nworst (highest {rank_key}):")
+        for r in sorted(ok, key=lambda r: -r.get(rank_key, 0))[:15]:
+            dm = r.get("data_missing_frac", float("nan"))
+            print(f"  {r['chart_id']:24} data_missing={dm:.3f} "
+                  f"full_missing={r['missing_frac']:.3f} "
+                  f"data_iou={r.get('data_iou', float('nan')):.3f}")
     errs = [r for r in rows if "error" in r]
     if errs:
         print(f"\n{len(errs)} errored:")
