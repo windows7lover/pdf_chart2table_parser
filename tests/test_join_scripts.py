@@ -25,6 +25,31 @@ def test_subscript():
     assert join_scripts(items) == "P$_{in}$"
 
 
+def test_near_full_size_subscript_with_large_offset():
+    # 2001.01038 legend 'V_D = 1V': the 'D' subscript is rendered at ~0.90x base
+    # (8.15 vs 9.04) -- above the 0.82x cutoff -- but is clearly lowered. Its big
+    # vertical offset must still mark it as a subscript.
+    items = [("V", 9.04, 657.8, 0, 6, False, True),
+             ("D", 8.15, 663.3, 6, 11, False, False),
+             ("= 1V", 8.20, 658.0, 14, 32, False, False)]
+    assert join_scripts(items) == r"$\mathbf{V}$$_{D}$ = 1V"
+
+
+def test_stacked_sub_and_superscript():
+    # 'I' with subscript 'D' AND superscript '1/2' (I_D^{1/2}); both recovered.
+    items = [("I", 8.99, 675.4, 0, 5, False, True),
+             ("D", 8.04, 680.1, 5, 10, False, False),
+             ("1/2", 4.47, 671.7, 6, 10, False, False)]
+    assert join_scripts(items) == r"$\mathbf{I}$$_{D}$$^{1/2}$"
+
+
+def test_near_full_size_inline_token_not_a_script():
+    # A token only slightly smaller (0.91x) but ON the baseline must NOT become a
+    # script (guards against descender-shifted full-size tokens).
+    items = [("V", 9.0, 658.0, 0, 6), ("= 1V", 8.2, 658.0, 7, 25)]
+    assert "$" not in join_scripts(items)
+
+
 def test_chemical_formula_merges_runs():
     # 'SnO' + lowered '2' -> 'SnO$_{2}$'.
     items = [_it("SnO", 10.0, 50.0, 0, 20), _it("2", 7.0, 53.0, 20, 25)]

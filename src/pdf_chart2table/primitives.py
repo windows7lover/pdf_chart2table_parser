@@ -82,10 +82,17 @@ def join_scripts(items) -> str:
         italic = bool(it[5]) if len(it) > 5 else False
         bold = bool(it[6]) if len(it) > 6 else False
         script = None
-        if base_cy is not None and sz and sz < 0.82 * base:
-            if cy < base_cy - 0.12 * base:      # raised (smaller PDF y)
+        # A sub/superscript is SMALLER than the base and vertically OFFSET. Two
+        # tiers: a clearly-small span (<0.82x) needs only a modest offset; a
+        # near-full-size span (0.82-0.92x, common for legend subscripts like the
+        # 'D' in 'V_D', rendered ~0.90x) must be offset MUCH more, so an ordinary
+        # full-size token with a descender (whose bbox-centre dips slightly) is
+        # never mistaken for a script.
+        if base_cy is not None and sz and sz < 0.92 * base:
+            thr = 0.12 * base if sz < 0.82 * base else 0.30 * base
+            if cy < base_cy - thr:              # raised (smaller PDF y)
                 script = "^"
-            elif cy > base_cy + 0.12 * base:    # lowered
+            elif cy > base_cy + thr:            # lowered
                 script = "_"
         eff_it = italic and script is None       # emphasis applies to base runs only
         eff_bd = bold and script is None
