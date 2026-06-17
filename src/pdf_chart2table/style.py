@@ -977,57 +977,61 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
             legend_label_colors[lab] = [round(v, 3) for v in c]
     legend = None
     if len(matched) >= 2:
-        ys = sorted((s["bbox"][1] + s["bbox"][3]) / 2 for s in matched)
+        # Measure geometry from the FULL legend ENTRY, not the single matched
+        # span: a multi-span entry ('V'+'D'+'= 1V') is matched on a fragment
+        # ('= 1V'), whose left edge sits mid-entry. Expanding each match to its
+        # _group_spans group recovers the entry's true left edge, so stacked
+        # entries read as left-aligned (and width/anchor are correct) instead of
+        # spuriously failing the width gate (2001.01038_p13c4).
+        groups = _group_spans(spans, base)
+
+        def _entry_box(m):
+            for g in groups:
+                if any(s is m for s in g):
+                    return (min(s["bbox"][0] for s in g), min(s["bbox"][1] for s in g),
+                            max(s["bbox"][2] for s in g), max(s["bbox"][3] for s in g))
+            return tuple(m["bbox"])
+        ent = [_entry_box(m) for m in matched]
+        ys = sorted((b[1] + b[3]) / 2 for b in ent)
         rows = 1 + sum(1 for a, b in zip(ys, ys[1:]) if b - a > 1.4 * (base or 8))
-        xext = max(s["bbox"][2] for s in matched) - min(s["bbox"][0] for s in matched)
-        yext = max(s["bbox"][3] for s in matched) - min(s["bbox"][1] for s in matched)
+        xext = max(b[2] for b in ent) - min(b[0] for b in ent)
+        yext = max(b[3] for b in ent) - min(b[1] for b in ent)
         horizontal = rows == 1 and xext > 3 * max(yext, 1e-6)
         ncol = min(len(matched), len(labset)) if horizontal else 1
-        mx0 = min(s["bbox"][0] for s in matched)
-        mx1 = max(s["bbox"][2] for s in matched)
-        my0 = min(s["bbox"][1] for s in matched)
-        my1 = max(s["bbox"][3] for s in matched)
+        mx0, mx1 = min(b[0] for b in ent), max(b[2] for b in ent)
+        my0, my1 = min(b[1] for b in ent), max(b[3] for b in ent)
         cxf, cyf = to_frac((mx0 + mx1) / 2, (my0 + my1) / 2)
         # original legend extent in axes fraction (text + a swatch allowance to
         # the left), used to fit the reconstruction's legend size to the original.
         sw = 3.2 * (matched[0].get("size") or base or 8)
         wfrac = (mx1 - (mx0 - sw)) / w
         hfrac = (my1 - my0) / h
-        # Plausibility gate: a VERTICAL legend is narrow. If a "vertical" match
-        # sprawls across most of the plot WIDTH, it is unreliable (short labels
-        # caught scattered ticks) -> emit NO layout so the renderer auto-places a
-        # default-size legend. Height is NOT gated: a many-entry legend is
-        # legitimately tall in a short panel. A genuinely horizontal legend is
-        # wide by design, so it is exempt.
-        #
-        # EXCEPTION: a genuine vertical legend stacks its entries in one LEFT-
-        # ALIGNED column (their left edges share an x), whereas a sprawling false
-        # match catches ticks at scattered x. So when the matched entries are
-        # left-aligned, keep the layout even past the width cap -- otherwise a
-        # real legend in a NARROW/tall panel (wide labels vs a small plot width,
-        # e.g. 2005.05829_p13c1 "1S/2S exciton" at wfrac 0.87) is wrongly dropped,
-        # leaving the renderer to fall back to an oversized default-font legend.
-        if not horizontal and wfrac > 0.6 and not _legend_left_aligned(matched):
-            legend = None
-        else:
-            # Entry order as drawn in the ORIGINAL legend: top-to-bottom (then
-            # left-to-right) by the matched label's position, so the renderer can
-            # present entries in that order instead of the series-extraction order
-            # (2202.11909_p25c1: 'PTE simulation'/'aI fitting' were swapped).
-            order = [matched_labels[i] for i in sorted(
-                range(len(matched)),
-                key=lambda i: (round((matched[i]["bbox"][1] + matched[i]["bbox"][3]) / 12.0),
-                               matched[i]["bbox"][0]))]
-            legend = {
-                "orientation": "horizontal" if horizontal else "vertical",
-                "ncol": int(ncol),
-                "anchor": [round(cxf, 3), round(cyf, 3)],
-                "fontsize": (round(matched[0]["size"] * scale, 2)
-                             if matched[0].get("size") else base),
-                "bold": bold_reliable and any(_is_bold(s) for s in matched),
-                "w_frac": round(wfrac, 4), "h_frac": round(hfrac, 4),
-                "order": order,
-            }
+        # Entry order as drawn (top-to-bottom, then left-to-right), so the renderer
+        # presents entries in the original order, not extraction order
+        # (2202.11909_p25c1: 'PTE simulation'/'aI fitting' were swapped).
+        order = [matched_labels[i] for i in sorted(
+            range(len(matched)),
+            key=lambda i: (round((ent[i][1] + ent[i][3]) / 12.0), ent[i][0]))]
+        # The legend STYLE (font size, bold, entry order) is always recoverable
+        # from the matched spans; only the LAYOUT (anchor + width fit) is gated.
+        # A vertical legend is narrow: if a "vertical" match sprawls across most
+        # of the plot width it is an unreliable placement (short labels catching
+        # scattered ticks) -> drop only the ANCHOR so the renderer auto-places,
+        # but KEEP the recovered font/bold. Left-aligned stacks are exempt
+        # (genuine narrow-panel legends, 2005.05829_p13c1 "1S/2S exciton").
+        left_aligned = (max(b[0] for b in ent) - min(b[0] for b in ent)) <= _LEGEND_COL_TOL
+        legend = {
+            "orientation": "horizontal" if horizontal else "vertical",
+            "ncol": int(ncol),
+            "fontsize": (round(matched[0]["size"] * scale, 2)
+                         if matched[0].get("size") else base),
+            "bold": bold_reliable and any(_is_bold(s) for s in matched),
+            "order": order,
+        }
+        if horizontal or wfrac <= 0.6 or left_aligned:
+            legend["anchor"] = [round(cxf, 3), round(cyf, 3)]
+            legend["w_frac"] = round(wfrac, 4)
+            legend["h_frac"] = round(hfrac, 4)
 
     # In-graph text ANNOTATIONS: spans inside the plot box that are not ticks,
     # axis/chart titles, or legend entries (e.g. "B = 620 mT", "T = 2 K", "x10^5",

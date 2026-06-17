@@ -43,6 +43,7 @@ import fitz
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.markers import MarkerStyle
 from PIL import Image
 
 # Make a home-dir TinyTeX install discoverable so matplotlib usetex can find latex.
@@ -584,10 +585,12 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
         ax.tick_params(axis="y", which="major", length=round(max(y_len, _tmin), 2))
         ax.tick_params(axis="y", which="minor", length=round(0.6 * max(y_len, _tmin), 2))
     # Round the tick marks + spines too when the source used round caps, so the
-    # short tick bars match the rounded line ends (2001.01038_p13c4).
+    # short tick bars match the rounded line ends (2001.01038_p13c4). Tick bars
+    # are drawn as MARKERS, so set_solid_capstyle is a no-op -- the cap must come
+    # from the marker itself (MarkerStyle(..., capstyle="round")).
     if style.get("round_caps"):
         for ln in ax.get_xticklines() + ax.get_yticklines():
-            ln.set_solid_capstyle("round")
+            ln.set_marker(MarkerStyle(ln.get_marker(), capstyle="round"))
         for sp in ax.spines.values():
             try:
                 sp.set_capstyle("round")
@@ -658,7 +661,7 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
         # tight legends these papers use.
         kw = {"fontsize": _fs((leg or {}).get("fontsize")) or _fs(base_fs) or 8,
               "frameon": bool(style.get("legend_box")),
-              "borderpad": 0.3, "labelspacing": 0.3, "handlelength": 1.4,
+              "borderpad": 0.3, "labelspacing": 0.3, "handlelength": 1.0,
               "handletextpad": 0.4, "columnspacing": 1.0, "borderaxespad": 0.3}
         # Recovered legend-box style: border colour/width, fill, and square vs
         # rounded corners -- so the frame matches the original instead of
