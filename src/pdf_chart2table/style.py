@@ -20,6 +20,7 @@ import math
 import re
 
 import fitz
+import numpy as np
 
 from . import primitives
 from .font_recovery import FontDecoder, is_broken_text
@@ -221,6 +222,36 @@ def _seg_dist_sq(px, py, ax, ay, bx, by):
     return (px - qx) ** 2 + (py - qy) ** 2
 
 
+def _min_seg_dist_sq(pts_arr, ax, ay, bx, by):
+    """Vectorised per-point min point-to-segment squared distance.
+
+    ``pts_arr`` is an ``(N, 2)`` float64 array; ``ax/ay/bx/by`` are length-``M``
+    float64 arrays of segment endpoints. Returns the length-``N`` array of each
+    point's minimum squared distance to ANY of the ``M`` segments. The per-(point,
+    segment) distance mirrors :func:`_seg_dist_sq` term-for-term (incl. the
+    degenerate zero-length-segment branch and the [0, 1] clamp) so the minimum --
+    and therefore the ``<= tol2`` decision -- is bit-identical to the scalar loop.
+    """
+    dx = bx - ax                                   # (M,)
+    dy = by - ay
+    dd = dx * dx + dy * dy
+    pmax = pts_arr[:, 0:1]                          # (N, 1)
+    pmay = pts_arr[:, 1:2]
+    rx = pmax - ax                                  # (N, M) via broadcast
+    ry = pmay - ay
+    # Avoid 0/0 in the projection; the dd==0 branch is selected explicitly below.
+    safe_dd = np.where(dd == 0.0, 1.0, dd)
+    t = (rx * dx + ry * dy) / safe_dd
+    t = np.clip(t, 0.0, 1.0)
+    qx = ax + t * dx
+    qy = ay + t * dy
+    d2 = (pts_arr[:, 0:1] - qx) ** 2 + (pts_arr[:, 1:2] - qy) ** 2
+    # Degenerate (zero-length) segment: distance to the endpoint a, as scalar code.
+    deg = rx * rx + ry * ry
+    d2 = np.where(dd == 0.0, deg, d2)
+    return d2.min(axis=1)                           # (N,)
+
+
 def _threads_markers(paths, pts, tol, frac=0.8):
     """Does any same-colour ``paths`` (the candidate connectors) thread the marker
     ``pts``? True when >= ``frac`` of the marker points lie within ``tol`` of a
@@ -240,17 +271,16 @@ def _threads_markers(paths, pts, tol, frac=0.8):
         return False
     need = max(2, int(round(frac * len(pts))))
     tol2 = tol * tol
+    pts_arr = np.asarray(pts, dtype=np.float64)     # (N, 2)
     for p in paths:
         pp = p.points
         if len(pp) < 2:
             continue
-        near = 0
-        for sx, sy in pts:
-            d2 = min(_seg_dist_sq(sx, sy, pp[i][0], pp[i][1],
-                                  pp[i + 1][0], pp[i + 1][1])
-                     for i in range(len(pp) - 1))
-            if d2 <= tol2:
-                near += 1
+        seg = np.asarray(pp, dtype=np.float64)
+        ax, ay = seg[:-1, 0], seg[:-1, 1]
+        bx, by = seg[1:, 0], seg[1:, 1]
+        dmin = _min_seg_dist_sq(pts_arr, ax, ay, bx, by)
+        near = int(np.count_nonzero(dmin <= tol2))
         if near >= need:
             return True
     return False
