@@ -199,6 +199,22 @@ _TEXTRUN_GAP_FRAC = 0.9       # max bbox gap as a fraction of median glyph width
 _TEXTRUN_ROW_FRAC = 0.7       # same-row tolerance as a fraction of median height
 _TEXTRUN_MIN_SIZE_CV = 0.18   # min width/height CV (letters vary; markers don't)
 
+# Real-text-glyph guard: when an annotation/legend label is drawn BOTH as a
+# selectable TextSpan AND as duplicate vector glyph paths (common with embedded
+# fonts: e.g. "T=4.11K" in 2205.07176_p2c1 left 4 black 'o' candidates), the
+# glyph paths look like a short marker scatter that the run-length guard above
+# (which needs >= _TEXTRUN_MIN_LEN aligned glyphs) misses. We anchor on the
+# real TextSpan geometry instead: candidate marks in the INTERIOR of a
+# horizontal text span are that span's own glyphs, not data.
+#
+# GROUP-AWARE (precision): a candidate is dropped only when (nearly) its WHOLE
+# style group sits inside text spans -- a pure text-glyph group (the reproducer's
+# black 'o' group is 6/6 in-text). A real data series that merely passes UNDER an
+# annotation/title/legend subscript has only a minority of its marks in text
+# (2001.01928_p5c1: a 27-mark black-circle group is 0.74 in-text), so all its
+# marks are kept. Mirrors the group-aware legend-box filter's _LEGEND_GROUP_DROP_FRAC.
+_TEXTGLYPH_GROUP_DROP_FRAC = 0.9
+
 
 @dataclass
 class Mark:
@@ -423,6 +439,48 @@ def _is_word(run: list[tuple]) -> bool:
         return False
     size_cv = max(_cv([c[3] for c in run]), _cv([c[4] for c in run]))
     return size_cv >= _TEXTRUN_MIN_SIZE_CV
+
+
+def _text_glyph_indices(
+    cands: list[tuple], region_texts: list[TextSpan], paths: list[Path]
+) -> set[int]:
+    """Indices (into ``cands``) of candidate marks that are glyph paths of a
+    real horizontal TextSpan (a label drawn both as selectable text and as
+    duplicate vector glyphs), not data points.
+
+    ``cands`` items are ``(idx, cx, cy, w, h)``. A candidate is "in text" when its
+    centroid is in the INTERIOR of a horizontal text span. We then group the
+    candidates by their data-mark style key (shape + rounded fill/stroke, the
+    SAME key the series grouping below uses) and flag a group's in-text members
+    only when >= _TEXTGLYPH_GROUP_DROP_FRAC of the whole group is in text — i.e.
+    the group is itself a text-glyph cluster, not a data series that happens to
+    cross an annotation/title (precision: such a data series is kept entire).
+    """
+    if not cands or not region_texts:
+        return set()
+    spans = [t for t in region_texts if abs(t.dir[1]) < 0.5]
+    if not spans:
+        return set()
+
+    def _in_text(cx: float, cy: float) -> bool:
+        for t in spans:
+            x0, y0, x1, y1 = t.bbox
+            if x0 < cx < x1 and y0 < cy < y1:
+                return True
+        return False
+
+    groups: dict[tuple, list[tuple[int, bool]]] = {}
+    for idx, cx, cy, _w, _h in cands:
+        p = paths[idx]
+        key = (_shape_of(p), _round_color(p.fill), _round_color(p.stroke))
+        groups.setdefault(key, []).append((idx, _in_text(cx, cy)))
+
+    flagged: set[int] = set()
+    for members in groups.values():
+        in_text = [i for i, ok in members if ok]
+        if in_text and len(in_text) >= _TEXTGLYPH_GROUP_DROP_FRAC * len(members):
+            flagged.update(i for i, _ in members)
+    return flagged
 
 
 def _on_border(cx: float, cy: float, region: Region) -> bool:
@@ -1135,6 +1193,7 @@ def classify_marks(
         cand_marks.append((i, cx, cy, p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]))
 
     text_idx = _text_run_indices(cand_marks)
+    text_idx |= _text_glyph_indices(cand_marks, region_texts, paths)
 
     groups: dict[tuple, SeriesMarks] = {}
     in_legend: dict[tuple, list[bool]] = {}

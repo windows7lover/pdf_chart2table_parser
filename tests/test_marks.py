@@ -1399,3 +1399,50 @@ def test_near_but_distinct_centres_and_coincident_twins():
         "coincident fill+outline twins of one glyph must collapse to one point, "
         f"got {len(series2[0].marks)}"
     )
+
+
+def test_text_glyph_group_inside_annotation_dropped():
+    """Regression (2205.07176_p2c1): a small marker GROUP whose glyphs all fall
+    inside a real annotation TextSpan ("T=4.11K", drawn both as selectable text
+    AND as duplicate vector glyph paths) is the text's own glyphs, not data, and
+    must be dropped. A separate real data series elsewhere must SURVIVE.
+    """
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(7)), text_indices=[0])
+    # Real blue data series, well clear of any text.
+    data = [_circle(140, 250, fill=(0.0, 0.0, 1.0)),
+            _circle(160, 240, fill=(0.0, 0.0, 1.0)),
+            _circle(180, 235, fill=(0.0, 0.0, 1.0)),
+            _circle(200, 230, fill=(0.0, 0.0, 1.0))]
+    # Black "marker" glyphs that all sit INSIDE the annotation text span.
+    glyphs = [_circle(232, 160, fill=(0.0, 0.0, 0.0)),
+              _circle(244, 160, fill=(0.0, 0.0, 0.0)),
+              _circle(256, 160, fill=(0.0, 0.0, 0.0))]
+    paths = data + glyphs
+    span = TextSpan(text="T=4.11K", bbox=(228.0, 152.0, 272.0, 168.0))
+    series = classify_marks(region, paths, [span])
+    # Only the blue data series survives; the black text-glyph group is dropped.
+    assert len(series) == 1
+    assert len(series[0].marks) == 4
+    assert series[0].fill == (0.0, 0.0, 1.0)
+    assert all(s.fill != (0.0, 0.0, 0.0) for s in series), \
+        "black text-glyph group must be gone"
+
+
+def test_data_series_crossing_annotation_kept():
+    """Precision: a real data series that merely PASSES UNDER an annotation /
+    title / legend-subscript text keeps ALL its marks. Only a minority of the
+    group's marks are in text, so the group is data, not glyphs (vs the pure
+    text-glyph group above)."""
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(8)), text_indices=[0])
+    # A horizontal black-circle data series; two of its eight marks happen to
+    # lie under the annotation span, the rest are clear of it. (Marks start at
+    # the span's left edge so none sit in the legend-swatch band to its left.)
+    centres = [(140, 200), (160, 200), (180, 200), (200, 200),
+               (220, 200), (240, 200), (260, 200), (280, 200)]
+    paths = [_circle(cx, cy, fill=(0.0, 0.0, 0.0)) for cx, cy in centres]
+    span = TextSpan(text="label", bbox=(135.0, 192.0, 165.0, 208.0))  # over 2 marks
+    series = classify_marks(region, paths, [span])
+    assert len(series) == 1
+    assert len(series[0].marks) == 8, "a data series crossing text must be kept entire"
