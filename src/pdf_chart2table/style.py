@@ -1593,12 +1593,21 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
                 title_ok = True
                 break
 
+    # Default family/face/latex vote over the chart's OWN structural text (tick
+    # labels + legend entries) -- the region+margin span set also pulls in
+    # surrounding paper BODY text (e.g. a Computer Modern caption / prose), which
+    # would otherwise dominate the vote and mis-classify an Arial chart as serif
+    # (2001.08430_p4c1: CMR body 91 chars vs ArialMT ticks 28 -> wrong "serif").
+    # Tick labels + legend are unambiguously the chart's font; fall back to all
+    # region fonts only when there is no structural text to vote with.
+    _struct_fw = _fonts_of(list(tick_spans) + list(leg_spans))
+    _family_fw = _struct_fw or fonts
     return {
         "_note": "STYLE ONLY -- font + position recovered from source text spans.",
         "content_scale": round(scale, 2),  # also applied to line widths
-        "latex_like": _is_latex_font(fonts),
-        "font_family": _classify_family(fonts),
-        "font_face": _classify_face(fonts),
+        "latex_like": _is_latex_font(_family_fw),
+        "font_family": _classify_family(_family_fw),
+        "font_face": _classify_face(_family_fw),
         "base_font_size": round(base, 2) if base else None,
         # Per-element text style (size/color/bold/italic/runs/rotation/pos) lives
         # in `elements`; the legacy flat *_font_size/*_bold/*_runs fields were
