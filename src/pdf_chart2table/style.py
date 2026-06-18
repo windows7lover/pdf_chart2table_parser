@@ -152,6 +152,14 @@ def _marker_shape(p):
             return "v"      # mass toward the top -> apex points DOWN
         return "^"          # 3-corner glyph: was falling through to 's' (square)
     if shp == "diamond":
+        # A regular diamond ('D', square bbox) vs a THIN diamond ('d', a tall
+        # narrow rhombus). matplotlib 'd' is ~0.6x as wide as tall, so a glyph
+        # whose bbox is clearly taller than wide is the thin variant
+        # (2004.01004_p6c3: an open 'd' was rendered as the fat 'D').
+        bw = p.bbox[2] - p.bbox[0]
+        bh = p.bbox[3] - p.bbox[1]
+        if bw > 0 and bh / bw >= 1.25:
+            return "d"      # taller-than-wide rhombus -> thin diamond
         return "D"          # 45°-rotated square
     cx = sum(x for x, _ in pts) / len(pts)
     cy = sum(y for _, y in pts) / len(pts)

@@ -51,6 +51,18 @@ def test_triangle_orientation_up_vs_down():
     assert _marker_shape(down) == "v"
 
 
+def test_thin_vs_fat_diamond():
+    # 2004.01004_p6c3: a tall narrow rhombus ('d') was rendered as the square 'D'.
+    # A regular diamond has a ~square bbox; a thin diamond is clearly taller than
+    # wide. Corners at top/right/bottom/left (rotated 45deg) -> shape_of='diamond'.
+    fat = _path([(5.0, 0.0), (10.0, 5.0), (5.0, 10.0), (0.0, 5.0), (5.0, 0.0)],
+                fill=None)
+    thin = _path([(3.0, 0.0), (6.0, 5.0), (3.0, 10.0), (0.0, 5.0), (3.0, 0.0)],
+                 fill=None)
+    assert _marker_shape(fat) == "D"
+    assert _marker_shape(thin) == "d"
+
+
 def _doubled_noisy_circle(n=33, r=5.0, cx=0.0, cy=0.0, noise=0.06):
     # Two overlapping loops with small per-vertex radial jitter -> high cv (~0.33)
     # but no regular spikes; reproduces 2102.11637's 66-vertex filled circles.
