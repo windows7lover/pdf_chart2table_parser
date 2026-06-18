@@ -179,6 +179,46 @@ def test_replot_draws_no_arrow_when_absent():
     plt.close(fig2)
 
 
+def test_stroke_only_x_marker_is_visible():
+    # 2506.18139_p24c2: an 'x' marker series rendered INVISIBLE. matplotlib colours
+    # unfilled markers (x, +, 1-4, |, _) via FACECOLOR and ignores edgecolor, but
+    # the renderer passed facecolors="none" (correct only for open o/s) -> the x's
+    # vanished. They must be coloured via facecolors instead.
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    style["series"][0] = {"color": [1.0, 0.49, 0.11], "label": None,
+                          "render_as": "scatter", "marker_shape": "x",
+                          "connect": False}
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    # Some collection must carry an OPAQUE, ORANGE face (the visible x markers).
+    visible_orange = False
+    for c in ax.collections:
+        fc = c.get_facecolor()
+        for r, g, b, a in fc:
+            if a > 0 and r > 0.8 and 0.3 < g < 0.65 and b < 0.3:
+                visible_orange = True
+    assert visible_orange, "stroke-only 'x' marker has no visible coloured face"
+    plt.close(fig)
+
+
+def test_open_o_marker_stays_unfilled():
+    # Guard the fix didn't fill genuine OPEN markers: an 'o' with no marker_face
+    # keeps a transparent face (facecolors="none").
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    style["series"][0] = {"color": [0.0, 0.0, 0.0], "label": None,
+                          "render_as": "scatter", "marker_shape": "o",
+                          "connect": False}
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    # the scatter's face must be empty/transparent (open marker, no fill).
+    faces = [c.get_facecolor() for c in ax.collections]
+    assert any(len(fc) == 0 or all(rgba[3] == 0 for rgba in fc) for fc in faces), \
+        "open 'o' marker must stay unfilled"
+    plt.close(fig)
+
+
 def test_replot_skips_arrow_without_data_coords():
     # An arrow with only pixel coords (uncalibrated) is not renderable -> skipped.
     from render_restyle_prototype import _replot, plt

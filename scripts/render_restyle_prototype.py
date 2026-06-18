@@ -579,10 +579,23 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
             face = _color(st.get("marker_face"))
             edge = _color(st.get("marker_edge")) or col
             ew = st.get("marker_edge_width")
-            ax.scatter(xs, ys, s=sz, marker=mk, label=lab, zorder=2, alpha=alpha,
-                       facecolors=(face if face is not None else "none"),
-                       edgecolors=edge,
-                       linewidths=(ew * font_scale if ew else None))
+            sc_kw = dict(s=sz, marker=mk, label=lab, zorder=2, alpha=alpha,
+                         linewidths=(ew * font_scale if ew else None))
+            # Stroke-only markers (x, +, 1-4, |, _) have NO fill region: matplotlib
+            # draws their glyph with the FACE colour and ignores edgecolor. Passing
+            # facecolors="none" (correct for open o/s) makes them INVISIBLE, so
+            # colour these via facecolors instead and omit edgecolors (which would
+            # only warn). Filled markers keep face/edge as recovered.
+            try:
+                _filled = MarkerStyle(mk).is_filled()
+            except Exception:
+                _filled = True
+            if _filled:
+                sc_kw["facecolors"] = face if face is not None else "none"
+                sc_kw["edgecolors"] = edge
+            else:
+                sc_kw["facecolors"] = edge
+            ax.scatter(xs, ys, **sc_kw)
         else:
             ax.plot(xs, ys, color=col, alpha=alpha, label=lab,
                     linewidth=(st.get("linewidth") or 1.2) * font_scale,
