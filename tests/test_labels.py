@@ -740,3 +740,29 @@ def test_inline_short_labels_filtered_by_alnum_count():
 
     lbs = detect_labels(region, [curve], [span_single])
     assert lbs.legend == [], f"single-char inline label should be filtered; got {lbs.legend}"
+
+
+def test_title_rejects_centred_prose_fragment():
+    """2402.08257_p11c1: the centre filter clipped a wide body sentence above the
+    plot ("...Qi must drop rapidly to maintain...") down to its centred words
+    "drop rapidly", which were mis-promoted to the chart title. Reconstructing
+    the FULL row and prose-checking it rejects the fragment; a real centred
+    title with no surrounding prose survives."""
+    from pdf_chart2table.model import Region, TextSpan
+    from pdf_chart2table.labels import _detect_title
+
+    region = Region(bbox=(100.0, 200.0, 300.0, 400.0))  # y0=200, cx=200
+    y0, y1 = 182.0, 192.0  # one row inside the title band (170..200)
+    # Centred fragment + off-centre prose on the SAME row.
+    prose_row = [
+        TextSpan(text="Qi must", bbox=(70.0, y0, 150.0, y1), dir=(1.0, 0.0)),
+        TextSpan(text="drop rapidly,", bbox=(160.0, y0, 240.0, y1), dir=(1.0, 0.0)),
+        TextSpan(text="to maintain the resonance condition",
+                 bbox=(245.0, y0, 380.0, y1), dir=(1.0, 0.0)),
+    ]
+    assert _detect_title(region, prose_row) is None, \
+        "a centred fragment of a body-text line must not become the title"
+
+    # A genuine centred title (its whole row is the title) survives.
+    real = [TextSpan(text="GaAs sample", bbox=(150.0, y0, 250.0, y1), dir=(1.0, 0.0))]
+    assert _detect_title(region, real) == "GaAs sample"

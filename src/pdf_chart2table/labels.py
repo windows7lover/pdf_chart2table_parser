@@ -275,6 +275,22 @@ def _detect_title(region: Region, texts: list[TextSpan]) -> str | None:
         return None
     # If multiple spans share the title line, join left-to-right.
     cands.sort(key=lambda t: t.bbox[0])
+    # Reject a centred fragment of a body-text line: a real title IS its whole
+    # line (centred, short), but _detect_title's centre filter can clip the
+    # middle words out of a wide prose sentence above the plot (e.g. "Qi must
+    # drop rapidly to maintain ..." -> "drop rapidly"). Reconstruct the FULL row
+    # (all horizontal spans at this y, ignoring centre) and drop the title if
+    # that whole line reads as prose.
+    row_cy = _cy(cands[0].bbox)
+    full_row = [t for t in texts
+                if _horizontal(t) and t.text.strip()
+                and y0 - _TITLE_ABOVE <= _cy(t.bbox) <= y0
+                and abs(_cy(t.bbox) - row_cy) <= _ROW_TOL]
+    full_row.sort(key=lambda t: t.bbox[0])
+    full_line = _join_spans(full_row)
+    from .style import _is_prose_title
+    if _is_prose_title(full_line):
+        return None
     return _join_spans(cands)
 
 
