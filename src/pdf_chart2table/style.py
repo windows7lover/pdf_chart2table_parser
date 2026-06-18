@@ -1189,8 +1189,16 @@ def _is_latex_font(font_weights):
 
 
 def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
-                       title_text, tick_labels):
-    """Recover font family/sizes, legend layout, and axis-label positions."""
+                       title_text, tick_labels, legend_labels=None):
+    """Recover font family/sizes, legend layout, and axis-label positions.
+
+    ``legend_labels`` (optional) are the legend entry labels recovered directly
+    from the legend structure (``labels.detect_labels``); they are used to build
+    the legend layout ONLY when ``series_labels`` carry nothing (e.g. a colour-
+    ambiguous legend whose labels could not be assigned to series). This lets a
+    fully-readable text legend recover its box + entries instead of falling
+    through to the OCR-glyph path (which loses the frame and double-draws the
+    labels as annotations)."""
     spans, fonts = _spans_in_region(fitz_page, region_bbox)
     if not spans:
         return None
@@ -1283,8 +1291,16 @@ def recover_text_style(fitz_page, region_bbox, axis_titles, series_labels,
     # an EXACT normalized match: a short label like '3' (from '=3°') would loosely
     # match scattered tick spans ('300', '0.3') and blow the legend bbox up across
     # the whole plot (2009.07658 bug); the real legend entry matches exactly.
-    labset = [_norm(l) for l in (series_labels or []) if l]
-    orig_labels = [l for l in (series_labels or []) if l]  # parallel to labset
+    # Source labels for the legend layout: the series labels normally, but fall
+    # back to the legend's OWN recovered labels when NO series carries a label
+    # (colour-ambiguous legend -> labels never assigned to series). This keeps a
+    # readable text legend on the normal path (frame bbox + spans consumed) and
+    # off the OCR-glyph fallback.
+    _src_labels = [l for l in (series_labels or []) if l]
+    if not _src_labels and legend_labels:
+        _src_labels = [l for l in legend_labels if l and str(l).strip()]
+    labset = [_norm(l) for l in _src_labels]
+    orig_labels = list(_src_labels)  # parallel to labset
     matched, matched_labels, used = [], [], set()
     for lk, ol in zip(labset, orig_labels):
         exact = [(i, s) for i, s in enumerate(spans)
@@ -1895,11 +1911,26 @@ def build_chart_style(d: dict, page, fitz_page) -> dict:
     ttl = ttl.get("text") if isinstance(ttl, dict) else ttl
     tick_labels = [t.get("label") for t in (d.get("xticks") or [])] + \
                   [t.get("label") for t in (d.get("yticks") or [])]
+    series_labels = [s.get("label") for s in d.get("series", [])]
+    # When NO series carries a label (e.g. a colour-ambiguous legend whose entries
+    # could not be assigned to series), recover the legend's OWN labels from its
+    # structure so the text legend recovers normally (frame + entries) instead of
+    # falling through to the OCR-glyph path. Only runs in that gap, so well-
+    # labelled charts are unaffected.
+    legend_labels = None
+    if not any(series_labels):
+        try:
+            from .labels import detect_labels as _detect_labels
+            from .model import Region as _Region
+            _lbs = _detect_labels(_Region(bbox=tuple(rbbox)), page.paths, page.texts)
+            legend_labels = [e[2] for e in (_lbs.legend or [])
+                             if len(e) > 2 and e[2] and str(e[2]).strip()]
+        except Exception:
+            legend_labels = None
     text_style = recover_text_style(
         fitz_page, rbbox,
         {"x": xa.get("title"), "y": ya.get("title")},
-        [s.get("label") for s in d.get("series", [])],
-        ttl, tick_labels)
+        series_labels, ttl, tick_labels, legend_labels=legend_labels)
     # Glyph-outline / math legend: the text matcher found no entries (labels are
     # vector outlines, not selectable text). If a handle column is present, OCR
     # each row's label into an editable string and synthesise self-contained
