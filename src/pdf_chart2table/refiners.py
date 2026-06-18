@@ -78,6 +78,19 @@ _DISTINCT_RGB_GAP = 0.2
 _FIT_XSPAN_FRAC = 0.6
 
 
+# RGB spread above which a colour is "tinted" (chromatic) rather than grey/black/
+# white. Looser than ``is_saturated`` (SAT_SPREAD ~0.2) so a DARK but clearly
+# coloured series (e.g. navy 0.10/0.23/0.29, spread 0.19) still counts as a
+# distinct overlay colour; a pure grey/black connector (spread ~0) never does.
+_OVERLAY_CHROMA = 0.1
+
+
+def _is_colored(c) -> bool:
+    """True when ``c`` is chromatic (RGB spread > ``_OVERLAY_CHROMA``): a tinted
+    colour, not a neutral grey/black/white. Looser than ``is_saturated``."""
+    return c is not None and (max(c) - min(c)) > _OVERLAY_CHROMA
+
+
 def _colors_distinct(a, b) -> bool:
     """True when colours ``a`` and ``b`` differ on any channel by more than
     ``_DISTINCT_RGB_GAP`` (so red vs black is distinct, two near-identical greys
@@ -154,6 +167,30 @@ def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
     diag = max(((max(mxs) - min(mxs)) ** 2 + (max(mys) - min(mys)) ** 2) ** 0.5, 1.0)
     marker_xspan = max(mxs) - min(mxs)
 
+    # A marker series has at most ONE connector (the line joining its points).
+    # So when TWO OR MORE lines of distinct, chromatic colours -- none of them a
+    # marker colour -- each coincide ~1:1 with the SAME markers, they cannot all
+    # be that one connector: they are overlay FIT / TREND curves drawn through the
+    # shared data (e.g. a navy solid fit AND a pink dashed fit both tracing the
+    # same black scatter). Keep all such curves even at 1 vertex per marker (a
+    # sparse fit fails the per-line density floor). A single distinct-colour
+    # coincident line is still treated as a (recoloured) connector below.
+    # Membership uses a looser chromaticity test than ``is_saturated`` so a DARK
+    # but clearly tinted fit (e.g. navy) qualifies; ≥1 member must be fully
+    # saturated so two near-grey lines can never trip this (precision guard).
+    _coincident: list = []  # (rounded_color, saturated?)
+    for _s in series:
+        if _s.marker is not None:
+            continue
+        _lp = _pixels(_s)
+        if len(_lp) < 3 or not _is_colored(_s.color):
+            continue
+        if (all(_colors_distinct(_s.color, mc) for mc in marker_colors)
+                and _connector_frac(_lp, marker_pts, _COINCIDE_PX) >= _CONNECTOR_FRAC):
+            _coincident.append((_round_color(_s.color), _is_saturated(_s.color)))
+    _distinct_colors = {c for c, _ in _coincident}
+    multi_overlay = len(_distinct_colors) >= 2 and any(sat for _, sat in _coincident)
+
     kept: list[Series] = []
     reasons: list[str] = []
     for s in series:
@@ -177,12 +214,19 @@ def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
         # fits them, not because it joins them. Keep such a curve -- same
         # rationale as the straight-fit branch below, extended to curved fits.
         # The density floor keeps a sparse 1-vertex-per-marker connector dropped
-        # even when it is a distinct colour (a recoloured join line).
-        is_chromatic_fit = (
-            _is_saturated(s.color)
-            and bool(marker_colors)
+        # even when it is a distinct colour (a recoloured join line) -- UNLESS it
+        # is one of several distinct-colour overlays on the same markers
+        # (``multi_overlay``), which a lone connector can never be.
+        _distinct_from_markers = (
+            bool(marker_colors)
             and all(_colors_distinct(s.color, mc) for mc in marker_colors)
-            and len(line_pts) >= _FIT_DENSITY_RATIO * len(marker_pts)
+        )
+        is_chromatic_fit = (
+            (_is_saturated(s.color) and _distinct_from_markers
+             and len(line_pts) >= _FIT_DENSITY_RATIO * len(marker_pts))
+            # ...or one of several distinct-colour overlays on the same markers:
+            # a lone connector can never be, so keep it even when sparse / dark.
+            or (multi_overlay and _is_colored(s.color) and _distinct_from_markers)
         )
         if (frac >= _CONNECTOR_FRAC
                 and len(marker_pts) <= _CONNECTOR_MULTITRACK * len(line_pts)

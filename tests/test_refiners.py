@@ -64,6 +64,22 @@ def test_chromatic_connector_still_dropped():
     assert any("connector" in r for r in reasons)
 
 
+def test_two_distinct_color_fits_over_same_markers_kept():
+    # 2008.09734_p24c15: black triangle markers with TWO fit curves through them
+    # -- a navy solid fit and a magenta dashed fit, EACH sampled one vertex per
+    # marker (so each coincides ~1:1 with the markers and would individually look
+    # like a connector). A marker series has at most one connector, so two
+    # distinct-colour coincident lines must be overlay FITS -> keep BOTH.
+    pix = [(10, 10), (20, 25), (30, 15), (40, 35), (50, 22), (60, 18)]
+    marks = _series("^", pix, color=(0, 0, 0))
+    navy = _series(None, pix, color=(0.1, 0.23, 0.29))
+    magenta = _series(None, pix, color=(0.83, 0.27, 0.49))
+    kept, reasons = drop_spurious_lines([marks, navy, magenta])
+    assert marks in kept and navy in kept and magenta in kept, (
+        "two distinct-colour fit curves over the same markers must both be kept")
+    assert not any("connector" in r for r in reasons)
+
+
 def test_grey_straight_line_through_markers_dropped():
     # A near-grey (unsaturated) straight line through markers is NOT a chromatic
     # fit line: gridline/spine/baseline-shaped decoration -> still dropped.
