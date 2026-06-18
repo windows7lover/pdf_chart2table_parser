@@ -881,6 +881,22 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
             ax.grid(True, axis=axis, which="major", zorder=0, linestyle=gls,
                     color=gcolor, linewidth=glw, alpha=galpha)
         ax.set_axisbelow(True)
+    # Plot-spanning DASHED reference / guide lines (a zero rule, a y=+-c marker):
+    # an annotation, not a grid -- redraw at FULL fidelity (its own colour / dash,
+    # full opacity), unlike the subtle grey grid above.
+    for rl in ((g or {}).get("reference_lines") or []):
+        rcolor = _color(rl.get("color")) or "0.3"
+        rdash = rl.get("dashes")
+        rls = (0, (0.5, 1.0)) if (rdash and _dash_is_dotted(rdash)) else "--"
+        rlw = min(max(rl.get("linewidth") or 0.8, 0.6), 1.5)
+        ralpha = rl.get("alpha")
+        if rl.get("orient") == "v":
+            ax.axvline(rl["value"], zorder=0.5, linestyle=rls, color=rcolor,
+                       linewidth=rlw, alpha=ralpha)
+        else:
+            ax.axhline(rl["value"], zorder=0.5, linestyle=rls, color=rcolor,
+                       linewidth=rlw, alpha=ralpha)
+        ax.set_axisbelow(True)
     # Annotation arrows (decoration the extractor detected + removed from the
     # data). Redraw each at its recovered DATA position so the reconstruction
     # keeps the source's pointer (e.g. an arrow marking a peak), in its colour.

@@ -29,7 +29,7 @@ from . import tick_ocr as _tick_ocr
 from .arrows import detect_arrows
 from .calibrate import calibrate_panels
 from .error_bars import detect_error_bars, recover_error_bars
-from .grid import detect_grid
+from .grid import detect_grid, detect_reference_lines
 from .plot_region import detect_regions
 
 # Optional modules built in parallel; degrade gracefully if absent.
@@ -604,6 +604,26 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
                                        for px in grid.pop("y_px", [])]
                 else:
                     grid.pop("y_px", None)
+            # Plot-spanning DASHED reference / guide lines (a zero rule, a y=+-c
+            # marker): NOT a grid and NOT data, but a meaningful annotation that
+            # detect_grid drops. Match only against LABELLED ticks so a reference
+            # line picked up as an unlabelled tick does not exclude itself.
+            ref_lines = detect_reference_lines(
+                region, page.paths,
+                x_ticks=[t.pixel for t in x_axis.ticks if t.value is not None],
+                y_ticks=[t.pixel for t in y_axis.ticks if t.value is not None])
+            if ref_lines and (x_axis.calibration is not None
+                              and y_axis.calibration is not None):
+                from .calibrate import to_data as _to_data
+                kept = []
+                for rline in ref_lines:
+                    cal = (x_axis.calibration if rline["orient"] == "v"
+                           else y_axis.calibration)
+                    rline["value"] = float(_to_data(cal, rline.pop("coord_px")))
+                    kept.append(rline)
+                if grid is None:
+                    grid = {}
+                grid["reference_lines"] = kept
 
             rl = region_labels[k - 1]
             legend_bbox = rl[5] if len(rl) > 5 else None

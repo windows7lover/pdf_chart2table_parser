@@ -169,3 +169,92 @@ def detect_grid(region: Region, paths: list[Path],
                     if s.get("stroke_alpha") is not None)
     grid["alpha"] = alphas[len(alphas) // 2] if alphas else None
     return grid
+
+
+# --------------------------------------------------------------------------
+# Reference / guide lines (NOT grid, NOT data)
+# --------------------------------------------------------------------------
+#
+# A constant-coordinate, plot-spanning, DASHED line that is either (a) drawn in a
+# SATURATED colour, or (b) sits at a coordinate that is NOT a labelled tick, is a
+# reference / guide annotation (a zero rule, a y=+-1/6 marker), not a background
+# grid and not a data series. detect_grid drops it -- a chromatic line trips the
+# _is_chromatic whole-grid reject, and a dashed line just inside the border is
+# mis-read as a spine -- so this scan recovers it separately and the renderer
+# redraws it at full fidelity (its own colour / dash), unlike the subtle grey grid.
+_REF_SPAN = 0.8           # reference line must cover >= 80% of the plot span
+                          # (a PARTIAL-span dashed segment is more likely a data
+                          # fragment / a hysteresis-jump arrow than a guide rule)
+_REF_MAX_LINES = 2        # an isolated rule / a symmetric pair; more = a (minor) grid
+_REF_TICK_TOL = 3.0       # "on a tick" within this many points
+
+
+def _ref_lines_one(segs, orient, dim, lo_b, hi_b, labelled_ticks):
+    """Reference-line clusters for one orientation: full-span DASHED lines that
+    are NOT exactly on a border, are dashed, and are EITHER chromatic OR not on a
+    labelled tick. Returns list of (coord, members)."""
+    items = [s for s in segs if s["orient"] == orient and s["dashes"]]
+    out = []
+    for coord, members in _cluster_by_coord(items):
+        # Skip the actual plot border (a dashed frame is not a reference line).
+        if abs(coord - lo_b) <= 1.5 or abs(coord - hi_b) <= 1.5:
+            continue
+        if not (lo_b < coord < hi_b):
+            continue
+        cov = _union_fraction([(m["lo"], m["hi"]) for m in members], dim)
+        if cov < _REF_SPAN:
+            continue
+        on_tick = any(abs(coord - t) <= _REF_TICK_TOL for t in labelled_ticks)
+        chromatic = any(_is_chromatic(m["stroke"]) for m in members)
+        if chromatic or not on_tick:
+            out.append((coord, members))
+    return out
+
+
+def detect_reference_lines(region: Region, paths: list[Path],
+                           x_ticks: list[float] | None = None,
+                           y_ticks: list[float] | None = None):
+    """Recover plot-spanning DASHED reference / guide lines (see module note).
+
+    ``x_ticks``/``y_ticks`` must be the LABELLED major tick pixel positions (a
+    reference line picked up as an unlabelled tick must not be excluded by
+    itself). Returns a list of dicts in PIXEL coordinates::
+
+        [{"orient": "h"|"v", "coord_px": float, "color": [r,g,b]|None,
+          "dashes": str|None, "linewidth": float|None, "alpha": float|None}, ...]
+
+    or ``None`` if there is nothing to recover. Precision guards: a set of more
+    than ``_REF_MAX_LINES`` such lines in one orientation is a (minor) grid, not a
+    reference rule, so it is left to detect_grid / dropped."""
+    x0, y0, x1, y1 = region.bbox
+    w, h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0:
+        return None
+    segs = axis_segments(paths, region)
+    out = []
+    for orient, dim, lo_b, hi_b, ticks in (
+        ("v", h, x0, x1, x_ticks or []),
+        ("h", w, y0, y1, y_ticks or []),
+    ):
+        lines = _ref_lines_one(segs, orient, dim, lo_b, hi_b, ticks)
+        # A regular repeating set is a grid, not isolated reference rules.
+        if len(lines) > _REF_MAX_LINES:
+            continue
+        for coord, members in lines:
+            def _key(s):
+                st = tuple(round(v, 3) for v in s["stroke"]) if s["stroke"] else None
+                return (st, round(s["width"] or 0, 3), s["dashes"])
+            counts = Counter(_key(s) for s in members)
+            best = max(counts, key=lambda k: counts[k])
+            ref = next(s for s in members if _key(s) == best)
+            alphas = sorted(s["stroke_alpha"] for s in members
+                            if s.get("stroke_alpha") is not None)
+            out.append({
+                "orient": orient,
+                "coord_px": coord,
+                "color": list(ref["stroke"]) if ref["stroke"] else None,
+                "dashes": ref["dashes"],
+                "linewidth": ref["width"],
+                "alpha": alphas[len(alphas) // 2] if alphas else None,
+            })
+    return out or None

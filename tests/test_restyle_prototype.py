@@ -176,6 +176,36 @@ def test_replot_draws_annotation_arrow_when_present():
     plt.close(fig)
 
 
+def test_replot_draws_reference_line_at_its_colour():
+    # A recovered DASHED reference line is redrawn as an axhline/axvline in its
+    # OWN colour (not the subtle grey grid), at its data coordinate.
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    style["grid"] = {"reference_lines": [
+        {"orient": "h", "value": 0.0, "color": [0.0, 0.5, 0.0],
+         "dashes": "[ 4.94 2.14 ] 0", "linewidth": 1.3, "alpha": None}]}
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    greens = [ln for ln in ax.get_lines()
+              if tuple(round(c, 2) for c in ln.get_color()[:3]) == (0.0, 0.5, 0.0)
+              and ln.get_linestyle() in ("--", "dashed")]
+    assert len(greens) == 1
+    assert abs(greens[0].get_ydata()[0]) < 1e-9
+    plt.close(fig)
+
+
+def test_replot_draws_no_reference_line_when_absent():
+    # No reference_lines -> no extra dashed coloured rule (no spurious lines).
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    greens = [ln for ln in ax.get_lines()
+              if tuple(round(c, 2) for c in ln.get_color()[:3]) == (0.0, 0.5, 0.0)]
+    assert greens == []
+    plt.close(fig)
+
+
 def test_replot_draws_no_arrow_when_absent():
     # No arrows key / empty list -> no arrow patches (no spurious arrows).
     from render_restyle_prototype import _replot, plt

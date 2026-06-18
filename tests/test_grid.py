@@ -131,3 +131,71 @@ def test_fragmented_grid_unioned_at_tick():
     paths = frags(150) + frags(210)
     grid = detect_grid(_region(paths), paths, y_ticks=[150.0, 210.0])
     assert grid and grid.get("y")
+
+
+# --------------------------------------------------------------------------
+# Reference / guide lines (grid.detect_reference_lines)
+# --------------------------------------------------------------------------
+# A plot-spanning DASHED line that is chromatic OR not on a labelled tick is a
+# reference / guide annotation (a zero rule, a y=+-c marker) that detect_grid
+# drops -- recover it separately. A regular grid must NOT become reference lines.
+
+from pdf_chart2table.grid import detect_reference_lines
+
+
+def test_chromatic_dashed_line_at_tick_is_reference_line():
+    # 2210.11827-style: a GREEN dashed zero-rule sits ON the y=0 tick, so
+    # detect_grid drops it (chromatic), but it is a reference line.
+    paths = [_line(110, 200, 290, 200, stroke=(0.0, 0.5, 0.0),
+                   dashes="[ 4.94 2.14 ] 0")]
+    assert detect_grid(_region(paths), paths, y_ticks=[200.0]) is None
+    refs = detect_reference_lines(_region(paths), paths, y_ticks=[200.0])
+    assert refs and len(refs) == 1
+    assert refs[0]["orient"] == "h" and refs[0]["color"] == [0.0, 0.5, 0.0]
+    assert refs[0]["dashes"] == "[ 4.94 2.14 ] 0"
+
+
+def test_grey_dashed_lines_off_ticks_are_reference_lines():
+    # 2104.00653-style: a symmetric pair of grey dashed +-c rules at NON-tick
+    # positions (ticks at 150/200/250) must be recovered as reference lines.
+    paths = [_line(110, y, 290, y, stroke=(0.15, 0.15, 0.15), dashes="[ 1.98 1.98 ] 0")
+             for y in (170, 230)]
+    refs = detect_reference_lines(_region(paths), paths,
+                                  y_ticks=[150.0, 200.0, 250.0])
+    assert refs and len(refs) == 2
+    assert all(r["orient"] == "h" for r in refs)
+
+
+def test_solid_grid_at_ticks_not_reference_lines():
+    # Precision guard: a regular SOLID grey grid sitting on the ticks stays a grid
+    # (no dashes -> not a reference line at all).
+    ys = (140, 180, 220, 260)
+    paths = [_line(110, y, 290, y, stroke=(0.8, 0.8, 0.8)) for y in ys]
+    assert detect_reference_lines(_region(paths), paths, y_ticks=list(ys)) is None
+
+
+def test_grey_dashed_grid_on_ticks_not_reference_lines():
+    # Precision guard: grey DASHED lines that all sit on ticks are a (dashed) grid,
+    # not isolated reference rules -> not recovered as reference lines.
+    ys = (140, 180, 220, 260)
+    paths = [_line(110, y, 290, y, stroke=(0.6, 0.6, 0.6), dashes="[ 1.0 1.0 ] 0")
+             for y in ys]
+    assert detect_reference_lines(_region(paths), paths, y_ticks=list(ys)) is None
+
+
+def test_many_grey_dashed_offtick_lines_are_a_grid_not_references():
+    # Precision guard: a regular repeating set (a minor grid) of grey dashed lines
+    # off the labelled ticks is a grid, not reference rules -> rejected by count.
+    ys = (130, 150, 170, 190, 210, 230)  # 6 lines, none on labelled ticks
+    paths = [_line(110, y, 290, y, stroke=(0.7, 0.7, 0.7), dashes="[ 1.0 1.0 ] 0")
+             for y in ys]
+    assert detect_reference_lines(_region(paths), paths,
+                                  y_ticks=[140.0, 220.0]) is None
+
+
+def test_partial_span_dashed_segment_not_reference_line():
+    # A PARTIAL-span dashed segment (a hysteresis-jump arrow / data fragment,
+    # 2005.03896-style) covers < 80% of the span -> not a reference line.
+    paths = [_line(200, 150, 200, 230, stroke=(0.0, 0.0, 1.0),
+                   dashes="[ 1.8 1.8 ] 0")]  # vertical, ~40% of 200 height
+    assert detect_reference_lines(_region(paths), paths, x_ticks=[160.0, 240.0]) is None
