@@ -25,7 +25,7 @@ from render_restyle_prototype import (  # noqa: E402
 from pdf_chart2table.model import Path  # noqa: E402
 from pdf_chart2table.style import (  # noqa: E402
     _classify_face, _content_scale, _is_symbol_font, _label_runs,
-    _text_rotation, _title_span_match)
+    _segments_thread_markers, _text_rotation, _title_span_match)
 
 
 def _path(points, fill=None, stroke=(0.0, 0.0, 0.0)):
@@ -738,6 +738,37 @@ def test_connect_true_for_coarsely_sampled_connector():
     pts = [(float(x), 2.0 * x) for x in range(0, 41, 4)]         # markers
     connector = _path([(0.0, 0.0), (40.0, 80.0)])               # 2 vertices only
     assert _threads_markers([connector], pts, tol=2.0)
+
+
+# --- Bug B': connecting line drawn as one OPEN segment per adjacent marker pair -
+# 2201.08243_p38c1: a line+marker series whose join is many 2-vertex segments
+# hopping marker-to-marker, so no single path threads the whole series and the
+# big-path _threads_markers misses it. The connector is recovered from the
+# COLLECTION of short open segments that bridge distinct markers.
+def test_segments_connect_when_short_segments_bridge_markers():
+    pts = [(float(x), 10.0 + 0.5 * x) for x in range(0, 48, 4)]  # 12 markers
+    # one open 2-vertex segment between each adjacent pair (the drawn line)
+    segs = [_path([pts[i], pts[i + 1]]) for i in range(len(pts) - 1)]
+    assert _segments_thread_markers(segs, pts, tol=4.0)
+
+
+def test_segments_no_connect_for_open_marker_glyph_strokes():
+    # An open 'x'/'+' marker scatter with NO line: each glyph is two crossing
+    # strokes that both sit on ONE marker (bridge nothing) -> must stay scatter.
+    pts = [(float(x), 20.0) for x in range(0, 48, 4)]  # 12 markers
+    segs = []
+    for cx, cy in pts:  # two crossing strokes per marker, centred on it
+        segs.append(_path([(cx - 1.5, cy - 1.5), (cx + 1.5, cy + 1.5)]))
+        segs.append(_path([(cx - 1.5, cy + 1.5), (cx + 1.5, cy - 1.5)]))
+    assert not _segments_thread_markers(segs, pts, tol=4.0)
+
+
+def test_segments_no_connect_for_single_stray_segment():
+    # A lone same-colour open segment is not enough to fabricate a connection
+    # (mirrors the #66 sparse-scatter discipline: precision over recall).
+    pts = [(float(x), 20.0) for x in range(0, 48, 4)]
+    stray = _path([pts[0], pts[1]])
+    assert not _segments_thread_markers([stray], pts, tol=4.0)
 
 
 # --- Bug C: a single mis-extracted tick must not collapse the view -------------

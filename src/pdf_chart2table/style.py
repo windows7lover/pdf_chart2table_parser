@@ -323,6 +323,51 @@ def _connector_fits_all(paths, pts, tol, frac=0.8):
     return False
 
 
+def _segments_thread_markers(segs, pts, tol, frac=0.8):
+    """Does a connecting LINE drawn as many SHORT same-colour segments thread the
+    markers ``pts``?  Some plots draw the join between adjacent markers as one
+    open segment EACH (e.g. 2201.08243_p38c1: a ``<``-marker series whose line is
+    12 two-vertex segments hopping marker-to-marker), so no single path threads
+    the whole series and ``_threads_markers`` over the long ``big`` paths misses
+    it.  Here the connector is recognised from the COLLECTION: True when the union
+    of the segments' vertices lies within ``tol`` of >= ``frac`` of the markers
+    AND there are at least two such segments bridging the points (so a single
+    stray segment cannot fabricate a connection).
+
+    ``segs`` are the candidate connector paths (already filtered to short, OPEN,
+    non-marker strokes by the caller).  Each counted segment must BRIDGE two
+    DISTINCT markers (its two endpoints fall on different marker points) — this is
+    what makes it a join, and what separates it from an OPEN marker glyph (e.g. an
+    ``x``/``+`` whose two strokes both sit on ONE marker, so they bridge nothing
+    and a pure scatter is not falsely connected).  This stays distinct from the
+    #66 spurious case (a single straight connector / fit path the original never
+    drew through the markers): that is ONE path handled by ``_threads_markers``;
+    it is not a set of many short segments each hopping between two markers."""
+    if len(segs) < 2 or not pts:
+        return False
+
+    def _nearest(qx, qy):
+        # index of the marker nearest (qx,qy) within tol, else None
+        best_i, best_d = None, tol * tol
+        for i, (sx, sy) in enumerate(pts):
+            d = (sx - qx) ** 2 + (sy - qy) ** 2
+            if d <= best_d:
+                best_i, best_d = i, d
+        return best_i
+
+    bridged: set[int] = set()
+    n_bridges = 0
+    for s in segs:
+        a, b = s.points[0], s.points[-1]
+        ia, ib = _nearest(*a), _nearest(*b)
+        if ia is not None and ib is not None and ia != ib:
+            bridged.add(ia)
+            bridged.add(ib)
+            n_bridges += 1
+    need = max(2, int(round(frac * len(pts))))
+    return n_bridges >= 2 and len(bridged) >= need
+
+
 def recover_tick_style(paths, region_bbox):
     """Recover tick appearance from the original: direction (in/out), whether the
     top/right axes carry ticks, and whether minor ticks are present."""
@@ -656,6 +701,26 @@ def match_series_styles(paths, region_bbox, series):
         # merely grazes a filled-circle scatter (2006.09651_p5c1/p5c2) is rejected.
         tol = max(2.0, 0.5 * (msize or 0.0))
         connect = _connector_fits_all(big, pts, tol)
+        if not connect:
+            # The connecting line may instead be drawn as one short OPEN segment
+            # between each adjacent marker pair (so no single path threads the
+            # whole series). Recover it from the COLLECTION of short same-colour
+            # open strokes whose endpoints hop marker-to-marker (2201.08243_p38c1),
+            # distinct from filled/closed marker glyphs and from a single stray
+            # connector. A slightly looser tol matches segment endpoints to marker
+            # centres; the >=2-bridge requirement keeps pure scatter unconnected.
+            seg_tol = max(4.0, 1.5 * (_median(smalls) or 0.0))
+
+            def _is_open_seg(p):
+                pp = p.points
+                if p.fill is not None or len(pp) < 2 or len(pp) > 3:
+                    return False
+                if abs(pp[0][0] - pp[-1][0]) < 0.5 and abs(pp[0][1] - pp[-1][1]) < 0.5:
+                    return False  # closed (a marker outline), not a join segment
+                sz = max(p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1])
+                return sz <= 0.15 * diag
+            segs = [p for p in cands if _is_open_seg(p)]
+            connect = _segments_thread_markers(segs, pts, seg_tol)
         # Transparency: the traced path's stroke alpha (fall back to a same-colour
         # marker's fill alpha). None when fully opaque -> renderer leaves it solid.
         alpha = best.stroke_alpha
