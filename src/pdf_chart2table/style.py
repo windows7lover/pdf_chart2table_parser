@@ -1868,6 +1868,139 @@ def recover_spans(paths, region_bbox, x_calib, y_calib) -> list[dict]:
     return spans
 
 
+# A curve-bounded confidence/uncertainty BAND is a filled fill_between polygon:
+# its outline runs forward along the upper envelope (x increasing) then back
+# along the lower envelope (x decreasing). It is recovered as a translucent
+# shaded overlay, NOT as data points. Precision guards (band, not blob):
+_BAND_MIN_WIDTH_FRAC = 0.4   # the fill must span a substantial x-range
+_BAND_MIN_AREA_FRAC = 0.3    # ENCLOSE a real region (not a thin out-and-back curve)
+_BAND_MAX_ALPHA = 0.6        # translucent: a CI overlay, not an opaque area/violin fill
+_BAND_MIN_VERTS = 8          # a curve-following envelope, not a few-point rectangle
+_BAND_RESAMPLE_N = 60        # x-grid resolution for the recovered envelopes
+
+
+def _shoelace_area_frac(pts) -> float:
+    """Polygon area (shoelace) over bbox area: ~1 for a solid filled region,
+    ~0 for a thin curve whose outline traces out and back along itself."""
+    n = len(pts)
+    if n < 3:
+        return 0.0
+    a = 0.0
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        a += x1 * y2 - x2 * y1
+    area = abs(a) * 0.5
+    xs = [x for x, _ in pts]
+    ys = [y for _, y in pts]
+    bw = (max(xs) - min(xs)) or 1.0
+    bh = (max(ys) - min(ys)) or 1.0
+    return area / (bw * bh)
+
+
+def _split_envelopes(pts):
+    """Split a fill_between polygon into its upper and lower envelopes.
+
+    A fill_between outline runs forward along one boundary (x increasing) to the
+    rightmost vertex, then back along the other (x decreasing). Split at the
+    x-extreme into the two monotone-in-x runs. Returns ``(fwd, back)`` lists of
+    (x, y) or ``None`` when the path is not a clean forward/back envelope (e.g. a
+    closed blob, marker, or self-crossing shape) -- a precision guard."""
+    n = len(pts)
+    if n < _BAND_MIN_VERTS:
+        return None
+    xs = [x for x, _ in pts]
+    i_max = max(range(n), key=lambda i: xs[i])
+    i_min = min(range(n), key=lambda i: xs[i])
+    # The leftmost vertex should sit near a path end and the rightmost near the
+    # middle: forward run start..i_max, return run i_max..end. Require i_max to be
+    # an interior turning point with usable runs on both sides.
+    if i_max < 2 or i_max > n - 3:
+        return None
+    fwd = pts[: i_max + 1]
+    back = pts[i_max:]
+    # Both runs must be (near-)monotone in x in opposite directions -- otherwise
+    # the polygon is not a simple band (reject self-crossing / multi-lobe shapes).
+    def _mono_frac(run, sign):
+        steps = [run[k + 1][0] - run[k][0] for k in range(len(run) - 1)]
+        if not steps:
+            return 0.0
+        ok = sum(1 for s in steps if s * sign >= -1e-6)
+        return ok / len(steps)
+    if _mono_frac(fwd, +1) < 0.9 or _mono_frac(back, -1) < 0.9:
+        return None
+    return fwd, back
+
+
+def recover_bands(paths, region_bbox, x_calib, y_calib) -> list[dict]:
+    """Recover FILLED curve-bounded confidence/uncertainty bands (fill_between).
+
+    A genuine band is a translucent, non-white FILLED polygon that (a) spans a
+    substantial x-range, (b) encloses a real area (not a thin out-and-back curve
+    outline), (c) has a curve-following many-vertex outline (not a few-point
+    axvspan rectangle, which ``recover_spans`` already handles), and (d) splits
+    cleanly into an upper + lower envelope (a fill_between shape, not an arbitrary
+    closed blob, marker glyph, or legend swatch). The translucency guard
+    (``fill_alpha <= _BAND_MAX_ALPHA``) keeps opaque area/violin fills -- handled
+    elsewhere as data -- from being turned into overlay bands.
+
+    Returns ``[{x[], y_lo[], y_hi[], color, alpha}]`` in DATA coords (resampled to
+    a common x-grid for fill_between), empty when no safe band is found.
+    """
+    if x_calib is None or y_calib is None:
+        return []
+    from .calibrate import to_data_array
+    rx0, ry0, rx1, ry1 = region_bbox
+    pw, ph = rx1 - rx0, ry1 - ry0
+    if pw <= 0 or ph <= 0:
+        return []
+    bands: list[dict] = []
+    for p in paths:
+        if p.fill is None or min(p.fill[:3]) >= 0.9:
+            continue
+        # Translucent only: an opaque fill is a solid area/violin (data), not a
+        # CI overlay. A None alpha (fully opaque) is also rejected here.
+        if p.fill_alpha is None or p.fill_alpha > _BAND_MAX_ALPHA:
+            continue
+        bx0, by0, bx1, by1 = p.bbox
+        if (bx1 < rx0 - 2 or bx0 > rx1 + 2 or by1 < ry0 - 2 or by0 > ry1 + 2):
+            continue
+        if (bx1 - bx0) < _BAND_MIN_WIDTH_FRAC * pw:
+            continue
+        if _shoelace_area_frac(p.points) < _BAND_MIN_AREA_FRAC:
+            continue
+        env = _split_envelopes(p.points)
+        if env is None:
+            continue
+        fwd, back = env
+        # Resample both envelopes onto a common x-grid (in pixel space), then map
+        # to data coords. fill_between needs aligned x; the two envelopes share an
+        # x-range but sample it at different vertices.
+        xs_all = [x for x, _ in p.points]
+        gx0, gx1 = min(xs_all), max(xs_all)
+        grid = np.linspace(gx0, gx1, _BAND_RESAMPLE_N)
+        fwd_x = np.array([x for x, _ in fwd]); fwd_y = np.array([y for _, y in fwd])
+        bk_x = np.array([x for x, _ in back][::-1]); bk_y = np.array([y for _, y in back][::-1])
+        # np.interp requires increasing x.
+        if fwd_x[0] > fwd_x[-1]:
+            fwd_x, fwd_y = fwd_x[::-1], fwd_y[::-1]
+        ya = np.interp(grid, fwd_x, fwd_y)
+        yb = np.interp(grid, bk_x, bk_y)
+        gx = to_data_array(x_calib, grid)
+        da = to_data_array(y_calib, ya)
+        db = to_data_array(y_calib, yb)
+        y_lo = np.minimum(da, db)
+        y_hi = np.maximum(da, db)
+        bands.append({
+            "x": [round(float(v), 6) for v in gx],
+            "y_lo": [round(float(v), 6) for v in y_lo],
+            "y_hi": [round(float(v), 6) for v in y_hi],
+            "color": [round(c, 4) for c in p.fill[:3]],
+            "alpha": round(p.fill_alpha, 3),
+        })
+    return bands
+
+
 # --------------------------------------------------------------------------
 # Entry point: assemble the full top-level style block at parse time
 # --------------------------------------------------------------------------
@@ -2054,4 +2187,9 @@ def build_chart_style(d: dict, page, fitz_page) -> dict:
                           xa.get("calibration"), ya.get("calibration"))
     if spans:
         style["spans"] = spans
+    # Curve-bounded confidence/uncertainty bands (filled fill_between regions).
+    bands = recover_bands(page.paths, plot_box,
+                          xa.get("calibration"), ya.get("calibration"))
+    if bands:
+        style["bands"] = bands
     return style

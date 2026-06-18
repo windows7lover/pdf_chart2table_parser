@@ -541,6 +541,14 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
             ax.axvspan(lo, hi, color=scol, alpha=salpha, zorder=0, linewidth=0)
         elif sp.get("axis") == "y":
             ax.axhspan(lo, hi, color=scol, alpha=salpha, zorder=0, linewidth=0)
+    # Curve-bounded confidence/uncertainty bands (recovered fill_between regions),
+    # drawn below the data (zorder 0.5) so the boundary curves still sit on top.
+    for bd in (style.get("bands") or []):
+        bx, blo, bhi = bd.get("x"), bd.get("y_lo"), bd.get("y_hi")
+        if not bx or not blo or not bhi:
+            continue
+        ax.fill_between(bx, blo, bhi, color=_color(bd.get("color")),
+                        alpha=bd.get("alpha"), zorder=0.5, linewidth=0)
     has_label = False
     for ser, st in zip(record["series"], style["series"]):
         pts = ser["points"]

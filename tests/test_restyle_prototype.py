@@ -206,6 +206,34 @@ def test_replot_draws_no_reference_line_when_absent():
     plt.close(fig)
 
 
+def test_replot_draws_confidence_band_fill():
+    # 2309.03591_p9c3: a recovered curve-bounded band is drawn as a fill_between
+    # PolyCollection in its own colour (the boundary curves alone are not enough).
+    from matplotlib.collections import PolyCollection
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    style["bands"] = [{"x": [0.0, 0.5, 1.0], "y_lo": [0.1, 0.2, 0.3],
+                       "y_hi": [0.4, 0.5, 0.6], "color": [0.78, 0.25, 0.49],
+                       "alpha": 0.15}]
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    polys = [c for c in ax.collections if isinstance(c, PolyCollection)
+             and tuple(round(v, 2) for v in c.get_facecolor()[0][:3]) == (0.78, 0.25, 0.49)]
+    assert len(polys) == 1
+    plt.close(fig)
+
+
+def test_replot_draws_no_band_when_absent():
+    # No bands key -> no fill_between PolyCollection (no spurious shading).
+    from matplotlib.collections import PolyCollection
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert [c for c in ax.collections if isinstance(c, PolyCollection)] == []
+    plt.close(fig)
+
+
 def test_replot_draws_no_arrow_when_absent():
     # No arrows key / empty list -> no arrow patches (no spurious arrows).
     from render_restyle_prototype import _replot, plt
