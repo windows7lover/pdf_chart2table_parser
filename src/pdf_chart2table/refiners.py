@@ -441,6 +441,17 @@ def refine_dropped_curve(
                 continue
         if refine_region_overcapture(pts, plot_box):
             continue
+        # A polyline whose vertices hug a plot-box EDGE (or trace the rectangular
+        # frame, including its perpendicular tick-comb excursions) is the axis
+        # spine/frame, not data. classify_lines already drops it via the same
+        # discriminator; the refiner must not resurrect it (2503.12775_p12c4: the
+        # top+bottom spines with their tick combs leaked back in as a near-black
+        # "series", drawing a spurious box overlay). _is_spine_line requires the
+        # BULK of vertices on the edge AND a near-full-edge span, so a genuine
+        # flat data curve a few % off the edge is kept.
+        from .lines import _clip_to_box, _is_spine_line
+        if plot_box is not None and _is_spine_line(_clip_to_box(pts, plot_box), plot_box):
+            continue
         if _overlaps_existing(pts, existing_pixels):
             continue
         if refine_decoration(pts, marker_pixels, diag):

@@ -287,6 +287,32 @@ def test_decoration_not_promoted():
     assert refine_decoration(straight, [], diag=140.0) is False  # no markers -> keep
 
 
+def test_spine_comb_not_promoted():
+    # A near-black polyline that hugs a plot-box EDGE with short perpendicular
+    # tick excursions (the axis spine + its tick comb, drawn/joined as one path)
+    # must NOT be promoted as a data series (2503.12775_p12c4: the top+bottom
+    # spines leaked back in as a spurious near-black "series").
+    comb = []
+    for i in range(22):
+        x = 100.0 - i * (100.0 / 21.0)
+        comb.append((x, 0.0))   # on the bottom spine (y == ylo)
+        comb.append((x, 2.0))   # short downward tick excursion (~2% of height)
+    out, reasons = refine_dropped_curve(
+        [], [_path(comb, stroke=(0.14, 0.12, 0.13))], _region(), _axes())
+    assert out == [] and reasons == [], "axis spine + tick comb must not be promoted"
+
+
+def test_flat_curve_along_edge_promoted():
+    # A genuine near-flat data curve sitting a few % off the bottom edge (a real
+    # baseline series, not the spine) must still be promoted -- the spine guard
+    # must not over-fire on data that merely runs near an edge.
+    flat = [(10 + i * 2.0, 6.0) for i in range(40)]  # y=6 == 6% above the edge
+    out, reasons = refine_dropped_curve(
+        [], [_path(flat, stroke=(0.14, 0.12, 0.13))], _region(), _axes())
+    assert len(out) == 1 and any("promoted" in r for r in reasons), \
+        "a genuine flat curve a few % off the edge must be kept"
+
+
 def test_dropped_curve_out_of_range_rejected():
     # A short residual or one that calibrates out of range -> REJECT.
     # (calibration slack is small; place the path so its data lands far below 0.)
