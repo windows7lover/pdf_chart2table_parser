@@ -50,9 +50,11 @@ FIELDS = [
 
 # Out-of-scope types contribute to out_of_scope_max / primary_type. dense_noise
 # is a quality flag (in-scope line chart that is noisy), so it is NOT counted
-# toward out_of_scope_max.
+# toward out_of_scope_max. dual_axis is now IN-SCOPE (user decision 2026-06-18):
+# it is still scored and stored as an informational column, but does NOT count
+# toward out_of_scope_max / primary_type / auto-rejection.
 OUT_OF_SCOPE_TYPES = [
-    "raster_image", "dual_axis", "multipanel", "histogram_bar", "violin",
+    "raster_image", "multipanel", "histogram_bar", "violin",
     "cartoon_inset",
 ]
 
@@ -529,8 +531,10 @@ def process_page(task):
             cart = score_cartoon_inset(region, paths, pidx)
             dense = score_dense_noise(region, paths, pidx, n_points)
 
+            # dual_axis is scored for the informational column but is NOT in
+            # ``scores`` -> excluded from out_of_scope_max / primary_type.
             scores = {
-                "raster_image": raster, "dual_axis": dual, "multipanel": multi,
+                "raster_image": raster, "multipanel": multi,
                 "histogram_bar": hist, "violin": viol, "cartoon_inset": cart,
             }
             oos_max = max(scores.values()) if scores else 0.0
