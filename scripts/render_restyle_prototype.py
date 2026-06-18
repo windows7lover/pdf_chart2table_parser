@@ -529,6 +529,16 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
     # rounded ends instead of matplotlib's default projecting/butt caps.
     _capkw = ({"solid_capstyle": "round", "dash_capstyle": "round"}
               if style.get("round_caps") else {})
+    # Recovered axes background (a full-plot-box fill behind grid + data). Applied
+    # as the axes facecolor so it sits below everything (grid is zorder 0, data
+    # above). White/near-white is never recovered, so this only fires for a real
+    # coloured background (e.g. a gray panel).
+    afc = style.get("axes_facecolor")
+    if afc:
+        fc = _color(afc.get("color"))
+        if fc is not None:
+            fa = afc.get("alpha")
+            ax.set_facecolor(fc if fa is None else (*fc, fa))
     # Axis-spanning highlight bands (recovered axvspan/axhspan shaded regions),
     # drawn first at zorder 0 so they sit BELOW the grid lines and data.
     for sp in (style.get("spans") or []):

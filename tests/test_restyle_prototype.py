@@ -246,6 +246,29 @@ def test_replot_draws_confidence_band_fill():
     plt.close(fig)
 
 
+def test_replot_applies_axes_facecolor():
+    # 2310.06834_p4c1: a recovered gray axes background is applied via
+    # ax.set_facecolor so it sits behind the grid + data.
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    style["axes_facecolor"] = {"color": [0.83, 0.83, 0.83], "alpha": None}
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert tuple(round(v, 2) for v in ax.get_facecolor()[:3]) == (0.83, 0.83, 0.83)
+    plt.close(fig)
+
+
+def test_replot_default_axes_facecolor_when_absent():
+    # No axes_facecolor key -> the axes keeps matplotlib's default white face
+    # (no spurious tint).
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert tuple(round(v, 2) for v in ax.get_facecolor()[:3]) == (1.0, 1.0, 1.0)
+    plt.close(fig)
+
+
 def test_replot_draws_no_band_when_absent():
     # No bands key -> no fill_between PolyCollection (no spurious shading).
     from matplotlib.collections import PolyCollection

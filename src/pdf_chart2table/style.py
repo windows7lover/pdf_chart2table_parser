@@ -1927,6 +1927,60 @@ def recover_spans(paths, region_bbox, x_calib, y_calib) -> list[dict]:
     return spans
 
 
+# The axes BACKGROUND is a filled rectangle that covers ~the whole plot interior
+# behind the grid + data (matplotlib's ax.set_facecolor). To recover it WITHOUT
+# stealing data fills or partial highlight bands, require the fill to cover BOTH
+# axes near-fully -- a band covers one axis fully but is narrow in the other, a
+# violin/area fill is bounded by data, and the white plot patch is excluded by
+# the non-white guard. The plot box (rbbox) is padded with tick-label margin, so
+# the recovered facecolor rect sits slightly inside it; the height threshold is
+# below the width threshold to tolerate that vertical padding.
+_AXBG_MIN_WIDTH_FRAC = 0.9    # fill width / plot box width >= this
+_AXBG_MIN_HEIGHT_FRAC = 0.8   # fill height / plot box height >= this (margin slack)
+
+
+def recover_axes_facecolor(paths, region_bbox) -> dict | None:
+    """Recover a non-white axes background fill covering ~the full plot interior.
+
+    Returns ``{color: [r,g,b], alpha}`` for the single fill that spans nearly the
+    full plot box on BOTH axes (the discriminator vs partial highlight bands /
+    data fills), or ``None`` when no such fill exists (the common case). White /
+    near-white fills (the default plot patch) are excluded.
+    """
+    rx0, ry0, rx1, ry1 = region_bbox
+    pw, ph = rx1 - rx0, ry1 - ry0
+    if pw <= 0 or ph <= 0:
+        return None
+    best = None  # (area, fill, alpha) -- keep the largest qualifying fill
+    for p in paths:
+        if p.fill is None:
+            continue
+        if min(p.fill[:3]) >= 0.9:        # white / near-white -> default patch
+            continue
+        if _distinct_points(p) > _SPAN_MAX_POINTS:  # a simple rectangle, not a curve
+            continue
+        bx0, by0, bx1, by1 = p.bbox
+        bw, bh = bx1 - bx0, by1 - by0
+        if bw < _AXBG_MIN_WIDTH_FRAC * pw or bh < _AXBG_MIN_HEIGHT_FRAC * ph:
+            continue                       # not full-box on BOTH axes
+        # Centred in the plot box: a background sits symmetrically inside it,
+        # rejecting a full-width/tall band shoved against one edge.
+        if abs((bx0 - rx0) - (rx1 - bx1)) > 0.1 * pw:
+            continue
+        if abs((by0 - ry0) - (ry1 - by1)) > 0.1 * ph:
+            continue
+        area = bw * bh
+        if best is None or area > best[0]:
+            best = (area, p.fill, p.fill_alpha)
+    if best is None:
+        return None
+    _, fill, alpha = best
+    return {
+        "color": [round(c, 4) for c in fill[:3]],
+        "alpha": (round(alpha, 3) if alpha is not None else None),
+    }
+
+
 # A curve-bounded confidence/uncertainty BAND is a filled fill_between polygon:
 # its outline runs forward along the upper envelope (x increasing) then back
 # along the lower envelope (x decreasing). It is recovered as a translucent
@@ -2242,6 +2296,12 @@ def build_chart_style(d: dict, page, fitz_page) -> dict:
     px, py = xa.get("pixel_range"), ya.get("pixel_range")
     plot_box = ((px[0], py[0], px[1], py[1])
                 if (px and py and None not in px and None not in py) else rbbox)
+    # Axes background: a non-white fill covering ~the full plot box interior,
+    # applied below grid + data (renderer ax.set_facecolor). Recovered before
+    # spans so a centred full-box fill is the background, not a (rejected) band.
+    axes_facecolor = recover_axes_facecolor(page.paths, plot_box)
+    if axes_facecolor:
+        style["axes_facecolor"] = axes_facecolor
     spans = recover_spans(page.paths, plot_box,
                           xa.get("calibration"), ya.get("calibration"))
     if spans:
