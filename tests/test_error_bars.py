@@ -123,6 +123,65 @@ def test_recover_error_bars_returns_whisker_geometry():
         assert abs((bot - top) - 30.0) < 1.0  # whisker spans cy-15..cy+15
 
 
+def _small_marker(cx, cy, *, fill, half=0.55):
+    # A ~1px filled+stroked scatter glyph (matplotlib renders small markers this
+    # way, e.g. 2010.14886_p15c1). Reproduces the size that the old
+    # _MARK_MIN_SIDE=2.0 filter wrongly rejected, leaving error bars unrecovered.
+    return _square(cx, cy, fill=fill, half=half)
+
+
+def test_tiny_markers_with_centred_whiskers_recovered():
+    # Tiny (~1px) markers, each with a vertical whisker centred on it. The
+    # whiskers must be flagged (the marker-size relaxation must let detection see
+    # the markers) and recovered with the right geometry.
+    from pdf_chart2table.error_bars import recover_error_bars
+    marker_xs = [130.0, 180.0, 230.0]
+    marker_ys = [250.0, 200.0, 160.0]
+    paths = []
+    for cx, cy in zip(marker_xs, marker_ys):
+        paths.append(_small_marker(cx, cy, fill=NAVY))
+    whisker_idx = []
+    for cx, cy in zip(marker_xs, marker_ys):
+        whisker_idx.append(len(paths))
+        paths.append(_vseg(cx, cy - 12, cy + 12, stroke=NAVY))  # centred on cy
+    idx, whiskers = recover_error_bars(_region(len(paths)), paths)
+    assert set(whisker_idx) <= idx
+    assert len(whiskers) == 3
+    for (cx, top, bot), my in zip(sorted(whiskers), marker_ys):
+        assert abs((top + bot) / 2.0 - my) < 1.0   # centred on its marker
+        assert abs((bot - top) - 24.0) < 1.0        # spans cy-12..cy+12
+
+
+def test_vertical_gridline_through_markers_not_recovered():
+    # A tall vertical GRIDLINE passing through markers must NOT yield a whisker:
+    # the markers sit ANYWHERE along it, not at its midpoint, so it fails the
+    # centring guard. (Each marker has a different x along the line here.)
+    from pdf_chart2table.error_bars import recover_error_bars
+    # Three vertical gridlines (x=150/200/250), each spanning the plot, with a
+    # marker sitting NEAR THE TOP of each line (not its midpoint). >= _MIN_WHISKERS
+    # verticals exist, so only the centring guard prevents recovery.
+    paths = []
+    for gx in (150.0, 200.0, 250.0):
+        paths.append(_small_marker(gx, 130.0, fill=NAVY))     # near top of line
+        paths.append(_vseg(gx, 120.0, 250.0, stroke=NAVY))    # tall gridline
+    idx, whiskers = recover_error_bars(_region(len(paths)), paths)
+    assert whiskers == []
+
+
+def test_steep_curve_segments_through_markers_not_recovered():
+    # A steep near-vertical DATA curve: each short segment connects two adjacent
+    # markers, so a marker sits at the segment's END, never its midpoint. Such
+    # segments must fail the centring guard (no fabricated error bars).
+    from pdf_chart2table.error_bars import recover_error_bars
+    marker_ys = [250.0, 230.0, 210.0, 190.0]
+    paths = [_small_marker(150.0, y, fill=NAVY) for y in marker_ys]
+    # connecting segments (endpoints land on the markers, midpoints between them)
+    for y0, y1 in zip(marker_ys, marker_ys[1:]):
+        paths.append(_vseg(150.0, y0, y1, stroke=NAVY))
+    idx, whiskers = recover_error_bars(_region(len(paths)), paths)
+    assert whiskers == []
+
+
 def test_attach_error_bars_sets_y_err():
     # _attach_error_bars maps a whisker to the marker point at its x and sets a
     # symmetric y_err = half the whisker height in DATA units (identity calib).

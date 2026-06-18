@@ -30,8 +30,19 @@ _THIN_PX = 1.2
 _X_TOL = 2.0
 # A marker glyph is small relative to the plot diagonal and roughly square.
 _MARK_MAX_FRAC = 0.15
-_MARK_MIN_SIDE = 2.0
+# Markers can be tiny (matplotlib renders a small scatter glyph as a ~1px
+# filled+stroked circle/triangle, e.g. 2010.14886_p15c1 has ~0.9x1.5px glyphs);
+# require only that the glyph is not a sub-pixel speck so true marker series are
+# still detected. The centring + colour + count guards keep this precise.
+_MARK_MIN_SIDE = 0.8
 _MARK_MIN_ASPECT = 0.5
+# A genuine error-bar whisker is CENTRED on its datum: the marker lies near the
+# whisker's midpoint, so the bar extends both above and below the point. The
+# marker's y may sit at most this fraction of the whisker's half-height away from
+# the midpoint. This is the precision guard that separates a real error bar from
+# a gridline / connector / steep data curve that merely passes vertically
+# through a marker (those are not centred on the point).
+_CENTRE_FRAC = 0.5
 # Need at least this many anchored whiskers before treating the navy strokes as
 # error bars (one isolated vertical stroke could be genuine data).
 _MIN_WHISKERS = 2
@@ -78,12 +89,23 @@ def detect_error_bars(region: Region, paths: list[Path]) -> set[int]:
     markers = _marker_centroids(region, paths, diag)
     if not markers:
         return set()
-    mark_xs = [(mx, col) for mx, _my, col in markers]
 
     def _anchored(cx: float, color) -> bool:
         # x near a marker centroid AND drawn in that marker's colour.
         return any(abs(cx - mx) <= _X_TOL and (color is None or color == mc)
-                   for mx, mc in mark_xs)
+                   for mx, _my, mc in markers)
+
+    def _centred_whisker(cx: float, top: float, bot: float, color) -> bool:
+        # An error-bar whisker is centred on a marker that shares its x AND
+        # colour: the marker's y sits near the whisker's midpoint, so the bar
+        # extends both above and below the datum. A gridline / connector / steep
+        # curve passing vertically through a marker fails this (the marker is not
+        # at the segment's midpoint).
+        mid = (top + bot) / 2.0
+        half = abs(bot - top) / 2.0 or 1.0
+        return any(abs(cx - mx) <= _X_TOL and (color is None or color == mc)
+                   and abs(my - mid) <= _CENTRE_FRAC * half
+                   for mx, my, mc in markers)
 
     whiskers: set[int] = set()
     caps: set[int] = set()
@@ -99,9 +121,9 @@ def detect_error_bars(region: Region, paths: list[Path]) -> set[int]:
         if len(p.points) > 3:
             continue
         if bw <= _THIN_PX and _THIN_PX < bh <= max_len:
-            # near-vertical stroke: a whisker
+            # near-vertical stroke: a whisker (must be CENTRED on its marker)
             cx = (b[0] + b[2]) / 2.0
-            if _anchored(cx, color):
+            if _centred_whisker(cx, b[1], b[3], color):
                 whiskers.add(i)
         elif bh <= _THIN_PX and _THIN_PX < bw <= max_len:
             # near-horizontal stroke: a cap (its x-centre is on the marker)
