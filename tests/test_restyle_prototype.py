@@ -51,6 +51,29 @@ def test_triangle_orientation_up_vs_down():
     assert _marker_shape(down) == "v"
 
 
+def test_triangle_orientation_left_vs_right():
+    # 2004.01004_p6c3: the V_ds-after triangle is a RIGHT-pointing '▷' (apex on the
+    # right, vertical base on the left) and was rendered as '^'. A vertical base
+    # (two corners sharing x) means the apex points left/right, not up/down.
+    right = _path([(10.0, 5.0), (0.0, 0.0), (0.0, 10.0)], fill=None)   # apex right
+    left = _path([(0.0, 5.0), (10.0, 0.0), (10.0, 10.0)], fill=None)   # apex left
+    assert _marker_shape(right) == ">"
+    assert _marker_shape(left) == "<"
+
+
+def test_asterisk_glyph_maps_to_tuple_marker():
+    # 2004.01004_p6c3: the before-correction series are 8-spoke ASTERISKS (four
+    # straight strokes crossing at the centre, unfilled). matplotlib '*' is a
+    # FILLED 5-point star -- wrong. Map to the tuple marker (numsides, 2, 0).
+    pts = [(0.0, 5.0), (10.0, 5.0),      # horizontal
+           (5.0, 0.0), (5.0, 10.0),      # vertical
+           (0.0, 0.0), (10.0, 10.0),     # one diagonal
+           (0.0, 10.0), (10.0, 0.0)]     # other diagonal
+    aster = Path(points=pts, stroke=(0, 0, 0), fill=None, width=1.0,
+                 dashes=None, closed=False, bbox=(0.0, 0.0, 10.0, 10.0))
+    assert _marker_shape(aster) == (8, 2, 0)
+
+
 def test_thin_vs_fat_diamond():
     # 2004.01004_p6c3: a tall narrow rhombus ('d') was rendered as the square 'D'.
     # A regular diamond has a ~square bbox; a thin diamond is clearly taller than

@@ -123,6 +123,33 @@ def _star_spikes(pts):
     return spikes, amp
 
 
+def _asterisk_spokes(p):
+    """Number of radiating spokes of an asterisk glyph (already shape-classified as
+    an asterisk by ``primitives._is_asterisk``). The flattened outline visits each
+    spoke TIP -- a vertex near the bbox boundary -- so the spoke count is the number
+    of DISTINCT angular directions of those tips from the centre. Tips within ~25°
+    of each other are the same spoke (the pen returns to centre between strokes, so
+    each tip may appear once). Returns the count (e.g. 8 for four crossing strokes:
+    vertical + horizontal + two diagonals)."""
+    import math
+    pts = list(dict.fromkeys(p.points))
+    cx = sum(x for x, _ in pts) / len(pts)
+    cy = sum(y for _, y in pts) / len(pts)
+    angs = sorted(math.degrees(math.atan2(y - cy, x - cx)) % 360.0
+                  for x, y in pts
+                  if (x - cx) ** 2 + (y - cy) ** 2 > 0)
+    if not angs:
+        return 0
+    spokes = 1
+    for i in range(1, len(angs)):
+        if angs[i] - angs[i - 1] > 25.0:
+            spokes += 1
+    # Wrap-around: the last and first tip may be the same spoke straddling 0/360.
+    if spokes > 1 and (angs[0] + 360.0 - angs[-1]) <= 25.0:
+        spokes -= 1
+    return spokes
+
+
 def _marker_shape(p):
     """Classify a small marker glyph by its outline geometry (overrides the
     extractor's often-wrong marker field): disk 'o', star '*', square 's',
@@ -141,13 +168,35 @@ def _marker_shape(p):
     if shp == "plus":
         return "+"
     if shp == "triangle":
-        # Distinguish up (△ '^') from down (▽ 'v') by where the glyph's mass sits:
-        # a filled up-triangle is widest at the BOTTOM so its centroid is in the
-        # lower half (larger PDF y, which points down); a down-triangle's centroid
-        # sits in the upper half (2504.02903_p11c3: CdTe '▽' was rendered '△').
-        ys = [y for _, y in pts]
+        # A triangle marker points one of four ways. The TWO base corners share an
+        # edge of the bbox (a flat side); the lone APEX sits on the opposite edge.
+        # Decide the axis the flat base lies along, then the apex direction along
+        # the perpendicular axis. PDF y points DOWN, so a glyph whose centroid sits
+        # in the lower half (larger y) is widest at the bottom -> apex UP.
+        uniq = list(dict.fromkeys(pts))[:3]
+        xs = [x for x, _ in uniq]
+        ys = [y for _, y in uniq]
+        xlo, xhi = min(xs), max(xs)
         ylo, yhi = min(ys), max(ys)
-        yc = sum(ys) / len(ys)
+        bw, bh = xhi - xlo, yhi - ylo
+        # The base is the pair of corners sharing a coordinate. If two corners
+        # share an x (a VERTICAL base) the apex points left/right; if two share a
+        # y (a HORIZONTAL base) it points up/down. Use the centroid offset from the
+        # bbox centre along each axis: it leans toward the apex (away from the
+        # 2-corner base), and the larger lean names the pointing axis.
+        if bw > 0 and bh > 0:
+            cx = sum(xs) / 3.0
+            cy = sum(ys) / 3.0
+            dx = (cx - 0.5 * (xlo + xhi)) / bw    # >0 -> centroid right of centre
+            dy = (cy - 0.5 * (ylo + yhi)) / bh
+            if abs(dx) > abs(dy):
+                # centroid leans toward the 2-corner base; apex is the opposite way
+                # (2004.01004_p6c3: V_ds-after right-triangle '▷' was rendered '^').
+                return "<" if dx > 0 else ">"
+        # HORIZONTAL base (or ambiguous): up vs down. Centroid in the lower half
+        # (larger PDF y) -> widest at the bottom -> apex UP (2504.02903_p11c3:
+        # CdTe '▽' was rendered '△').
+        yc = sum(y for _, y in pts) / len(pts)
         if yhi > ylo and (yc - ylo) / (yhi - ylo) < 0.5:
             return "v"      # mass toward the top -> apex points DOWN
         return "^"          # 3-corner glyph: was falling through to 's' (square)
@@ -161,6 +210,16 @@ def _marker_shape(p):
         if bw > 0 and bh / bw >= 1.25:
             return "d"      # taller-than-wide rhombus -> thin diamond
         return "D"          # 45°-rotated square
+    # An ASTERISK ('*' as drawn by MATLAB/many tools) is an OPEN glyph of several
+    # straight strokes radiating through a common centre, with NO enclosed fill --
+    # geometrically distinct from matplotlib's '*' (a FILLED 5-point star). Map it
+    # to the tuple marker (numsides, 2, 0), matplotlib's unfilled asterisk, so the
+    # spoke count is faithful (2004.01004_p6c3: the before-correction series are
+    # 8-spoke asterisks rendered as filled stars). shape_of lumps it under "star".
+    if shp == "star" and p.fill is None and primitives._is_asterisk(p):
+        n_spokes = _asterisk_spokes(p)
+        if n_spokes >= 3:
+            return (n_spokes, 2, 0)
     cx = sum(x for x, _ in pts) / len(pts)
     cy = sum(y for _, y in pts) / len(pts)
     rs = [((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 for x, y in pts]
