@@ -562,6 +562,47 @@ def test_incoherent_legend_skipped_to_protect_data():
     plt.close(fig)
 
 
+def test_legend_entry_with_no_handle_still_draws_line_sample():
+    # 2501.12648_p16c3 / 2304.13404_p8c2: per-entry swatch detection failed
+    # (handle=None) for legend entries whose labels MATCH plotted series, so the
+    # legend showed floating labels with no line sample. Because legend.entries
+    # only ever holds labels that matched a series, a handle=None entry whose
+    # label matches a series must synthesise a line handle from that series.
+    from matplotlib.lines import Line2D
+    from render_restyle_prototype import _draw_legend_manual, plt
+    record, style = _legend_record_style(None)
+    txt = style["text"]
+    L = lambda x: x                       # noqa: E731 (test stub)
+    _fs = lambda v: v or 8.0              # noqa: E731
+    # both entries lost their swatch (handle=None) but their labels (A, B) match
+    # the two plotted series -> both must still draw a line handle.
+    for ent in txt["legend"]["entries"]:
+        ent["handle"] = None
+    fig, ax = plt.subplots()
+    assert _draw_legend_manual(ax, record, style, txt, L, _fs) is True
+    # one Line2D handle per matched entry, in each series' colour.
+    lines = [ln for ln in ax.lines if len(ln.get_xdata()) == 2]
+    assert len(lines) >= 2, "no line handles synthesised for handle=None entries"
+    colors = {tuple(round(c, 3) for c in ln.get_color()[:3]) for ln in lines}
+    assert (0.0, 0.0, 0.0) in colors and (0.8, 0.1, 0.1) in colors
+    plt.close(fig)
+
+    # An entry whose label matches NO series (the inline-label case reaching the
+    # drawer) stays text-only: no synthesised line handle for it.
+    record2, style2 = _legend_record_style(None)
+    txt2 = style2["text"]
+    txt2["legend"]["entries"] = [
+        {"label": "930 ps", "x_frac": 0.2, "y_frac": 0.9, "size": 8.0,
+         "handle": None},
+        {"label": "B", "x_frac": 0.2, "y_frac": 0.8, "size": 8.0,
+         "handle": None}]  # only "B" matches a series
+    fig, ax = plt.subplots()
+    assert _draw_legend_manual(ax, record2, style2, txt2, L, _fs) is True
+    lines = [ln for ln in ax.lines if len(ln.get_xdata()) == 2]
+    assert len(lines) == 1, "unmatched inline label should not draw a handle"
+    plt.close(fig)
+
+
 def test_text_rotation_recovers_diagonal_and_snaps_horizontal():
     # 2006.14257_p10c1: curve labels drawn diagonally (~24 deg up-right). PDF y is
     # DOWN, so an up-right baseline is dir=(cos, -sin) -> positive matplotlib deg.

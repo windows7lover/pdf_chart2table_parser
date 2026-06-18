@@ -464,7 +464,17 @@ def _draw_legend_manual(ax, record, style, txt, L, _fs, font_scale=1.0):
         handle = e.get("handle", "?")
         hd = handle if isinstance(handle, dict) else {}
         col = _color(hd.get("color")) or (_color(st.get("color")) if st else "black")
-        if handle is not None:
+        # Every entry in ``legend.entries`` is a label that MATCHED a plotted
+        # series (the legend matcher only emits matched labels; genuine inline
+        # curve-labels go to ``annotations`` and never reach this drawer). So a
+        # ``handle is None`` here means per-entry swatch detection FAILED for a
+        # real legend entry, not that it's an inline label -- if the label still
+        # matches a series ``st``, synthesise the handle from ``st`` (position
+        # via the same just-left-of-label fallback below) so the entry keeps its
+        # line/marker sample. Only an entry with no matching series stays
+        # text-only.
+        draw_handle = (handle is not None) or (st is not None)
+        if draw_handle:
             is_scatter = (st.get("render_as") == "scatter") if st else False
             draws_line = (hd.get("line_len_frac") is not None) \
                 or (st is not None and ((not is_scatter) or st.get("connect")))
