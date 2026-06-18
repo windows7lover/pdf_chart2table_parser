@@ -659,8 +659,15 @@ def match_series_styles(paths, region_bbox, series):
             frag_ls = _classify_fragment_dash(cands, best.width)
             if frag_ls is not None:
                 ls = frag_ls
+        # Upper bound on a MARKER glyph's bbox: small in absolute px, but a large
+        # chart can draw genuinely big markers (2203.02869_p24c1: red 5-point stars
+        # are 15.7px, above the historical 12px cap, so every star was excluded ->
+        # mshape=None and the series rendered as tiny dots). Scale the cap with the
+        # region while keeping it well below the marker-vs-curve threshold
+        # (0.15*diag at L627) so a traced curve is never admitted as a marker.
+        _msz_cap = max(12.0, 0.06 * diag)
         small_paths = [p for p in cands
-                       if 0.2 < max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) <= 12.0]
+                       if 0.2 < max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) <= _msz_cap]
         smalls = [max(p.bbox[2]-p.bbox[0], p.bbox[3]-p.bbox[1]) for p in small_paths]
         # Restrict the shape/size/face/edge vote to THIS series' OWN marker glyphs:
         # a glyph whose centre sits on one of the series' points. Same-colour paths

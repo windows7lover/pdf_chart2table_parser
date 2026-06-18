@@ -47,6 +47,36 @@ def test_markersize_from_glyphs_not_stray_segments():
     assert ms is not None and ms >= 4.0, f"markersize dragged down: {ms}"
 
 
+def _star(cx, cy, r_out=8.0, r_in=3.2, n=5):
+    # A filled 5-point star glyph (10 alternating tips), ~16px across.
+    verts = []
+    for k in range(n * 2):
+        ang = math.pi * k / n - math.pi / 2
+        rad = r_out if k % 2 == 0 else r_in
+        verts.append((cx + rad * math.cos(ang), cy + rad * math.sin(ang)))
+    verts.append(verts[0])
+    xs = [x for x, _ in verts]
+    ys = [y for _, y in verts]
+    return Path(points=verts, stroke=(1.0, 0.0, 0.0), fill=(1.0, 0.0, 0.0),
+                width=1.0, dashes=None, closed=True,
+                bbox=(min(xs), min(ys), max(xs), max(ys)))
+
+
+def test_large_star_marker_recovered_not_dropped():
+    # 2203.02869_p24c1: red 5-point stars are ~15.7px across -- above the historical
+    # 12px small_paths cap, so every star was excluded and the series rendered as
+    # tiny dots (marker_shape=None). The cap scales with the region so genuine large
+    # markers are admitted while staying below the marker-vs-curve threshold.
+    region = (0.0, 0.0, 320.0, 320.0)  # large chart -> large diag
+    centres = [(40.0 + 30 * i, 160.0) for i in range(8)]
+    glyphs = [_star(cx, cy) for cx, cy in centres]
+    series = [{"color": [1.0, 0.0, 0.0],
+               "points": [{"x_px": cx, "y_px": cy} for cx, cy in centres]}]
+    styles, _ = match_series_styles(glyphs, region, series)
+    assert styles[0].get("marker_shape") == "*", styles[0].get("marker_shape")
+    assert (styles[0].get("markersize") or 0) > 12.0
+
+
 def test_open_marker_majority_stays_open():
     # 2503.07760_p4c1: a mostly-OPEN series (many fill=None rings) with a couple of
     # incidental FILLED glyphs (e.g. a filled legend sample) must stay open --
