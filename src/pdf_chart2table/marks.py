@@ -598,6 +598,38 @@ def _is_data_mark(
     return True
 
 
+# Two stroke-only marker groups (fill=None) with DIFFERENT saturated stroke
+# colours at near-identical positions are DISTINCT series, not a fill+outline
+# duplicate: e.g. four x-marker curves for η=0.5/1.0/1.5/2.0 meV whose markers
+# nearly coincide because the η variation is tiny (black/blue/red/GREEN). Colour
+# is the series discriminator and must not be collapsed away by the duplicate
+# merge. Stroke colours count as "different" beyond this summed-RGB distance.
+#
+# This guard is deliberately narrow: it fires ONLY when BOTH groups are
+# fill-less coloured outlines. The genuine duplicate case is a FILLED blob plus a
+# separate stroked OUTLINE — there exactly one group carries a fill, so the guard
+# does not block it (the blob+different-edge-colour outline of one glyph is still
+# merged, e.g. a red disc with a black square edge).
+_DUP_STROKE_TOL = 0.15
+
+
+def _coincident_distinct_outlines(a: SeriesMarks, b: SeriesMarks) -> bool:
+    """True when ``a`` and ``b`` are two DIFFERENT-colour stroke-only glyphs.
+
+    Both must be fill-less (``fill is None``) with a saturated stroke colour, and
+    their stroke colours must differ by more than ``_DUP_STROKE_TOL``. Such a pair
+    is two distinct marker series whose glyphs merely coincide in position — never
+    a filled-blob + outline rendering of one glyph — so the duplicate merge must
+    keep them apart."""
+    if a.fill is not None or b.fill is not None:
+        return False
+    ca = _round_color(a.stroke)
+    cb = _round_color(b.stroke)
+    if ca is None or cb is None:
+        return False
+    return sum(abs(x - y) for x, y in zip(ca, cb)) > _DUP_STROKE_TOL
+
+
 def _same_positions(a: SeriesMarks, b: SeriesMarks) -> bool:
     """True if two groups mark the SAME points (same count, every mark of one
     within ``_DUP_POS_TOL`` of a distinct mark of the other) -- a filled glyph
@@ -663,7 +695,12 @@ def _merge_duplicate_series(groups: list[SeriesMarks]) -> list[SeriesMarks]:
     renders as the single real glyph (see ``_coalesce_duplicate``)."""
     kept: list[SeriesMarks] = []
     for sm in groups:
-        dup_of = next((k for k in kept if _same_positions(sm, k)), None)
+        dup_of = next(
+            (k for k in kept
+             if not _coincident_distinct_outlines(sm, k)
+             and _same_positions(sm, k)),
+            None,
+        )
         if dup_of is not None:
             _coalesce_duplicate(dup_of, sm)
             continue

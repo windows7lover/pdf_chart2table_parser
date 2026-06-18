@@ -980,6 +980,30 @@ def test_small_cross_markers_recognised_not_rejected():
     assert len(series[0].marks) == 6
 
 
+def test_coincident_distinct_colour_crosses_kept_as_separate_series():
+    """Regression (2312.03841_p11c2): four ``×`` marker series in DIFFERENT
+    colours (η=0.5/1.0/1.5/2.0 meV -> black/blue/red/green) whose markers nearly
+    coincide because the η variation is tiny. The duplicate merge matched groups
+    by POSITION alone, so the green (last-drawn) series collapsed into a
+    coincident other-colour group and the green series vanished. Colour is the
+    series discriminator: all four distinct-colour stroke-only glyph series must
+    survive even when their positions overlap."""
+    colours = [(0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
+    paths = []
+    # All four series share the SAME 6 x-positions (perfectly coincident).
+    bases = [(130 + 25 * i, 200 - 8 * i) for i in range(6)]
+    for col in colours:
+        for cx, cy in bases:
+            paths.append(_cross_glyph(cx, cy, stroke=col, half=0.7))
+    region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
+                    path_indices=list(range(len(paths))), text_indices=[])
+    series = classify_marks(region, paths, [])
+    assert len(series) == 4, f"expected 4 distinct-colour series, got {len(series)}"
+    got = {s.stroke for s in series}
+    assert got == set(colours)
+    assert all(len(s.marks) == 6 for s in series)
+
+
 def test_small_open_square_markers_recognised():
     """Small open (unfilled) square glyphs form one 's' marker series."""
     region = Region(bbox=(100.0, 100.0, 300.0, 300.0),
