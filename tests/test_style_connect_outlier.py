@@ -104,3 +104,27 @@ def test_sparse_scatter_with_multiple_off_paths_not_connected():
     assert styles[0].get("connect") is False, (
         "two long same-colour paths that both miss the markers must not pool into a "
         "spurious connection")
+
+
+def test_union_connector_ignores_tiny_series_threaded_by_sibling():
+    # 2005.03896_p4c1: a spurious 3-point group sits on a SAME-COLOUR sibling's
+    # long curve. The union (multi-piece) connector must NOT connect such a tiny
+    # group via the sibling's line (cross-talk) -- a split curve is dense, so the
+    # union path only legitimately connects a many-point series.
+    from pdf_chart2table.style import _union_connector_fits_all
+    from pdf_chart2table.model import Path as _P
+
+    def _line(p0, p1, n=200):
+        return _P(points=[(p0[0] + (p1[0]-p0[0])*k/(n-1), p0[1] + (p1[1]-p0[1])*k/(n-1))
+                          for k in range(n)],
+                  stroke=(0, 0, 1), fill=None, width=1.0, dashes=None, closed=False,
+                  bbox=(min(p0[0], p1[0]), min(p0[1], p1[1]), max(p0[0], p1[0]), max(p0[1], p1[1])))
+    # two long pieces of one curve along y=x
+    pieces = [_line((0, 0), (50, 50)), _line((50, 50), (100, 100))]
+    # a tiny 3-point group lying ON that curve
+    tiny = [(20.0, 20.0), (21.0, 21.0), (22.0, 22.0)]
+    assert not _union_connector_fits_all(pieces, tiny, tol=2.0), \
+        "a 3-point group threaded by a sibling curve must not union-connect"
+    # a dense many-point series ON the pieces DOES union-connect
+    dense = [(float(x), float(x)) for x in range(0, 100, 4)]  # 25 points
+    assert _union_connector_fits_all(pieces, dense, tol=2.0)

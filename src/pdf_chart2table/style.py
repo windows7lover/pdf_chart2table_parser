@@ -390,6 +390,12 @@ def _connector_fits_all(paths, pts, tol, frac=0.8):
     return False
 
 
+# Minimum markers for the UNION (multi-piece) connector: a split curve is dense,
+# so pooling pieces may only connect a many-point series -- this blocks a tiny
+# stray group from connecting via a same-colour sibling's long line (cross-talk).
+_UNION_MIN_PTS = 8
+
+
 def _union_connector_fits_all(paths, pts, tol, frac=0.8):
     """Like :func:`_connector_fits_all` but the connector is the UNION of several
     same-colour "big" paths, not one single path.
@@ -413,8 +419,15 @@ def _union_connector_fits_all(paths, pts, tol, frac=0.8):
     union distance to most markers stays large and the frac/outlier tests fail.
     Likewise a sibling-line grazing a filled scatter (2006.09651) leaves those
     markers > ``tol`` off every piece, and a lone off-line marker (2504.21746) stays
-    beyond the outlier bound -- both still reject."""
-    if len(paths) < 2 or not pts:
+    beyond the outlier bound -- both still reject.
+
+    Guarded to series with enough markers (``_UNION_MIN_PTS``): a curve split into
+    several long pieces is necessarily DENSE, so pooling can only legitimately
+    connect a many-point series. A TINY series (e.g. a stray 3-point fragment)
+    must not be "connected" just because a SAME-COLOUR SIBLING series' long line
+    happens to pass near its points (cross-talk: 2005.03896_p4c1 -- a spurious
+    3-point blue group threaded by the real 417-point blue curve)."""
+    if len(paths) < 2 or len(pts) < _UNION_MIN_PTS:
         return False
     need = max(2, int(round(frac * len(pts))))
     tol2 = tol * tol
