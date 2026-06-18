@@ -108,6 +108,55 @@ def test_chromatic_dense_fit_curve_over_scatter_kept():
     assert not any("connector" in r for r in reasons)
 
 
+def _dashed(pix, color):
+    s = _series(None, pix, color=color)
+    s.dashes = "dashed"
+    return s
+
+
+def test_same_colour_dashed_fit_line_kept():
+    # 2102.07375_p9c1: red 3D-sphere markers + a red DASHED trend line through
+    # them (and likewise for blue). The dashed fit shares its markers' colour, so
+    # the chromatic-fit exception (which requires a colour distinct from the
+    # markers) does NOT keep it -- yet it is genuine data, not a same-colour
+    # overlay. The dash signal distinguishes it: a dashed straight line that is
+    # NOT a connector and spans the marker x-range is a fit/trend curve -> KEEP.
+    marks = _series("o", [(10, 12), (40, 30), (70, 18), (100, 36)],
+                    color=(1.0, 0.0, 0.0))
+    fit = _dashed([(8 + i, 5 + 0.3 * i) for i in range(95)], color=(1.0, 0.0, 0.0))
+    kept, reasons = drop_spurious_lines([marks, fit])
+    assert marks in kept, "the scatter series must be kept"
+    assert fit in kept, "a same-colour dashed fit line spanning the data must be kept"
+    assert fit.dashes == "dashed"
+    assert not any("straight" in r for r in reasons)
+
+
+def test_same_colour_solid_overlay_still_dropped():
+    # Negative: a SOLID straight line in the markers' own colour (no dash) is a
+    # same-colour overlay / connector decoration, NOT a fit -> still dropped. The
+    # dash is the signal; without it the line stays decoration.
+    marks = _series("s", [(10, 12), (40, 30), (70, 18), (100, 36)],
+                    color=(1.0, 0.0, 0.0))
+    solid = _series(None, [(8 + i, 5 + 0.3 * i) for i in range(95)],
+                    color=(1.0, 0.0, 0.0))
+    kept, reasons = drop_spurious_lines([marks, solid])
+    assert solid not in kept, "a solid same-colour straight overlay must be dropped"
+    assert any("straight" in r for r in reasons)
+
+
+def test_scatter_cloud_does_not_spawn_dashed_line():
+    # Negative: a pure scatter cloud (markers only, no line series) must NOT yield
+    # any line series -- the refiner only filters existing lines, never fabricates
+    # one. (Line fabrication lives upstream in lines.py; the noise-cloud guard
+    # there rejects multivalued clouds.) Guards that the dashed-fit keep clause
+    # cannot resurrect decoration from a marker-only region.
+    marks = _series("o", [(10, 12), (25, 40), (40, 8), (55, 33), (70, 21)],
+                    color=(0.0, 0.0, 1.0))
+    kept, reasons = drop_spurious_lines([marks])
+    assert kept == [marks]
+    assert all(s.marker is not None for s in kept)
+
+
 def test_multitrack_connector_kept():
     # Two marker trajectories in one colour (markers ~= 2x the line's vertices):
     # the line is a DISTINCT series, not a 1:1 connector -> keep (multitrack guard).

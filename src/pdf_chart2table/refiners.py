@@ -66,6 +66,16 @@ _STRAIGHT_MIN_SPAN = 0.3
 # same-colour overlay / connector) and is dropped as before. Spines / gridlines /
 # error-bars never reach here (they are filtered as non-data in classify_lines).
 _DISTINCT_RGB_GAP = 0.2
+# A DASHED straight line is an intentional FIT / TREND / guide curve drawn THROUGH
+# the data (a dashed least-squares trend over its own scatter is common -- e.g. a
+# red dashed fit over red 3D-sphere markers). It is KEPT even when it shares its
+# markers' colour, provided it is NOT a connector (its vertices do not sit on the
+# markers -- already established before this branch) and it spans most of the
+# marker x-range (a real fit covers the data extent; a short same-colour stub does
+# not). A SOLID same-colour straight line is still decoration (a connector /
+# overlay drawn on top of the markers) and is dropped as before. The dash IS the
+# signal: matplotlib's default connector is solid, a fit/guide is dashed.
+_FIT_XSPAN_FRAC = 0.6
 
 
 def _colors_distinct(a, b) -> bool:
@@ -142,6 +152,7 @@ def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
     mxs = [x for x, _ in marker_pts]
     mys = [y for _, y in marker_pts]
     diag = max(((max(mxs) - min(mxs)) ** 2 + (max(mys) - min(mys)) ** 2) ** 0.5, 1.0)
+    marker_xspan = max(mxs) - min(mxs)
 
     kept: list[Series] = []
     reasons: list[str] = []
@@ -186,6 +197,16 @@ def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
             # overlay) and is dropped.
             if (_is_saturated(s.color)
                     and all(_colors_distinct(s.color, mc) for mc in marker_colors)):
+                kept.append(s)
+                continue
+            # A DASHED straight line is an intentional fit / trend / guide curve,
+            # not a same-colour connector (matplotlib draws connectors solid). Keep
+            # it even when it shares its markers' colour, provided it is NOT a
+            # connector (its vertices are off the markers -- guaranteed here since
+            # the connector branch above did not fire) and it spans most of the
+            # marker x-range (a real fit covers the data; a short stub does not).
+            if (s.dashes is not None
+                    and (max(xs) - min(xs)) >= _FIT_XSPAN_FRAC * marker_xspan):
                 kept.append(s)
                 continue
             reasons.append("dropped straight reference/fit line (R^2>=0.997)")
