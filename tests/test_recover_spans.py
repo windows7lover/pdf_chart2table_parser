@@ -73,3 +73,17 @@ def test_no_spans_without_calibration():
     band = _rect(240.0, 50.0, 290.0, 250.0, (0.0, 1.0, 1.0), alpha=0.6)
     assert recover_spans([band], PLOT, None, YCAL) == []
     assert recover_spans([band], PLOT, XCAL, None) == []
+
+
+def test_duplicate_identical_bands_deduplicated():
+    # 2502.15531_p22c3: a highlight band drawn as several stacked identical
+    # rectangles must be recovered ONCE (rendering duplicates compounds their
+    # translucency and darkens the band vs the original).
+    band = _rect(240.0, 50.0, 290.0, 250.0, (0.53, 0.81, 0.98), alpha=0.2)
+    dup = _rect(240.0, 50.0, 290.0, 250.0, (0.53, 0.81, 0.98), alpha=0.2)
+    spans = recover_spans([band, dup], PLOT, XCAL, YCAL)
+    assert len(spans) == 1, "identical stacked bands must dedup to one"
+    # two DIFFERENT bands are both kept
+    other = _rect(120.0, 50.0, 150.0, 250.0, (0.53, 0.81, 0.98), alpha=0.2)
+    spans2 = recover_spans([band, dup, other], PLOT, XCAL, YCAL)
+    assert len(spans2) == 2

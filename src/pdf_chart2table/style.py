@@ -1986,7 +1986,17 @@ def recover_spans(paths, region_bbox, x_calib, y_calib) -> list[dict]:
             "color": [round(c, 4) for c in p.fill[:3]],
             "alpha": (round(p.fill_alpha, 3) if p.fill_alpha is not None else None),
         })
-    return spans
+    # Deduplicate identical bands: a highlight band is often drawn as several
+    # stacked identical rectangles (2502.15531_p22c3 emits each band twice).
+    # Rendering the duplicates compounds translucency and darkens the band vs the
+    # original; keep one per (axis, lo, hi, colour, alpha).
+    _seen, _uniq = set(), []
+    for s in spans:
+        key = (s["axis"], s["lo"], s["hi"], tuple(s["color"]), s["alpha"])
+        if key not in _seen:
+            _seen.add(key)
+            _uniq.append(s)
+    return _uniq
 
 
 # The axes BACKGROUND is a filled rectangle that covers ~the whole plot interior
