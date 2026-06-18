@@ -108,7 +108,7 @@ def _plot_boxes(region, paths, pidx):
     rh = ry1 - ry0
     if rw <= 0 or rh <= 0:
         return 0
-    centers = []
+    boxes = []  # (bx0,by0,bx1,by1)
     for pi in pidx:
         p = paths[pi]
         pts = p.points
@@ -126,8 +126,32 @@ def _plot_boxes(region, paths, pidx):
                 on_edge += 1
         if on_edge < len(pts) * 0.85:
             continue
-        centers.append(((bx0 + bx1) * 0.5, (by0 + by1) * 0.5))
+        boxes.append((bx0, by0, bx1, by1))
+
+    # Real panels TILE the region (disjoint, side by side); a legend / inset
+    # frame is NESTED inside a larger panel frame. Drop any box that is mostly
+    # contained within a larger box -> a nested legend no longer counts as a
+    # second panel.
+    def _area(b):
+        return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+
+    def _contained(inner, outer):
+        ix0 = max(inner[0], outer[0]); iy0 = max(inner[1], outer[1])
+        ix1 = min(inner[2], outer[2]); iy1 = min(inner[3], outer[3])
+        inter = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+        ai = _area(inner)
+        return ai > 0 and inter >= 0.80 * ai
+
+    order = sorted(range(len(boxes)), key=lambda i: _area(boxes[i]), reverse=True)
+    kept = []  # indices, largest first
+    for i in order:
+        if any(_contained(boxes[i], boxes[k]) for k in kept):
+            continue                            # nested in a bigger frame
+        kept.append(i)
+
     # merge near-coincident frames (overplotted strokes) -> distinct boxes
+    centers = [((boxes[i][0] + boxes[i][2]) * 0.5,
+                (boxes[i][1] + boxes[i][3]) * 0.5) for i in kept]
     distinct = 0
     used = [False] * len(centers)
     for i, c in enumerate(centers):
