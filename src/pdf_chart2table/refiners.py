@@ -48,6 +48,12 @@ _CONNECTOR_FRAC = 0.9
 # colour carries two marker trajectories (multitrack) and the line is a distinct
 # series -- mirrors lines._is_connector's multitrack guard so we don't drop it.
 _CONNECTOR_MULTITRACK = 1.3
+# A distinct-colour line is treated as a chromatic FIT curve (kept) rather than a
+# connector (dropped) only when it is at least this many times denser than the
+# markers: a real fit is sampled at many vertices per data point, whereas a
+# connector joins the markers one vertex per marker (ratio ~1). The high floor
+# keeps a sparse recoloured join line dropped while recovering a traced fit.
+_FIT_DENSITY_RATIO = 3.0
 # A line is a straight reference/fit line when its linear fit R^2 is at least this
 # (a perfectly straight dense polyline among scatter markers is a guide, not data).
 _STRAIGHT_R2 = 0.999
@@ -151,8 +157,25 @@ def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
         ys = [y for _, y in line_pts]
         span = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2) ** 0.5
         frac = _connector_frac(line_pts, marker_pts, _COINCIDE_PX)
+        # A connector is drawn in its markers' OWN colour and joins them
+        # one-vertex-per-marker (so its vertices ~= the marker count). A SATURATED
+        # line in a colour distinct from every marker series that is also FAR
+        # DENSER than the markers is a chromatic FIT / TREND curve drawn THROUGH
+        # the data (e.g. a red fitted exponential sampled at hundreds of points
+        # over blue scatter): its vertices coincide with the markers because it
+        # fits them, not because it joins them. Keep such a curve -- same
+        # rationale as the straight-fit branch below, extended to curved fits.
+        # The density floor keeps a sparse 1-vertex-per-marker connector dropped
+        # even when it is a distinct colour (a recoloured join line).
+        is_chromatic_fit = (
+            _is_saturated(s.color)
+            and bool(marker_colors)
+            and all(_colors_distinct(s.color, mc) for mc in marker_colors)
+            and len(line_pts) >= _FIT_DENSITY_RATIO * len(marker_pts)
+        )
         if (frac >= _CONNECTOR_FRAC
-                and len(marker_pts) <= _CONNECTOR_MULTITRACK * len(line_pts)):
+                and len(marker_pts) <= _CONNECTOR_MULTITRACK * len(line_pts)
+                and not is_chromatic_fit):
             reasons.append(f"dropped connector line ({frac:.0%} of vertices on markers)")
             continue
         if _linear_r2(line_pts) >= _STRAIGHT_R2 and span >= _STRAIGHT_MIN_SPAN * diag:

@@ -84,6 +84,30 @@ def test_genuine_line_plus_marker_data_kept():
     assert curve in kept, "a dense data curve through markers must be kept"
 
 
+def test_chromatic_dense_fit_curve_over_scatter_kept():
+    # 2206.03650_p3c2: blue scatter "Exp. Data" + a RED fitted exponential decay
+    # sampled at many vertices that passes THROUGH the data points. Because the
+    # fit fits the data, ~all of its vertices land within a few px of a marker, so
+    # the connector fraction is high (~0.9). But it is a SATURATED colour distinct
+    # from the markers AND far denser than them (many vertices per data point), so
+    # it is a chromatic fit curve (DATA), not a same-colour 1:1 connector -> KEEP.
+    import math
+    scatter = _series(
+        "o", [(10 + 8 * i, 50 * math.exp(-0.25 * i)) for i in range(12)],
+        color=(0.12, 0.56, 1.0),
+    )
+    # Dense red curve: 200 samples tracing the same exponential through the points.
+    fit = _series(
+        None, [(10 + 8 * (t / 200.0) * 11, 50 * math.exp(-0.25 * (t / 200.0) * 11))
+               for t in range(201)],
+        color=(1.0, 0.0, 0.0),
+    )
+    kept, reasons = drop_spurious_lines([scatter, fit])
+    assert scatter in kept, "the scatter series must be kept"
+    assert fit in kept, "a dense chromatic fit curve through scatter must be recovered, not dropped as a connector"
+    assert not any("connector" in r for r in reasons)
+
+
 def test_multitrack_connector_kept():
     # Two marker trajectories in one colour (markers ~= 2x the line's vertices):
     # the line is a DISTINCT series, not a 1:1 connector -> keep (multitrack guard).
