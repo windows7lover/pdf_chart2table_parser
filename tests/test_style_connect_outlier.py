@@ -69,3 +69,38 @@ def test_all_points_on_line_is_connected():
     styles, _ = match_series_styles(paths, REGION, _series(centres))
     assert styles[0].get("connect") is True, (
         "a marker series lying on its own connector must be reported connected")
+
+
+def test_steep_dip_curve_split_into_pieces_is_connected():
+    # 2205.07176_p2c1: a smooth dense curve with a sharp full-height DIP is emitted
+    # as SEVERAL long contiguous same-colour pieces (the steep feature broke the
+    # stroke). No single piece threads >= frac of the markers, but every marker sits
+    # ON some piece -> the series must be connected (line+marker), not bare scatter.
+    import numpy as np
+    xs = np.linspace(10.0, 90.0, 60)
+    # near-flat curve with a narrow, near-full-height spike at the middle (the dip)
+    ys = np.array([20.0 + 60.0 * np.exp(-((x - 50.0) / 4.0) ** 2) for x in xs]) + 15.0
+    centres = list(zip(xs.tolist(), ys.tolist()))
+    paths = [_circle(x, y) for x, y in centres]
+    # split the connecting polyline into 3 contiguous pieces (each spans ~1/3)
+    third = len(centres) // 3
+    for a, b in [(0, third + 1), (third, 2 * third + 1), (2 * third, len(centres))]:
+        paths.append(_polyline(centres[a:b]))
+    styles, _ = match_series_styles(paths, REGION, _series(centres))
+    assert styles[0].get("connect") is True, (
+        "a dense curve drawn as several long contiguous same-colour pieces (incl. a "
+        "steep dip) must be connected even though no single piece threads frac")
+
+
+def test_sparse_scatter_with_multiple_off_paths_not_connected():
+    # Guard: pooling pieces must NOT connect a pure scatter. Two same-colour long
+    # paths (e.g. separate fit/model curves) that both MISS the markers leave the
+    # markers far from every piece -> stay unconnected (#66 not regressed).
+    centres = [(20.0, 30.0), (35.0, 70.0), (50.0, 25.0), (65.0, 65.0), (80.0, 40.0)]
+    paths = [_circle(*c) for c in centres]
+    paths.append(_polyline([(15.0, 85.0), (85.0, 85.0)]))   # fit line far above
+    paths.append(_polyline([(15.0, 10.0), (85.0, 10.0)]))   # fit line far below
+    styles, _ = match_series_styles(paths, REGION, _series(centres))
+    assert styles[0].get("connect") is False, (
+        "two long same-colour paths that both miss the markers must not pool into a "
+        "spurious connection")

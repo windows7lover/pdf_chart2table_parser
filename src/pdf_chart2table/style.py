@@ -390,6 +390,49 @@ def _connector_fits_all(paths, pts, tol, frac=0.8):
     return False
 
 
+def _union_connector_fits_all(paths, pts, tol, frac=0.8):
+    """Like :func:`_connector_fits_all` but the connector is the UNION of several
+    same-colour "big" paths, not one single path.
+
+    A connected curve is sometimes emitted as a handful of LONG contiguous
+    same-colour stroked paths -- the PDF split the polyline into pieces (each a few
+    hundred vertices spanning a fraction of the x-range), e.g. when a steep narrow
+    feature breaks the stroke (2205.07176_p2c1: a smooth G-vs-Vg curve with a sharp
+    full-height DIP at Vg=0, drawn as 5 pieces). No single piece threads ``frac`` of
+    the markers, so :func:`_threads_markers` (which scans paths one at a time) misses
+    it, and the pieces are too long to be the short marker-to-marker hops handled by
+    :func:`_segments_thread_markers`. Here each marker is matched to the NEAREST
+    segment across ALL the big paths: connect iff every marker lies on SOME piece
+    (>= ``frac`` within ``tol``) AND none is more than ``_THREAD_OUTLIER_MULT*tol``
+    off the nearest piece -- the same all-points-on-the-line signature as the single
+    path case, just pooled across the pieces.
+
+    This stays distinct from the #66 spurious case: a pure scatter's only big
+    same-colour path is a SEPARATE fit/curve that misses the markers; pooling does
+    not create coverage where none of the pieces pass through the points, so the
+    union distance to most markers stays large and the frac/outlier tests fail.
+    Likewise a sibling-line grazing a filled scatter (2006.09651) leaves those
+    markers > ``tol`` off every piece, and a lone off-line marker (2504.21746) stays
+    beyond the outlier bound -- both still reject."""
+    if len(paths) < 2 or not pts:
+        return False
+    need = max(2, int(round(frac * len(pts))))
+    tol2 = tol * tol
+    out2 = (_THREAD_OUTLIER_MULT * tol) ** 2
+    pts_arr = np.asarray(pts, dtype=np.float64)
+    dmin = np.full(len(pts_arr), np.inf)
+    for p in paths:
+        pp = p.points
+        if len(pp) < 2:
+            continue
+        seg = np.asarray(pp, dtype=np.float64)
+        d = _min_seg_dist_sq(pts_arr, seg[:-1, 0], seg[:-1, 1],
+                             seg[1:, 0], seg[1:, 1])
+        dmin = np.minimum(dmin, d)
+    return int(np.count_nonzero(dmin <= tol2)) >= need \
+        and bool(np.all(dmin <= out2))
+
+
 def _segments_thread_markers(segs, pts, tol, frac=0.8):
     """Does a connecting LINE drawn as many SHORT same-colour segments thread the
     markers ``pts``?  Some plots draw the join between adjacent markers as one
@@ -775,6 +818,12 @@ def match_series_styles(paths, region_bbox, series):
         # merely grazes a filled-circle scatter (2006.09651_p5c1/p5c2) is rejected.
         tol = max(2.0, 0.5 * (msize or 0.0))
         connect = _connector_fits_all(big, pts, tol)
+        if not connect:
+            # The connector may be split into several LONG contiguous same-colour
+            # pieces (a steep feature broke the stroke -- 2205.07176_p2c1), so no
+            # single path threads frac of the markers. Pool the pieces: connect when
+            # every marker sits on SOME piece. Keeps the #66 outlier guard.
+            connect = _union_connector_fits_all(big, pts, tol)
         if not connect:
             # The connecting line may instead be drawn as one short OPEN segment
             # between each adjacent marker pair (so no single path threads the
