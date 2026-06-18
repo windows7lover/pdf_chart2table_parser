@@ -49,11 +49,18 @@ def _engine():
         try:
             from rapidocr_onnxruntime import RapidOCR
 
-            # Pin to a single intra-op thread: extraction runs many parallel
-            # worker processes, and letting each ONNX session grab every core
-            # causes severe thread oversubscription (and noisy affinity errors).
-            # Unknown kwargs are absorbed by RapidOCR(**kwargs), so this is safe.
-            _ENGINE = RapidOCR(intra_op_num_threads=1)
+            # ONNX intra-op threads. Default 1: extraction normally runs many
+            # parallel worker processes, and letting each ONNX session grab every
+            # core causes severe thread oversubscription (and noisy affinity
+            # errors). A SINGLE-image parse (interactive / QA sampling) has no
+            # such pool, so it sets PDFCHART_OCR_THREADS > 1 to use several cores
+            # and cut per-image OCR latency (~20%). Thread count does NOT change
+            # OCR output. Unknown kwargs are absorbed by RapidOCR(**kwargs).
+            try:
+                _nthreads = max(1, int(os.environ.get("PDFCHART_OCR_THREADS", "1")))
+            except ValueError:
+                _nthreads = 1
+            _ENGINE = RapidOCR(intra_op_num_threads=_nthreads)
         except Exception:
             _ENGINE = None
     return _ENGINE

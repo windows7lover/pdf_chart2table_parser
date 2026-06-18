@@ -147,6 +147,12 @@ def main() -> int:
 
     reqs = _iter_stdin()
     if args.workers <= 1:
+        # Single-image / interactive mode: no worker pool to oversubscribe, so let
+        # OCR use several intra-op threads to cut per-image latency (~20%). The
+        # pool path leaves the default (1 thread per worker). Respect an explicit
+        # user override. Thread count does not change OCR output.
+        os.environ.setdefault(
+            "PDFCHART_OCR_THREADS", str(min(8, len(os.sched_getaffinity(0)))))
         _serve_single(reqs)
     else:
         _serve_pool(reqs, args.workers)
