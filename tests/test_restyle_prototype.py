@@ -547,6 +547,40 @@ def test_font_scale_multiplies_recovered_label_size():
     plt.close(fig)
 
 
+def test_small_region_keeps_small_recovered_font():
+    # On a TINY plot box (e.g. an 80pt subplot) a genuinely small recovered font
+    # (~2.85pt) is correct and proportional. An absolute floor of 3 would reject
+    # it -> _fs() returns None -> matplotlib's ~10pt default renders text grossly
+    # oversized vs the small axes. The floor scales with the region size, so the
+    # small font is applied verbatim.
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    record["source"] = {"region_bbox": [0.0, 0.0, 80.0, 79.0]}
+    style["text"]["base_font_size"] = 2.85
+    style["text"]["elements"] = {"x_title": {"size": 2.85},
+                                 "y_title": {"size": 2.85},
+                                 "ticks": {"size": 2.85}}
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert ax.xaxis.label.get_size() == 2.85
+    plt.close(fig)
+
+
+def test_normal_region_still_rejects_subpoint_font():
+    # No region-relative relaxation on a NORMAL-size plot box: a sub-3pt base
+    # font there is still treated as noise and falls back to the default (the
+    # small-region fix must be a no-op for typical regions).
+    from render_restyle_prototype import _replot, plt
+    record, style = _mini_record_style()
+    record["source"] = {"region_bbox": [0.0, 0.0, 300.0, 300.0]}
+    style["text"]["base_font_size"] = 2.85
+    style["text"]["elements"] = {"x_title": {"size": 2.85}}
+    fig, ax = plt.subplots()
+    _replot(ax, record, style, font_scale=1.0)
+    assert ax.xaxis.label.get_size() != 2.85  # rejected -> matplotlib default
+    plt.close(fig)
+
+
 def test_text_element_color_applied_to_labels_and_ticks():
     # Unified elements drive colour for axis titles + tick labels (all text).
     from render_restyle_prototype import _replot, plt

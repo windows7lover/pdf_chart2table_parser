@@ -641,12 +641,24 @@ def _replot(ax, record, style, tex=False, font_scale=1.0):
     # anything implausible falls back to matplotlib defaults.
     txt = style.get("text") or {}
     base_fs = txt.get("base_font_size")
-    font_ok = bool(base_fs) and 3 <= base_fs <= 40
+    # The lower font-size floor is RELATIVE to the plot box: on a tiny region
+    # (e.g. an 80pt-wide subplot) genuinely small fonts (~2.85pt) are correct and
+    # proportional, but an absolute floor of 3 would reject them -> _fs() returns
+    # None -> matplotlib's ~10pt default renders text GROSSLY oversized relative to
+    # the small axes. Scale the floor with the region's min dimension (3% of it),
+    # capped at the original absolute 3.0 so normal-size regions are unchanged.
+    bb = (record.get("source") or {}).get("region_bbox")
+    if bb:
+        _rdim = min(max(bb[2] - bb[0], 1.0), max(bb[3] - bb[1], 1.0))
+        _fs_floor = min(3.0, _rdim * 0.03)
+    else:
+        _fs_floor = 3.0
+    font_ok = bool(base_fs) and _fs_floor <= base_fs <= 40
 
     def _fs(v):  # accept a recovered (scale-corrected) point size only if sane,
         # then magnify by font_scale so a panel larger than the original crop keeps
         # the same font-to-plot proportion (font_scale=1.0 leaves it untouched).
-        return v * font_scale if (font_ok and v and 3 <= v <= 44) else None
+        return v * font_scale if (font_ok and v and _fs_floor <= v <= 44) else None
 
     def _w(flag):
         return "bold" if flag else "normal"
