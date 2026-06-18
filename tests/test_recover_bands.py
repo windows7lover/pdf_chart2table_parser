@@ -115,3 +115,55 @@ def test_no_bands_without_calibration():
     band = _ci_band()
     assert recover_bands([band], PLOT, None, YCAL) == []
     assert recover_bands([band], PLOT, XCAL, None) == []
+
+
+# ---- fill-to-baseline AREAS (#80): translucent fill under a density/KDE curve ----
+
+def _area_to_baseline(cx=180.0, n=40, dx=1.5, peak=120.0,
+                      fill=(0.27, 0.51, 0.71), alpha=0.25, baseline=250.0):
+    """A fill_between polygon whose TOP follows a bell curve and whose BOTTOM is
+    flat at the plot-box bottom (PDF y=250 = max pixel y). Narrow x-span (a KDE
+    peak), so the strict band width gate would reject it without the baseline
+    discriminator. Top run forward (x increasing), baseline run back."""
+    import math
+    half = n * dx / 2.0
+    x0 = cx - half
+    fwd = [(x0 + dx * i,
+            baseline - peak * math.exp(-((dx * i - half) ** 2) / (2 * (half / 2.5) ** 2)))
+           for i in range(n)]
+    back = [(x, baseline) for x, _ in reversed(fwd)]
+    pts = fwd + back + [fwd[0]]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    return Path(points=pts, stroke=None, fill=fill, width=0.0, dashes=None,
+                closed=True, bbox=(min(xs), min(ys), max(xs), max(ys)),
+                fill_alpha=alpha)
+
+
+def test_fill_to_baseline_area_recovered():
+    # Narrow (x-span < 0.4 of box width) translucent fill UNDER a curve down to the
+    # axis baseline -> recovered as a band even though it fails the strict width
+    # gate, because one envelope is flat at the plot-box bottom.
+    area = _area_to_baseline()
+    bx0, _, bx1, _ = area.bbox
+    assert (bx1 - bx0) < 0.4 * (PLOT[2] - PLOT[0])  # would fail the strict gate
+    bands = recover_bands([area], PLOT, XCAL, YCAL)
+    assert len(bands) == 1
+    b = bands[0]
+    assert b["color"] == [0.27, 0.51, 0.71]
+    assert b["alpha"] == 0.25
+    # The lower envelope is ~FLAT at the data baseline (pixel 250 -> data 50 here);
+    # most grid points pin to the baseline (a couple may cross near the closing
+    # endpoints where the two envelopes meet).
+    assert sum(abs(v - 50.0) < 1.0 for v in b["y_lo"]) > 0.8 * len(b["y_lo"])
+    # The upper envelope rises well above the baseline (the curve peak).
+    assert max(b["y_hi"]) - 50.0 > 50.0
+
+
+def test_narrow_midplot_band_not_an_area():
+    # A NARROW two-curve band floating in the MIDDLE of the plot (neither envelope
+    # flat at the bottom) is not a fill-to-baseline area -> strict width gate
+    # still rejects it.
+    narrow = _ci_band(x0=180.0, n=15, dx=2.0, thick=20.0)
+    bx0, _, bx1, _ = narrow.bbox
+    assert (bx1 - bx0) < 0.4 * (PLOT[2] - PLOT[0])
+    assert recover_bands([narrow], PLOT, XCAL, YCAL) == []

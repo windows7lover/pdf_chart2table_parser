@@ -2052,6 +2052,36 @@ _BAND_MIN_AREA_FRAC = 0.3    # ENCLOSE a real region (not a thin out-and-back cu
 _BAND_MAX_ALPHA = 0.6        # translucent: a CI overlay, not an opaque area/violin fill
 _BAND_MIN_VERTS = 8          # a curve-following envelope, not a few-point rectangle
 _BAND_RESAMPLE_N = 60        # x-grid resolution for the recovered envelopes
+# A fill-to-baseline AREA (the translucent fill under a density/KDE curve down to
+# the axis baseline) is the SAME fill_between shape as a band, but one envelope is
+# ~flat at the plot-box bottom. It needn't span a wide x-range (a KDE peak can be
+# narrow), so it gets a relaxed width gate — but ONLY when the flat-baseline
+# discriminator holds, keeping precision (it is not a mid-plot two-curve band):
+_AREA_MIN_WIDTH_FRAC = 0.1   # a narrow peak still spans a meaningful x-fraction
+_AREA_BASELINE_FLAT_FRAC = 0.05  # baseline envelope y-range <= 5% of box height (flat)
+_AREA_BASELINE_BOTTOM_FRAC = 0.06  # baseline sits within 6% of box height of y-min
+
+
+def _baseline_envelope_idx(fwd, back, ry0, ry1) -> int | None:
+    """Return 0 if ``fwd`` is a fill-to-baseline floor, 1 if ``back`` is, else None.
+
+    A fill-to-baseline area has ONE envelope that is ~flat (small y-spread) AND
+    pinned near the plot-box BOTTOM (max pixel y ``ry1``); the other follows a
+    curve. This is the discriminator that lets such a (possibly narrow) fill in
+    while a mid-plot two-curve band — neither envelope flat at the bottom — keeps
+    the strict width gate."""
+    ph = (ry1 - ry0) or 1.0
+    flat_tol = _AREA_BASELINE_FLAT_FRAC * ph
+    bottom_tol = _AREA_BASELINE_BOTTOM_FRAC * ph
+    for idx, run in ((0, fwd), (1, back)):
+        ys = [y for _, y in run]
+        if not ys:
+            continue
+        flat = (max(ys) - min(ys)) <= flat_tol
+        at_bottom = abs(max(ys) - ry1) <= bottom_tol and abs(min(ys) - ry1) <= bottom_tol
+        if flat and at_bottom:
+            return idx
+    return None
 
 
 def _shoelace_area_frac(pts) -> float:
@@ -2140,14 +2170,18 @@ def recover_bands(paths, region_bbox, x_calib, y_calib) -> list[dict]:
         bx0, by0, bx1, by1 = p.bbox
         if (bx1 < rx0 - 2 or bx0 > rx1 + 2 or by1 < ry0 - 2 or by0 > ry1 + 2):
             continue
-        if (bx1 - bx0) < _BAND_MIN_WIDTH_FRAC * pw:
-            continue
         if _shoelace_area_frac(p.points) < _BAND_MIN_AREA_FRAC:
             continue
         env = _split_envelopes(p.points)
         if env is None:
             continue
         fwd, back = env
+        # A fill-to-baseline AREA (one envelope flat at the plot-box bottom) needs
+        # only a meaningful x-fraction; a mid-plot band keeps the strict width gate.
+        is_area = _baseline_envelope_idx(fwd, back, ry0, ry1) is not None
+        min_wfrac = _AREA_MIN_WIDTH_FRAC if is_area else _BAND_MIN_WIDTH_FRAC
+        if (bx1 - bx0) < min_wfrac * pw:
+            continue
         # Resample both envelopes onto a common x-grid (in pixel space), then map
         # to data coords. fill_between needs aligned x; the two envelopes share an
         # x-range but sample it at different vertices.
