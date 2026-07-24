@@ -40,7 +40,7 @@ from .calibrate import calibrate_panels, to_data_array
 from .lines import SeriesLine
 from .marks import SeriesMarks, is_sparse_on_dense
 from .plot_region import detect_regions
-from .refiners import drop_spurious_lines, refine_dropped_curve
+from .refiners import classify_line_roles, drop_spurious_lines, refine_dropped_curve
 from .model import (
     Axis,
     ChartResult,
@@ -130,6 +130,7 @@ def _build_series(sm: SeriesMarks, x_axis: Axis, y_axis: Axis) -> Series:
         marker=_MARKER_CODE.get(sm.shape),
         color=color or fill,
         points=_points_to_data(xs_px, ys_px, x_axis, y_axis),
+        role="data",   # marker centroids ARE the read-off data
     )
 
 
@@ -347,6 +348,12 @@ def extract_region(
         series, residual_paths + data_curve_paths, region, (x_axis, y_axis),
         band_colors=band_colors,
     )
+
+    # Final TAG-ONLY pass: every series still untagged (pure-line charts, where
+    # drop_spurious_lines returns immediately, and curves promoted just above)
+    # gets a data/fit/uncertain role from marker-independent geometry. Never
+    # drops anything -- the emitted series set is unchanged.
+    classify_line_roles(series, plot_box or region.bbox)
 
     table = ChartTable(
         source=source,

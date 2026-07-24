@@ -108,6 +108,13 @@ def _series_record(series) -> list[dict]:
             "label": d.get("label"),
             "marker": d.get("marker"),
             "color": d.get("color"),
+            # Role of the ink: "data" / "fit" / "uncertain" (see model.Series).
+            # Lets consumers keep marker-less DATA curves instead of dropping
+            # every marker=None series as a suspected fit line.
+            "role": d.get("role"),
+            # Dash form (raw PDF dash string or "dashed"); None when solid.
+            # A dashed straight line is the classic fit/guide idiom.
+            "dashes": d.get("dashes"),
             "points": d.get("points", []),
         })
     return out

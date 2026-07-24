@@ -142,10 +142,19 @@ class Series:
     # dash was RECOVERED from a curve drawn as many gapped collinear fragments
     # (a dashed fit rasterised into short solid sub-strokes -- see
     # lines._recovered_dashes). None for a continuous solid curve / a marker
-    # series. Carried for style-faithful reconstruction; NOT serialized to the
-    # JSON record (io_store emits only label/marker/color/points), so the data
-    # schema is unchanged.
+    # series. Carried for style-faithful reconstruction AND serialized to the
+    # JSON record (downstream consumers use the dash as a fit/guide signal).
     dashes: str | None = None
+    # Role of the series' ink: "data" (read-off data points / a data curve),
+    # "fit" (a fit / trend / guide line drawn through or over the data), or
+    # "uncertain" (a line whose role cannot be decided from geometry alone --
+    # e.g. a lone solid straight line, which may be genuine linear data or a
+    # reference line). Marker series are always "data"; line series are tagged
+    # by refiners.drop_spurious_lines (marker-present charts) and
+    # refiners.classify_line_roles (final pass, pure-line charts). Serialized so
+    # downstream dataset builders can keep marker-less DATA curves instead of
+    # dropping every marker=None series as a suspected fit line.
+    role: str | None = None
 
 
 @dataclass

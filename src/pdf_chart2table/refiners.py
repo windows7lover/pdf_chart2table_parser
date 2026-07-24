@@ -199,6 +199,7 @@ def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
             continue
         line_pts = _pixels(s)
         if len(line_pts) < 3:
+            s.role = "uncertain"   # too short to judge -- keep, but flag
             kept.append(s)
             continue
         xs = [x for x, _ in line_pts]
@@ -233,6 +234,17 @@ def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
                 and not is_chromatic_fit):
             reasons.append(f"dropped connector line ({frac:.0%} of vertices on markers)")
             continue
+        # Role tagging (labels only; every keep/drop above and below is
+        # unchanged): a line that coincides with the markers but survived the
+        # connector drop BECAUSE it is a chromatic fit curve is a FIT, whether
+        # straight or curved (a fitted exponential fails the straight test but
+        # is still a fit, not an independent data curve).
+        role_hint = (
+            "fit"
+            if (frac >= _CONNECTOR_FRAC
+                and len(marker_pts) <= _CONNECTOR_MULTITRACK * len(line_pts))
+            else None
+        )
         if _linear_r2(line_pts) >= _STRAIGHT_R2 and span >= _STRAIGHT_MIN_SPAN * diag:
             # A straight line in a SATURATED colour distinct from every marker
             # series is a chromatic fit / trend line through the data (e.g. a red
@@ -241,6 +253,7 @@ def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
             # overlay) and is dropped.
             if (_is_saturated(s.color)
                     and all(_colors_distinct(s.color, mc) for mc in marker_colors)):
+                s.role = "fit"
                 kept.append(s)
                 continue
             # A DASHED straight line is an intentional fit / trend / guide curve,
@@ -251,12 +264,85 @@ def drop_spurious_lines(series: list[Series]) -> tuple[list[Series], list[str]]:
             # marker x-range (a real fit covers the data; a short stub does not).
             if (s.dashes is not None
                     and (max(xs) - min(xs)) >= _FIT_XSPAN_FRAC * marker_xspan):
+                s.role = "fit"
                 kept.append(s)
                 continue
             reasons.append("dropped straight reference/fit line (R^2>=0.997)")
             continue
+        s.role = role_hint or "data"
         kept.append(s)
     return kept, reasons
+
+
+def classify_line_roles(series: list[Series], plot_box) -> None:
+    """Final TAG-ONLY pass: assign a ``role`` to every series still untagged.
+
+    ``drop_spurious_lines`` tags line series only on marker-present charts (it
+    returns immediately when no marker series exists), so on a PURE LINE chart
+    every line reaches here untagged -- as do curves promoted later by
+    ``refine_dropped_curve``. This pass never drops anything (emission is
+    unchanged); it only classifies, using the marker-independent signals:
+
+    * a **straight** line (linear R^2 >= ``_STRAIGHT_R2`` over >=
+      ``_STRAIGHT_MIN_SPAN`` of the plot-box diagonal) that is **dashed** is a
+      fit / trend / guide curve (matplotlib idiom: data and connectors are
+      solid, fits and guides are dashed) -> ``"fit"``;
+    * a **solid** straight line is ambiguous (genuine linear data exists, e.g.
+      an I-V curve): tag ``"fit"`` only with corroboration -- the chart also
+      has a non-straight (curved) line carrying the data AND this line is
+      neutral grey/black (guides are typically uncoloured); otherwise
+      ``"uncertain"`` (flag for a downstream / VLM pass, never guess);
+    * anything non-straight or short-span -> ``"data"``;
+    * marker series -> ``"data"``; a <3-vertex line -> ``"uncertain"``.
+
+    ``plot_box`` is the calibrated spine-to-spine box (falls back to the region
+    bbox at the call site); its diagonal replaces the marker-cloud diagonal
+    used by ``drop_spurious_lines``.
+    """
+    x0, y0, x1, y1 = plot_box
+    diag = max(((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5, 1.0)
+
+    # Pass 1: straightness of every untagged line series.
+    straight: dict[int, bool] = {}
+    for i, s in enumerate(series):
+        if s.role is not None or s.marker is not None:
+            continue
+        pts = _pixels(s)
+        if len(pts) < 3:
+            straight[i] = False
+            continue
+        xs = [x for x, _ in pts]
+        ys = [y for _, y in pts]
+        span = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2) ** 0.5
+        straight[i] = (_linear_r2(pts) >= _STRAIGHT_R2
+                       and span >= _STRAIGHT_MIN_SPAN * diag)
+
+    # Corroboration for the solid-straight case: does the chart carry its data
+    # in some OTHER line -- an untagged curved line, or a line already tagged
+    # "data" by drop_spurious_lines?
+    has_curved_data = (
+        any(not st and len(series[i].points) >= 3 for i, st in straight.items())
+        or any(s.role == "data" and s.marker is None for s in series)
+    )
+
+    # Pass 2: assign roles.
+    for i, st in straight.items():
+        s = series[i]
+        if len(s.points) < 3:
+            s.role = "uncertain"
+        elif not st:
+            s.role = "data"
+        elif s.dashes is not None:
+            s.role = "fit"
+        elif has_curved_data and not _is_colored(s.color):
+            s.role = "fit"
+        else:
+            s.role = "uncertain"
+
+    # Marker series (and any stragglers constructed without a role).
+    for s in series:
+        if s.role is None and s.marker is not None:
+            s.role = "data"
 
 
 # ===========================================================================
