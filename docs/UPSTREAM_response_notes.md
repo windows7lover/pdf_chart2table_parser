@@ -11,6 +11,10 @@ released yet** — per user policy, everything stays in this repo until inspecte
   + 6,549 `markerless_line` series), drop `role="fit"`, policy call on `"uncertain"`.
 - `series[].dashes` — raw PDF dash string or `"dashed"`; `None` = solid. The dash is a
   fit/guide signal.
+- `series[].suspect` — bool (policy: flag, don't guess). True when a small marker group
+  (≤6 points) survived every confident annotation-glyph test but is packed letter-tight or
+  hugs annotation text — it MAY be an annotation/legend glyph cluster. The data is kept;
+  gate R11 on this instead of blanket-dropping black-'o' series.
 - Ticks whose value the calibration could not reproduce are now serialized with `value: null`
   (honest unlabeled minor ticks) instead of a poisoned labeled value.
 
@@ -45,6 +49,14 @@ sample (originals vs recons; sheets judged in-session):
 annotation rows fragment because subscript glyphs sit off-baseline), audit remaining panels of
 2512.13518, then the legend-handle/annotation-dot class; where confidence is low, FLAG
 (`suspect`) instead of dropping per user policy.
+
+**Follow-up DONE (2026-07-24, commit 49cef9c + letter-aspect gate):** math-operator rows,
+stacked wordlet blocks, span head bands, and the `suspect` flag are in. 40-sample re-parse:
+14 -> 21 of 40 fully cleaned (`docs/blackdot_reparse_after.csv`); several of the remaining 19
+are genuine data (e.g. 2012.10841 9-pt curve), 2 now flagged suspect. Precision guard: the
+letter-aspect gate (a run with only ROUND members is markers/dots, never text) protects
+converging marker tails interleaved with dotted-line dots — the 5 verified genuine
+black-marker charts re-extract at 247/35/21/26/14 pts, none flagged suspect.
 
 **Last-resort option (user policy):** for a section recovery can't confidently decode, do NOT
 decode — keep the raw EPS/vector description of that section and reinject it verbatim into the

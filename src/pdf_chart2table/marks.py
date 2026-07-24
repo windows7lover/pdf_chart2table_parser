@@ -247,6 +247,14 @@ _TEXTRUN_OPGAP_MEDH = 1.0
 # not), with at least _TEXTRUN_STACK_MIN members in total, are a text block.
 _TEXTRUN_STACK_MIN = 5
 _TEXTRUN_STACK_ALIGN_MEDW = 1.5
+# Letter-aspect gate: letterform ink is never ALL round -- every real word has
+# thin ('I', 'l', '1', subscripts) or flat ('=', '-') ink, while the classic
+# false positive is all circles (converging marker tails interleaving with a
+# dotted line's dots: tight, size-varying, but round by construction, since
+# only round paths pass _is_data_mark as circles). A run with no member whose
+# w/h leaves [1/_TEXTRUN_LETTER_ASPECT, _TEXTRUN_LETTER_ASPECT] is never a
+# word or wordlet (2201.04794_p4c1: genuine black tail points swept up).
+_TEXTRUN_LETTER_ASPECT = 1.25
 
 # Real-text-glyph guard: when an annotation/legend label is drawn BOTH as a
 # selectable TextSpan AND as duplicate vector glyph paths (common with embedded
@@ -613,6 +621,18 @@ def _is_op_glyph(c: tuple) -> bool:
     return c[3] >= _TEXTRUN_OP_ASPECT * c[4]
 
 
+def _has_letter_aspect(run: list[tuple]) -> bool:
+    """At least one member (candidate OR phantom) is non-round: real letterform
+    runs always contain thin/flat ink, an all-round run is markers/dots."""
+    for c in run:
+        if not c[4]:
+            continue
+        r = c[3] / c[4]
+        if r <= 1 / _TEXTRUN_LETTER_ASPECT or r >= _TEXTRUN_LETTER_ASPECT:
+            return True
+    return False
+
+
 def _word_box(run: list[tuple], medw: float) -> tuple[float, float, float, float]:
     """(row_cy, x_lo, x_hi, glyph_h) box of a confirmed word/wordlet run, padded
     for the block extension; glyph_h feeds the pitch test (median height alone
@@ -631,6 +651,8 @@ def _is_wordlet(run: list[tuple], medh: float) -> bool:
     Only ever flagged as part of a STACKED block (see _text_run_indices)."""
     plain = [c for c in run if c[0] is not None and not _is_op_glyph(c)]
     if len(plain) < 2:
+        return False
+    if not _has_letter_aspect(run):
         return False
     if medh > 0:
         span = (max(c[1] + c[3] / 2 for c in run)
@@ -701,6 +723,8 @@ def _is_word(run: list[tuple], medh: float = 0.0) -> bool:
                 - min(c[1] - c[3] / 2 for c in run))
         if span > _TEXTRUN_MAX_SPAN_MEDH * medh:
             return False
+    if not _has_letter_aspect(run):
+        return False
     cand = [c for c in run if c[0] is not None]
     plain = [c for c in cand if not _is_op_glyph(c)]
     evidence = (len(run) - len(cand)) + (len(cand) - len(plain))

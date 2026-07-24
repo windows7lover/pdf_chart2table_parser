@@ -117,6 +117,25 @@ def test_unaligned_wordlets_not_stacked():
     assert _text_run_indices(a + b, []) == set()
 
 
+def test_converging_marker_tails_not_flagged():
+    # 2201.04794_p4c1: a genuine black marker curve's tail interleaves with a
+    # dotted connector's dots (1.2 pt, drawn twice: fill+stroke duplicates).
+    # The rows are tight and size-varying, but ALL members are round -- the
+    # letter-aspect gate keeps every point.
+    tail = [
+        _c(602, 409.1, 201.7, 2.6, 2.6), _c(380, 411.4, 200.5, 1.2, 1.2),
+        _c(381, 411.4, 200.5, 1.2, 1.2),
+        _c(603, 405.6, 203.6, 2.6, 2.6), _c(382, 407.7, 202.3, 1.2, 1.2),
+        _c(383, 407.7, 202.3, 1.2, 1.2),
+        _c(604, 402.4, 205.2, 2.6, 2.6), _c(384, 404.4, 204.2, 1.2, 1.2),
+        _c(385, 404.4, 204.2, 1.2, 1.2), _c(386, 401.5, 205.5, 1.2, 1.2),
+        _c(387, 401.5, 205.5, 1.2, 1.2),
+        _c(605, 399.6, 206.7, 2.6, 2.6), _c(388, 398.9, 207.1, 1.2, 1.2),
+        _c(389, 398.9, 207.1, 1.2, 1.2), _c(606, 397.1, 208.0, 2.6, 2.6),
+    ]
+    assert _text_run_indices(tail, []) == set()
+
+
 def test_wordlet_on_word_row_anchors_block_extension():
     # 2512.13518_p98c2: the legend's lower line shares its y-band with the
     # wide "eps_2 = eps_1" annotation, so both land on ONE detected row. The
