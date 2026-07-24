@@ -89,3 +89,55 @@ def test_log_axis_nonpositive_tick_is_a_miss():
     assert _self_check(ax, calib) is True
     assert ax.ticks[-1].value is None
     assert all(t.value is not None for t in ax.ticks[:-1])
+
+
+# --------------------------------------------------------------------------
+# Spacing-pattern coherence FLAG (Axis.tick_consistency = "suspect").
+# Downstream's _fix_scale found axes whose fitted scale contradicts the VALUE
+# pattern of the labels (geometric values on a linear fit / arithmetic values
+# on a log fit) yet pass every hard gate: monotonic, R^2 ~ 1.0, self-check
+# clean. We FLAG (never drop or re-fit) so consumers can gate on it.
+# --------------------------------------------------------------------------
+
+def test_geometric_values_on_linear_fit_flagged_suspect():
+    # Tick pixels PROPORTIONAL to geometric values 1,2,4,8: the linear fit is
+    # exact (R^2 = 1.0), beats log, and reproduces every tick -- but labels
+    # doubling tick-over-tick read like a log axis. Flag; keep the calibration.
+    ax = _apply(_axis([(10, 1.0), (20, 2.0), (40, 4.0), (80, 8.0)]))
+    assert ax.calibration is not None and ax.scale == "linear"
+    assert ax.tick_consistency == "suspect"
+    assert all(t.value is not None for t in ax.ticks)  # nothing dropped
+
+
+def test_arithmetic_values_on_log_fit_flagged_suspect():
+    # Tick pixels proportional to log10(value) so the LOG fit is exact, but the
+    # values 10,40,70,100 step by a constant +30 over a full decade -- the
+    # labels read like a linear axis. Flag; keep the calibration.
+    ax = _apply(_axis([(100.0, 10.0), (160.2, 40.0), (184.5, 70.0),
+                       (200.0, 100.0)]))
+    assert ax.calibration is not None and ax.scale == "log"
+    assert ax.tick_consistency == "suspect"
+
+
+def test_clean_linear_axis_not_flagged():
+    # Arithmetic values on a linear fit: coherent -> no flag. (Ratios of an
+    # arithmetic run decay toward 1; median never exceeds the 1.5 gate.)
+    ax = _apply(_axis([(0, 10.0), (10, 20.0), (20, 30.0), (30, 40.0),
+                       (40, 50.0)]))
+    assert ax.calibration is not None and ax.scale == "linear"
+    assert ax.tick_consistency is None
+
+
+def test_clean_log_decade_axis_not_flagged():
+    # Decade ticks on a log fit: differences 9,90,900 are wildly non-constant
+    # -> no arithmetic pattern -> no flag.
+    ax = _apply(_axis([(0, 1.0), (10, 10.0), (20, 100.0), (30, 1000.0)]))
+    assert ax.calibration is not None and ax.scale == "log"
+    assert ax.tick_consistency is None
+
+
+def test_three_geometric_ticks_below_floor_not_flagged():
+    # Conservative floor: < 4 labeled ticks -> never flag, even if geometric.
+    ax = _apply(_axis([(10, 1.0), (20, 2.0), (40, 4.0)]))
+    assert ax.calibration is not None
+    assert ax.tick_consistency is None

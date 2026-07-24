@@ -356,6 +356,49 @@ def _self_check(axis: Axis, calib: dict) -> bool:
     return False
 
 
+# Spacing-pattern coherence FLAG (never drops or changes the calibration):
+# labeled tick VALUES that are clearly GEOMETRIC (near-constant ratio, all
+# positive, median ratio > _PATTERN_MIN_RATIO) under a LINEAR fit, or clearly
+# ARITHMETIC (near-constant difference) spanning >= a decade under a LOG fit,
+# mark the axis ``tick_consistency="suspect"``. The self-check above already
+# repairs/drops hard inconsistencies; this catches consistent-but-suspicious
+# fits (e.g. a mis-scaled axis whose values still fit monotonically). Mirrors
+# the downstream ``_fix_scale`` tolerance: every gap but at most one must sit
+# within 34% of the median gap. Conservative on purpose -- a false "suspect"
+# is noise for consumers -- hence the >= 4 distinct labeled values floor.
+_PATTERN_MIN_TICKS = 4
+_PATTERN_TOL = 0.34
+_PATTERN_MIN_RATIO = 1.5
+
+
+def _gaps_near_constant(gaps: np.ndarray) -> bool:
+    """All gaps but at most one within ``_PATTERN_TOL`` of the median gap."""
+    med = float(np.median(gaps))
+    if med <= 0:
+        return False
+    return int(np.sum(np.abs(gaps - med) > _PATTERN_TOL * med)) <= 1
+
+
+def _tick_pattern_suspect(axis: Axis, calib: dict) -> bool:
+    """Does the labeled-tick VALUE spacing pattern contradict the fitted scale?"""
+    vals = sorted({t.value for t in axis.ticks if t.value is not None})
+    if len(vals) < _PATTERN_MIN_TICKS:
+        return False
+    v = np.array(vals, dtype=float)
+    if calib["scale"] == "linear":
+        # Geometric values (near-constant ratio, clearly growing) on a linear
+        # fit -> the labels read like a log axis. Requires all positive.
+        if np.any(v <= 0):
+            return False
+        ratios = v[1:] / v[:-1]
+        return (_gaps_near_constant(ratios)
+                and float(np.median(ratios)) > _PATTERN_MIN_RATIO)
+    # log fit: arithmetic values (near-constant difference) spanning >= 1
+    # decade read like a linear axis (sub-decade spans are indistinguishable).
+    diffs = np.diff(v)
+    return v[0] > 0 and v[-1] / v[0] >= 10.0 and _gaps_near_constant(diffs)
+
+
 def _apply(axis: Axis) -> Axis:
     """Fit ``axis`` in place from its labeled ticks and record the result."""
     calib = fit_calibration(axis.ticks)
@@ -370,6 +413,10 @@ def _apply(axis: Axis) -> Axis:
         return axis
     axis.scale = calib["scale"]
     axis.calibration = calib
+    # Spacing-pattern coherence: FLAG a suspicious value pattern for consumers
+    # (never drop or change the calibration -- see _tick_pattern_suspect).
+    if _tick_pattern_suspect(axis, calib):
+        axis.tick_consistency = "suspect"
     if axis.pixel_range is not None:
         d0 = to_data(calib, axis.pixel_range[0])
         d1 = to_data(calib, axis.pixel_range[1])

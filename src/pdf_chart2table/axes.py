@@ -963,6 +963,7 @@ def detect_axes(
         ticks=x_ticks,
         tick_direction=x_dir,
         tick_length=x_len,
+        multiplier=x_mult,
     )
     y_axis = Axis(
         title=_y_title(texts, region),
@@ -970,5 +971,6 @@ def detect_axes(
         ticks=y_ticks,
         tick_direction=y_dir,
         tick_length=y_len,
+        multiplier=y_mult,
     )
     return x_axis, y_axis

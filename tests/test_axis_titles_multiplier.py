@@ -96,6 +96,35 @@ def test_superscript_missing_minus_glyph_yields_no_multiplier():
     assert _y_axis_multiplier(texts, REGION, []) == 1.0
 
 
+def test_detect_axes_stores_multiplier_metadata():
+    """detect_axes must CARRY the detected offset multiplier on the Axis
+    (Axis.multiplier) instead of discarding it after rescaling the tick values,
+    so the JSON record can expose it to downstream consumers. The x span is a
+    matplotlib '1e8' in the x-label band past the last tick; the y spans are an
+    Origin-style 'x10^5'."""
+    from pdf_chart2table.axes import detect_axes
+    texts = [
+        # x offset text: below the bottom spine (y1=422), placed PAST the right
+        # end of the label band (cx > x1+18) as matplotlib does.
+        _hspan("1e8", 496, 425, 506, 431),
+        # y offset text: 'x10^5' as separate spans near the axis top-left.
+        _hspan("×", 346, 340, 352, 346),
+        _hspan("10", 353, 338, 359, 344),
+        _hspan("5", 359, 335, 363, 341),
+    ]
+    x_axis, y_axis = detect_axes(REGION, [], texts)
+    assert x_axis.multiplier == 1e8
+    assert y_axis.multiplier == 100000.0
+
+
+def test_detect_axes_multiplier_defaults_to_one():
+    """No offset text -> both axes carry the neutral multiplier 1.0."""
+    from pdf_chart2table.axes import detect_axes
+    x_axis, y_axis = detect_axes(REGION, [], [])
+    assert x_axis.multiplier == 1.0
+    assert y_axis.multiplier == 1.0
+
+
 def test_log_decade_label_not_read_as_multiplier():
     """A log y-axis labelled with decades '10^5..10^0' (each = a '10' mantissa +
     a raised exponent span) must NOT have its topmost '10^5' tick mistaken for a

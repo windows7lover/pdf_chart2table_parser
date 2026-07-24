@@ -72,6 +72,12 @@ def _axis_record(axis) -> dict | None:
         "calibration": _to_plain(axis.calibration),
         "tick_direction": getattr(axis, "tick_direction", None),
         "tick_length": getattr(axis, "tick_length", None),
+        # Offset-text axis-scale multiplier (tick values are ALREADY rescaled
+        # by it; metadata only -- see model.Axis.multiplier).
+        "multiplier": getattr(axis, "multiplier", 1.0),
+        # "suspect" when the labeled tick VALUES' spacing pattern contradicts
+        # the fitted scale (flag only, never alters the calibration).
+        "tick_consistency": getattr(axis, "tick_consistency", None),
     }
 
 

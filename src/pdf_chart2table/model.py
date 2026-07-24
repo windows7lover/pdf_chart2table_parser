@@ -130,6 +130,16 @@ class Axis:
     tick_direction: str | None = None
     # Median tick-mark length in PDF points (perpendicular extent), or None.
     tick_length: float | None = None
+    # Axis-scale multiplier from a matplotlib/MATLAB offset text ("1e8",
+    # "x10^n"). Tick values are ALREADY rescaled by it at detection time; this
+    # is metadata only, so consumers know the printed tick labels differ from
+    # the stored values by this factor. 1.0 when no offset text was found.
+    multiplier: float = 1.0
+    # Spacing-pattern coherence of the labeled tick VALUES vs the fitted
+    # scale: "suspect" when the values look clearly geometric under a linear
+    # fit (or clearly arithmetic under a log fit) -- a flag only, the
+    # calibration is never altered (see calibrate._tick_pattern_suspect).
+    tick_consistency: str | None = None
 
 
 @dataclass

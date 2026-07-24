@@ -65,6 +65,18 @@ def test_record_json_roundtrips():
     assert back["series"][0]["points"][0]["x_px"] == 20.0
 
 
+def test_axis_record_multiplier_and_tick_consistency():
+    # Axis-scale multiplier (offset text) + spacing-pattern flag are serialized;
+    # both default to their neutral values on a plain Axis.
+    ax = Axis(scale="linear", multiplier=1e5, tick_consistency="suspect")
+    rec = io_store._axis_record(ax)
+    assert rec["multiplier"] == 1e5
+    assert rec["tick_consistency"] == "suspect"
+    rec_default = io_store._axis_record(Axis())
+    assert rec_default["multiplier"] == 1.0
+    assert rec_default["tick_consistency"] is None
+
+
 def test_markers_csv_columns(tmp_path):
     rec = _hand_record()
     csv_path = tmp_path / "m.csv"
