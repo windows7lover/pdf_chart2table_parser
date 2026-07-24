@@ -40,6 +40,15 @@ _DEDUP_PX = 3.0
 
 # A line vertex within this many pixels of a marker counts as "on" that marker.
 _COINCIDE_PX = 3.0
+
+# Overlapping-duplicate line dedup: two same-colour marker-less line series are
+# duplicate TRACES of ONE curve (the PDF draws the curve as several overlapping
+# strokes -- a bold/glow curve, a re-stroked path) when this fraction of the
+# shorter one's vertices sit within _DUP_LINE_PX of the longer one's polyline.
+# High bar (0.85) so a FAMILY of distinct same-colour curves is never merged --
+# distinct curves diverge, so their mutual coincidence is low.
+_DUP_LINE_FRAC = 0.85
+_DUP_LINE_PX = 2.5
 # A line is a redundant CONNECTOR when at least this fraction of its vertices sit
 # on markers (a real data curve is dense BETWEEN markers, so its fraction is low).
 _CONNECTOR_FRAC = 0.9
@@ -103,6 +112,64 @@ def _colors_distinct(a, b) -> bool:
 def _pixels(s: Series) -> list[tuple[float, float]]:
     return [(p["x_px"], p["y_px"]) for p in s.points
             if p.get("x_px") is not None and p.get("y_px") is not None]
+
+
+def _coincident_frac(small, large, tol) -> float:
+    """Fraction of ``small``'s points within ``tol`` px of ANY ``large`` point.
+
+    A cheap polyline-proximity proxy (vertex-to-vertex, not point-to-segment);
+    both traces of one curve are sampled densely enough that vertices nearly
+    coincide. O(len(small)*len(large)) -- fine for the few same-colour lines in
+    one region."""
+    if not small or not large:
+        return 0.0
+    t2 = tol * tol
+    hit = sum(1 for sx, sy in small
+              if min((sx - lx) ** 2 + (sy - ly) ** 2 for lx, ly in large) <= t2)
+    return hit / len(small)
+
+
+def dedup_overlapping_line_series(series: list[Series]) -> list[Series]:
+    """Collapse duplicate TRACES of one curve into a single series.
+
+    Some PDFs draw a curve as several overlapping strokes (a bold / glow curve,
+    a re-stroked path), so ``classify_lines`` emits it as many same-colour
+    marker-less line series that all cover the same box -- inflating the series
+    COUNT (e.g. one curve emitted 8x; a chart ballooning to ~200 series). This
+    drops a line series when >= ``_DUP_LINE_FRAC`` of its vertices coincide
+    (within ``_DUP_LINE_PX``) with a LONGER same-colour line series -- i.e. it
+    is a redundant trace of that longer curve. Marker series are untouched; a
+    FAMILY of distinct same-colour curves is safe because distinct curves
+    diverge, so their coincidence stays well below the bar. The longer trace
+    (more complete) is always the one kept.
+
+    Complements ``_merge_tiled_line_series`` (extract.py), which handles the
+    DISJOINT x-tile case; this handles the OVERLAPPING-duplicate case.
+    """
+    lines = [(i, s) for i, s in enumerate(series) if s.marker is None]
+    if len(lines) < 2:
+        return series
+    # Longest first: a shorter trace is dropped in favour of a longer keeper.
+    lines.sort(key=lambda it: len(it[1].points), reverse=True)
+    pix = {i: _pixels(s) for i, s in lines}
+    drop: set[int] = set()
+    for a in range(len(lines)):
+        ia, sa = lines[a]
+        if ia in drop:
+            continue
+        for b in range(a + 1, len(lines)):
+            ib, sb = lines[b]
+            if ib in drop:
+                continue
+            if _round_color(sa.color) != _round_color(sb.color):
+                continue
+            if not pix[ia] or not pix[ib]:
+                continue
+            if _coincident_frac(pix[ib], pix[ia], _DUP_LINE_PX) >= _DUP_LINE_FRAC:
+                drop.add(ib)   # sb is a redundant trace of the longer sa
+    if not drop:
+        return series
+    return [s for i, s in enumerate(series) if i not in drop]
 
 
 def _linear_r2(pts: list[tuple[float, float]]) -> float:

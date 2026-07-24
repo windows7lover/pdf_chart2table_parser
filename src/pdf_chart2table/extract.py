@@ -40,7 +40,12 @@ from .calibrate import calibrate_panels, to_data_array
 from .lines import SeriesLine
 from .marks import SeriesMarks, is_sparse_on_dense
 from .plot_region import detect_regions
-from .refiners import classify_line_roles, drop_spurious_lines, refine_dropped_curve
+from .refiners import (
+    classify_line_roles,
+    dedup_overlapping_line_series,
+    drop_spurious_lines,
+    refine_dropped_curve,
+)
 from .model import (
     Axis,
     ChartResult,
@@ -294,6 +299,10 @@ def extract_region(
     merged_line_series = _merge_tiled_line_series(
         [_build_line_series(sl, x_axis, y_axis) for sl in line_series]
     )
+    # Collapse overlapping DUPLICATE traces of one curve (a bold/re-stroked curve
+    # emitted as many same-colour lines over the same box), which otherwise
+    # inflates the series count (one curve -> up to ~200 series).
+    merged_line_series = dedup_overlapping_line_series(merged_line_series)
 
     # Fix I: accept 2-mark series when the region has an anchor (strong marker
     # or line series), avoiding lone annotation glyphs in empty regions.
