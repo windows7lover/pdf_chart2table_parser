@@ -49,7 +49,11 @@ def _parse_pi(s: str) -> float | None:
     except ValueError:
         return None
     return coeff * math.pi / denom if denom else None
-from .primitives import bbox_center as _center, join_scripts as _join_scripts
+from .primitives import (
+    bbox_center as _center,
+    is_saturated as _is_saturated,
+    join_scripts as _join_scripts,
+)
 
 # Geometry tolerances (PDF points).
 _SPINE_TOL = 8.0        # how far a tick may sit from the spine coordinate
@@ -218,6 +222,19 @@ def _label_value(spans: list[TextSpan], negative: bool) -> float | None:
 # Tick-mark detection
 # --------------------------------------------------------------------------
 
+def _chromatic_mark(p: Path) -> bool:
+    """True when a thin tick-candidate is a saturated DATA colour, not the neutral
+    (black/grey) colour a real tick mark is drawn in.
+
+    A '|'/thin-diamond/small-'+' data marker sitting on a spine is geometrically
+    indistinguishable from a tick, so the color-blind position scans below would
+    vote it as a tick and pollute calibration. A genuine tick is drawn in the
+    spine colour (neutral, low RGB spread); exclude only *clearly* chromatic
+    candidates -- a black data marker on the spine cannot be told from a tick by
+    colour and is left alone."""
+    return _is_saturated(p.stroke) or _is_saturated(p.fill)
+
+
 def _x_tick_positions(paths: list[Path], region: Region):
     """X pixel positions of bottom-axis tick marks + their direction ("in"/"out").
 
@@ -232,6 +249,8 @@ def _x_tick_positions(paths: list[Path], region: Region):
         b = p.bbox
         w, h = b[2] - b[0], b[3] - b[1]
         if w > _TICK_THIN_MAX or not (0 < h <= _TICK_LEN_MAX):
+            continue
+        if _chromatic_mark(p):    # saturated data marker on the spine, not a tick
             continue
         cx = 0.5 * (b[0] + b[2])
         if not (x0 - _SPINE_TOL <= cx <= x1 + _SPINE_TOL):
@@ -267,6 +286,8 @@ def _y_tick_positions(paths: list[Path], region: Region):
         b = p.bbox
         w, h = b[2] - b[0], b[3] - b[1]
         if h > _TICK_THIN_MAX or not (0 < w <= _TICK_LEN_MAX):
+            continue
+        if _chromatic_mark(p):    # saturated data marker on the spine, not a tick
             continue
         cy = 0.5 * (b[1] + b[3])
         if not (y0 - _SPINE_TOL <= cy <= y1 + _SPINE_TOL):

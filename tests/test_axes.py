@@ -305,3 +305,69 @@ def test_x_label_band_excludes_corner_ytick_label():
     )
     assert 50.0 not in vals
     assert 0.0 in vals and 0.02 in vals
+
+
+# --- Fix 4a: a chromatic data marker on the spine must NOT pollute the ticks ---
+from pdf_chart2table.axes import _x_tick_positions, _y_tick_positions
+
+
+def _vseg(cx, y_lo, y_hi, *, fill=None, stroke=None, half=0.3):
+    """A thin VERTICAL segment (x-tick / '|' marker) centred on ``cx``."""
+    return _make_path(
+        [(cx - half, y_lo), (cx + half, y_lo), (cx + half, y_hi),
+         (cx - half, y_hi), (cx - half, y_lo)],
+        fill=fill, stroke=stroke,
+    )
+
+
+def _hseg(cy, x_lo, x_hi, *, fill=None, stroke=None, half=0.3):
+    """A thin HORIZONTAL segment (y-tick / '_' marker) centred on ``cy``."""
+    return _make_path(
+        [(x_lo, cy - half), (x_hi, cy - half), (x_hi, cy + half),
+         (x_lo, cy + half), (x_lo, cy - half)],
+        fill=fill, stroke=stroke,
+    )
+
+
+def test_x_ticks_exclude_chromatic_marker_keep_black():
+    """A saturated '|' data marker on the bottom spine is not voted as a tick,
+    while the neutral black ticks are all still collected (both directions)."""
+    region = Region(bbox=(100.0, 50.0, 300.0, 200.0))  # bottom spine at y=200
+    black = (0.0, 0.0, 0.0)
+    ticks = [_vseg(cx, 200.0, 203.5, stroke=black) for cx in (120, 160, 200, 240, 280)]
+    # A chromatic vertical bar-marker sitting exactly on the spine at x=140.
+    stroked_marker = _vseg(140.0, 197.0, 203.0, stroke=(0.85, 0.10, 0.10))
+    filled_marker = _vseg(180.0, 197.0, 203.0, fill=(0.10, 0.30, 0.85))
+    paths = ticks + [stroked_marker, filled_marker]
+
+    pos = _x_tick_positions(paths, region)[0]
+    for want in (120, 160, 200, 240, 280):
+        assert any(abs(p - want) <= 1.0 for p in pos), f"black tick {want} dropped"
+    for bad in (140, 180):
+        assert not any(abs(p - bad) <= 1.0 for p in pos), f"marker {bad} polluted ticks"
+
+
+def test_y_ticks_exclude_chromatic_marker_keep_black():
+    """Same as above on the left y-spine: chromatic '_' marker excluded, black
+    ticks retained."""
+    region = Region(bbox=(100.0, 50.0, 300.0, 200.0))  # left spine at x=100
+    black = (0.0, 0.0, 0.0)
+    ticks = [_hseg(cy, 96.5, 100.0, stroke=black) for cy in (70, 110, 150, 190)]
+    stroked_marker = _hseg(90.0, 97.0, 103.0, stroke=(0.85, 0.10, 0.10))
+    filled_marker = _hseg(130.0, 97.0, 103.0, fill=(0.10, 0.30, 0.85))
+    paths = ticks + [stroked_marker, filled_marker]
+
+    pos = _y_tick_positions(paths, region)[0]
+    for want in (70, 110, 150, 190):
+        assert any(abs(p - want) <= 1.0 for p in pos), f"black tick {want} dropped"
+    for bad in (90, 130):
+        assert not any(abs(p - bad) <= 1.0 for p in pos), f"marker {bad} polluted ticks"
+
+
+def test_ticks_keep_black_marker_on_spine():
+    """Conservatism guard: a BLACK (neutral) mark on the spine is geometrically a
+    tick and must NOT be excluded by the colour filter -- only chromatic ones are."""
+    region = Region(bbox=(100.0, 50.0, 300.0, 200.0))
+    black_marker = _vseg(140.0, 197.0, 203.0, fill=(0.0, 0.0, 0.0))
+    pos = _x_tick_positions([black_marker], region)[0]
+    assert any(abs(p - 140.0) <= 1.0 for p in pos)

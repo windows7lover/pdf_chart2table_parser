@@ -63,6 +63,54 @@ decode — keep the raw EPS/vector description of that section and reinject it v
 reconstruction, paired with a JSON flag (`raw_passthrough_region` + bbox). Recovery first;
 passthrough+flag only where recovery would have to guess.
 
+## fix 4 markers-on-axis — 2026-07-24 (sub-fix A landed; B skipped)
+
+User report: "markers that lie ON the axis are either dropped or mistakenly taken as ticks."
+
+- **Sub-fix A — tick pollution by markers (LANDED).** `axes._x_tick_positions` /
+  `_y_tick_positions` collected tick candidates by geometry ALONE (thin, short, within
+  `_SPINE_TOL` of a spine) and were colour-blind, so a saturated DATA-coloured mark sitting on
+  the spine (a chromatic '|', thin diamond, small '+') was voted as a tick position and polluted
+  calibration. Fix: a new `_chromatic_mark` gate excludes candidates whose stroke OR fill is
+  saturated-chromatic (`primitives.is_saturated`, spread > 0.2). Conservative on purpose — a
+  genuine tick is drawn in the neutral spine colour (low RGB spread) and is kept; a BLACK data
+  mark on the spine is geometrically indistinguishable from a tick and is left alone (handled on
+  the mark side by the existing known-closed-glyph-on-spine exception in `marks._is_data_mark`).
+  Tests: `test_x_ticks_exclude_chromatic_marker_keep_black`,
+  `test_y_ticks_exclude_chromatic_marker_keep_black`, `test_ticks_keep_black_marker_on_spine`
+  (both directions: chromatic excluded, neutral ticks retained, black-on-spine not over-excluded).
+
+- **Sub-fix B — thin '|'/'_' markers dropped at the spine (SKIPPED).** Recovering a thin bar mark
+  as data requires series-level context (match an existing confident marker series' colour +
+  2-D scatter) and is collision-prone with `error_bars.py` whiskers/caps and with dashed
+  gridline/reference-line sub-strokes; a general '|'/'_' marker recogniser was explored and
+  explicitly retracted because in these charts those thin bars are **error-bar decoration, not
+  scatter markers** — promoting them to a data series would fabricate data from uncertainty
+  whiskers. Handled instead by the dedicated error-bar-detection effort (fix 6 below, commit
+  59729f1). Closed circles/squares/diamonds on a spine already extract correctly (known-closed
+  exception), so the residual drop case is the narrow bar-mark one only.
+
+## fix 6 marker-less error bars — 2026-07-24 (LANDED, commit 59729f1)
+
+A chart drawing points ONLY as error bars (matplotlib `fmt='none'`) has no central marker, so
+the existing marker-anchored `detect_error_bars` cannot fire and the whisker+cap strokes were
+traced by `lines.py` as a PHANTOM marker-less polyline of whisker ENDPOINTS — a fabricated
+series (confirmed on a synthetic probe: 10 fake points for 5 real data points, both y- and
+x-error).
+
+- `error_bars.recover_markerless_error_bars` finds I-beams directly (a whisker capped at BOTH
+  ends), independent of any marker, and returns each bar's CENTRE — the datum (the true value for
+  a symmetric bar, how matplotlib draws them) — plus its half-length (the error). The CLI strips
+  those strokes (kills the phantom) and builds a scatter series of the centres, each point
+  carrying `y_err` (or `x_err`).
+- `series[].error_bar` — bool (schema addition). True when the series is recovered marker-less
+  error-bar datums (discrete scatter points + per-point uncertainty), NOT a continuous curve.
+  Consumers read `x`/`y` for the point estimate; `x_err`/`y_err` per point carry the uncertainty.
+- Precision-first (never fabricate): requires ≥3 same-orientation I-beams, both caps present,
+  short caps, whisker length < 0.6·diagonal. A lone stroke, a capless whisker, and a gridline are
+  all rejected. The marker-anchored path (`recover_error_bars`) is unchanged; its strokes are
+  excluded from this pass.
+
 ## Impact quantification — 2026-07-24 corpus measurements
 
 Corpus: 56,821 raw files = **19,603 extracted charts** + ~37k skips
