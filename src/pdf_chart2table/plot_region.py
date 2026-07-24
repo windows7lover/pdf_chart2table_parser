@@ -977,12 +977,20 @@ def _2d_map_skip_reason(bbox: BBox, paths: list[Path]) -> str | None:
     return None
 
 
-def _covered_by_image(bbox: BBox, image_rects, frac: float = 0.55) -> bool:
+def _covered_by_image(bbox: BBox, image_rects, frac: float = 0.50) -> bool:
     """True if a raster image covers >= ``frac`` of the candidate region.
 
     A region that is mostly an embedded image with vector markers drawn on top
-    (a photo / micrograph / sky map with annotation points) is NOT a vector
-    chart and must be rejected.
+    (a photo / micrograph / 2D density / imshow heatmap with annotation curves
+    on top) is NOT a vector chart and must be rejected -- these are exactly the
+    2D-map charts the downstream consumer wants dropped (their #1 precision
+    lever), and the extractor otherwise emits a few garbage series from the
+    sparse vector overlay.
+
+    Threshold 0.50 is data-justified: over the 566-chart regen, genuine charts
+    cluster at < 0.35 raster coverage (563/566), the 0.45-0.55 band held ONLY
+    two 2D density maps (both 0.54), and nothing sat between -- so 0.50 catches
+    the maps with zero collateral. (Was 0.55, which just missed them.)
     """
     if not image_rects:
         return False

@@ -517,6 +517,17 @@ def test_region_mostly_covered_by_image_is_rejected():
     assert not _covered_by_image(box, [])
 
 
+def test_2d_map_at_half_coverage_rejected():
+    # A 2D density/imshow map covers ~54% of the region (the real 2104.03045 /
+    # 2105.10232 band): must be rejected at the 0.50 gate -- these charts emit
+    # garbage series from the sparse vector overlay. (Was missed at 0.55.)
+    box = (0.0, 0.0, 100.0, 100.0)  # area 10000
+    img = (0.0, 0.0, 73.5, 73.5)    # ~0.54 coverage
+    assert _covered_by_image(box, [img])
+    # A genuine chart with a smaller inset image (~40%) is still KEPT.
+    assert not _covered_by_image(box, [(0.0, 0.0, 63.0, 63.0)])
+
+
 # --- panel-merge regression: adjacent sub-panels must not be fused -----------
 
 def _vseg(x: float, y0: float, y1: float):
