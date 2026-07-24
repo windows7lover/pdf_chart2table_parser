@@ -45,3 +45,28 @@ sample (originals vs recons; sheets judged in-session):
 annotation rows fragment because subscript glyphs sit off-baseline), audit remaining panels of
 2512.13518, then the legend-handle/annotation-dot class; where confidence is low, FLAG
 (`suspect`) instead of dropping per user policy.
+
+**Last-resort option (user policy):** for a section recovery can't confidently decode, do NOT
+decode — keep the raw EPS/vector description of that section and reinject it verbatim into the
+reconstruction, paired with a JSON flag (`raw_passthrough_region` + bbox). Recovery first;
+passthrough+flag only where recovery would have to guess.
+
+## Impact quantification — 2026-07-24 corpus measurements
+
+Corpus: 56,821 raw files = **19,603 extracted charts** + ~37k skips
+(15,534 dispersion-lattice, 11,551 no-series, 8,530 no-axis-calibration, ~1,600 2D-map rejects).
+
+**Already-committed fixes, effect at next regen:**
+| fix | affected |
+|---|---:|
+| role tags (fix 1) — downstream can keep markerless data curves | **7,647 charts + 6,549 series** |
+| calibration self-check + borrow gate (fix 3) — incoherent axes repaired/dropped | **1,483 charts (7.6%)** |
+| letterform suppression (fix 2, partial) — 40-sample re-parse: 35% of black-dot charts fully cleaned, 30% shrunk | ~**635 / 1,814** black-'o' charts cleaned |
+| downstream-side filter fixes (their two-line changes) | ~466 scale_broken FPs + ~330 genuine black-marker charts |
+
+**Remaining fixes, measured impact:**
+| fix | affected | note |
+|---|---:|---|
+| fix 2 residual (letterform leaks + legend-handle/annotation dots) | ~**850 charts** | 65% of the 1,814 black-'o' universe still emits black-o after the partial fix; minus ~330 genuine-data charts |
+| fix 4 markers-on-axis | ~**113 charts** (1.0% of 11,295 marker charts have a marker point on a spine) + unquantified share of the 11,551 no-series skips ('\|' bar-marker charts) | LOW priority; circles/closed glyphs on spines already extract correctly (probe-verified) |
+| fix 5 multiplier metadata + spacing check | metadata: all charts with offset-text axes (not measurable from JSON); coherence flag: largely redundant with committed fix 3 (the 1,483) | cheap to add; mostly downstream-conditioning value |
