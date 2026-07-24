@@ -79,6 +79,10 @@ User report: "markers that lie ON the axis are either dropped or mistakenly take
   Tests: `test_x_ticks_exclude_chromatic_marker_keep_black`,
   `test_y_ticks_exclude_chromatic_marker_keep_black`, `test_ticks_keep_black_marker_on_spine`
   (both directions: chromatic excluded, neutral ticks retained, black-on-spine not over-excluded).
+  Real-data check (983 cropped arxiv_semicond charts, filter ON vs OFF): ticks changed on
+  **25/983 (2.5%)**, **0 regressions** — ON is always a superset of OFF; on changed charts the
+  filter recovers MORE correct labeled ticks (removing the chromatic pollutant unblocks tick
+  clustering / label-pairing), confirming the pollution mechanism and its reversal.
 
 - **Sub-fix B — thin '|'/'_' markers dropped at the spine (SKIPPED).** Recovering a thin bar mark
   as data requires series-level context (match an existing confident marker series' colour +
