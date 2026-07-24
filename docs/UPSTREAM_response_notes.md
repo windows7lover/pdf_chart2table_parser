@@ -115,6 +115,24 @@ x-error).
   all rejected. The marker-anchored path (`recover_error_bars`) is unchanged; its strokes are
   excluded from this pass.
 
+## Local-regen quality audit — 2026-07-24 (566 charts, image-space + JSON)
+
+Objective recon fidelity (`scripts/recon_compare_batch.py`): **84% of charts reconstruct data
+well** (data_missing AND data_extra both < 0.25; medians 0.05 / 0.02). The bad ~16% tail was two
+general failure modes, both now fixed:
+
+- **Over-segmentation** — ~36 charts split one curve into many same-colour series (one curve
+  traced 8x; charts toward ~200 series). FIXED (7636f57): `refiners.dedup_overlapping_line_series`
+  drops a line trace ≥85%-coincident with a longer same-colour line; distinct families and marker
+  series untouched. Verified 2508.12056_p2c1 30→10; genuine multi-series preserved exactly.
+- **2D density / imshow / Fermi-surface maps** slipping the raster-coverage gate (the downstream's
+  #1 lever). FIXED (4db7c41): `_covered_by_image` threshold 0.55→0.50, data-justified (genuine
+  charts <0.35 coverage; only the 2 maps in 0.45–0.55). Both maps now rejected, genuine charts kept.
+
+Still open / out of scope: black-'o' artifact tail (geometry-limited → VLM/flag), multi-panel
+grids merged into one region (e.g. 2008.09399_p3c1, 4-panel — explicitly out of scope), and
+renderer-only cosmetics (fill→line, dropped μ/² superscripts) which do NOT affect the extracted data.
+
 ## Impact quantification — 2026-07-24 corpus measurements
 
 Corpus: 56,821 raw files = **19,603 extracted charts** + ~37k skips
