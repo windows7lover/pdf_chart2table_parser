@@ -165,6 +165,12 @@ class Series:
     # downstream dataset builders can keep marker-less DATA curves instead of
     # dropping every marker=None series as a suspected fit line.
     role: str | None = None
+    # Moderate-evidence flag (policy: flag, don't guess): True when a marker
+    # group looks like it could be an annotation / legend glyph cluster (small,
+    # packed letter-tight or hugging annotation text) but the confident
+    # word/block tests could not prove it (see marks._suspect_small_group).
+    # The data is kept; consumers may gate on the flag.
+    suspect: bool = False
 
 
 @dataclass

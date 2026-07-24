@@ -131,6 +131,7 @@ def _build_series(sm: SeriesMarks, x_axis: Axis, y_axis: Axis) -> Series:
         color=color or fill,
         points=_points_to_data(xs_px, ys_px, x_axis, y_axis),
         role="data",   # marker centroids ARE the read-off data
+        suspect=sm.suspect,
     )
 
 

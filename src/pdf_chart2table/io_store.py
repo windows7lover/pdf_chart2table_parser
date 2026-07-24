@@ -121,6 +121,9 @@ def _series_record(series) -> list[dict]:
             # Dash form (raw PDF dash string or "dashed"); None when solid.
             # A dashed straight line is the classic fit/guide idiom.
             "dashes": d.get("dashes"),
+            # Moderate-evidence annotation-glyph flag (see model.Series.suspect):
+            # the series is kept but MAY be an annotation/legend glyph cluster.
+            "suspect": bool(d.get("suspect", False)),
             "points": d.get("points", []),
         })
     return out

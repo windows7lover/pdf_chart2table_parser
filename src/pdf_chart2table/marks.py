@@ -221,8 +221,32 @@ _TEXTRUN_MAX_SPAN_MEDH = 22.0
 # Rows within this many median heights of a confirmed word row, overlapping its
 # x-range, belong to the same text block (stacked legend lines: "5K" above
 # "20K" above "No EPI" -- the short rows alone never reach the word length).
+# Pitch is measured against max(median height, the word row's own glyph height):
+# subscript glyphs drag the median down, under-shooting real line pitch
+# (2512.13518_p103c3: 11.7 pt pitch vs 2.2 x 5.2 medh missed the block).
 _TEXTRUN_BLOCK_PITCH_MEDH = 2.2
 _TEXTRUN_BLOCK_XPAD_MEDW = 2.0
+# Same-row membership: besides near-equal centroid y, glyphs whose vertical
+# bboxes overlap by this fraction of the smaller height share the text line --
+# subscripts sit off the baseline yet overlap the line's band, and the
+# centroid-only rule fragmented math rows ("eps_2 = eps_1").
+_TEXTRUN_ROW_OVERLAP = 0.5
+# Math-operator gap bridging: a flat-wide glyph ('=', '-', '—'; width at least
+# _TEXTRUN_OP_ASPECT x height) carries math spacing on both sides that exceeds
+# the letter-tight gap, fragmenting annotation rows like "eps_2 = eps_1".
+# A run gap ADJACENT to such a glyph may reach _TEXTRUN_OPGAP_MEDH x median
+# height (math spacing around '=' runs to ~an em; the glyph height is the em
+# proxy). Word status still requires the size-CV test (over NON-operator
+# candidates), so uniform marker rows stay protected.
+_TEXTRUN_OP_ASPECT = 2.2
+_TEXTRUN_OPGAP_MEDH = 1.0
+# Stacked wordlet block: vector-outline legend labels with NO anchor word at
+# all (2003.03611: three "rows of 3" glyph labels) fragment into short tight
+# size-varying runs ("wordlets"). Two or more wordlets stacked at text line
+# pitch, x-overlapping and LEFT-ALIGNED (text blocks align; data clusters do
+# not), with at least _TEXTRUN_STACK_MIN members in total, are a text block.
+_TEXTRUN_STACK_MIN = 5
+_TEXTRUN_STACK_ALIGN_MEDW = 1.5
 
 # Real-text-glyph guard: when an annotation/legend label is drawn BOTH as a
 # selectable TextSpan AND as duplicate vector glyph paths (common with embedded
@@ -239,6 +263,27 @@ _TEXTRUN_BLOCK_XPAD_MEDW = 2.0
 # (2001.01928_p5c1: a 27-mark black-circle group is 0.74 in-text), so all its
 # marks are kept. Mirrors the group-aware legend-box filter's _LEGEND_GROUP_DROP_FRAC.
 _TEXTGLYPH_GROUP_DROP_FRAC = 0.9
+# HEAD BAND: a label whose head is a math/symbol glyph gets only its plain tail
+# extracted as a TextSpan ("γ dominant" -> span "dominant"); the head's vector
+# glyphs sit just LEFT of the span on the same line and look like a short marker
+# scatter (2405.10477_p20c5: 8 black 'o' from two "dominant" annotations). A
+# span's bbox is therefore extended _TEXTSPAN_HEAD_FRAC x its height to the
+# left, but that band only counts as "in text" when it holds >= 2 candidates
+# whose sizes VARY like letterforms (a data marker repeats one glyph, so one or
+# two real markers grazing the band never activate it).
+_TEXTSPAN_HEAD_FRAC = 3.0
+
+# Suspect flag (policy: flag, don't guess): a small mark group that passed all
+# the confident tests above but shows MODERATE annotation-glyph evidence is
+# kept and flagged ``suspect`` instead of dropped. Evidence: the group is
+# tight-clustered (marks packed within letter distance of each other -- data
+# markers are spread along an axis) or text-row-adjacent (marks hug a text
+# span's line, like the "•" of an annotation "• = 1"). Only small groups
+# qualify: a real series of more than _SUSPECT_MAX_MARKS points is data.
+_SUSPECT_MAX_MARKS = 6     # groups larger than this are never flagged
+_SUSPECT_NN_SIZE = 1.5     # tight: median NN distance <= this x median mark size
+_SUSPECT_TEXT_DX_H = 1.5   # text adjacency: horizontal pad, x span height
+_SUSPECT_TEXT_DY_H = 0.3   # text adjacency: vertical pad, x span height
 
 
 @dataclass
@@ -259,12 +304,19 @@ class Mark:
 
 @dataclass
 class SeriesMarks:
-    """All marks sharing one (shape, fill, stroke) signature."""
+    """All marks sharing one (shape, fill, stroke) signature.
+
+    ``suspect`` is a moderate-evidence flag (policy: flag, don't guess): the
+    group survived every confident word/block/legend test but is small and
+    packed letter-tight or hugs annotation text -- it MAY be an annotation /
+    legend glyph cluster. The marks are kept; consumers can gate on the flag.
+    """
 
     shape: str
     fill: Color | None
     stroke: Color | None
     marks: list[Mark] = field(default_factory=list)
+    suspect: bool = False
 
 
 # Maximum fraction of the plot height/width from any edge that a text span's
@@ -423,12 +475,20 @@ def _text_run_indices(cands: list[tuple], phantoms: list[tuple] = ()) -> set[int
 
     ``phantoms`` are ``(None, cx, cy, w, h)`` items for small unclaimed
     same-colour ink (rejected letterforms like 'K'/'E' strokes): they join the
-    row/run building as evidence -- a run interleaving phantoms needs only
-    ``_TEXTRUN_PHANTOM_MIN_LEN`` members (with the size CV over candidates
-    only) -- but are never flagged themselves. A word run's x-span is capped
-    (``_TEXTRUN_MAX_SPAN_MEDH`` x median height) so markers sitting ON a
-    dashed data line (dash segments are phantom-sized but span the plot) are
-    never swept up.
+    row/run building as evidence -- a run interleaving phantoms (or flat-wide
+    operator glyphs, see ``_is_op_glyph``) needs only
+    ``_TEXTRUN_PHANTOM_MIN_LEN`` members (with the size CV over the plain
+    candidates only) -- but are never flagged themselves. A word run's x-span
+    is capped (``_TEXTRUN_MAX_SPAN_MEDH`` x median height) so markers sitting
+    ON a dashed data line (dash segments are phantom-sized but span the plot)
+    are never swept up.
+
+    Rows are text LINES: membership is centroid-y proximity OR vertical bbox
+    overlap (``_same_text_row``), so off-baseline subscripts stay on their
+    line. Gaps beside a flat operator glyph may reach math spacing
+    (``_TEXTRUN_OPGAP_MEDH`` x median height). Rows too short for any word
+    bar can still be flagged as a STACKED wordlet block (left-aligned tight
+    size-varying runs at text line pitch, ``_wordlet_blocks``).
     """
     if not cands:
         return set()
@@ -439,25 +499,31 @@ def _text_run_indices(cands: list[tuple], phantoms: list[tuple] = ()) -> set[int
     rows: list[list[tuple]] = []
     for c in sorted(list(cands) + list(phantoms), key=lambda c: c[2]):  # by cy
         for r in rows:
-            if abs(c[2] - r[0][2]) <= _TEXTRUN_ROW_FRAC * medh:
+            if _same_text_row(c, r[0], medh):
                 r.append(c)
                 break
         else:
             rows.append([c])
     flagged: set[int] = set()
-    word_boxes: list[tuple[float, float, float]] = []   # (row_cy, x_lo, x_hi)
-    plain_rows: list[list[tuple]] = []                  # rows with no word
+    # word / wordlet boxes: (row_cy, x_lo, x_hi, row_glyph_h)
+    word_boxes: list[tuple[float, float, float, float]] = []
+    plain_rows: list[tuple[list[tuple], list[list[tuple]], float]] = []
     for r in rows:
         items = sorted(r, key=lambda c: c[1])            # by cx
         widths = sorted(c[3] for c in items)
         medw = widths[len(widths) // 2] or 1.0
         gap_max = _TEXTRUN_GAP_FRAC * medw
+        op_gap_max = max(gap_max, _TEXTRUN_OPGAP_MEDH * medh)
         run = [items[0]]
         runs = [run]
         for cur in items[1:]:
             prev = run[-1]
             gap = (cur[1] - cur[3] / 2) - (prev[1] + prev[3] / 2)  # bbox gap
-            if gap <= gap_max:
+            # Math spacing around a flat operator glyph ('=') exceeds the
+            # letter-tight gap; bridge it (word status still needs the CV test).
+            allowed = (op_gap_max if _is_op_glyph(prev) or _is_op_glyph(cur)
+                       else gap_max)
+            if gap <= allowed:
                 run.append(cur)
             else:
                 run = [cur]
@@ -469,20 +535,41 @@ def _text_run_indices(cands: list[tuple], phantoms: list[tuple] = ()) -> set[int
         if words:
             flagged.update(c[0] for c in items if c[0] is not None)
             for wrun in words:
-                word_boxes.append((
-                    sum(c[2] for c in wrun) / len(wrun),
-                    min(c[1] - c[3] / 2 for c in wrun) - _TEXTRUN_BLOCK_XPAD_MEDW * medw,
-                    max(c[1] + c[3] / 2 for c in wrun) + _TEXTRUN_BLOCK_XPAD_MEDW * medw,
-                ))
+                word_boxes.append(_word_box(wrun, medw))
+            # Other letter-like runs on this text line (a legend wordlet whose
+            # row merged with a wider annotation line) also anchor the block
+            # extension: they are flagged text, so rows stacked above/below
+            # them belong to the same block (2512.13518_p98c2: the "2K" row
+            # above a legend line that shared its band with "eps_2 = eps_1").
+            for run in runs:
+                if run not in words and _is_wordlet(run, medh):
+                    word_boxes.append(_word_box(run, medw))
         else:
-            plain_rows.append(items)
+            plain_rows.append((items, runs, medw))
+    # Stacked WORDLET block: vector-outline label lines with no anchor word at
+    # all ("rows of 3" glyph labels) are short tight size-varying runs. Two or
+    # more of them stacked at text line pitch, x-overlapping and left-aligned,
+    # totalling >= _TEXTRUN_STACK_MIN members, are a text block: flag them and
+    # let the chained extension below sweep up the rest of their rows.
+    wordlets = [
+        (row_id, run)
+        for row_id, (items, runs, medw) in enumerate(plain_rows)
+        for run in runs if _is_wordlet(run, medh)
+    ]
+    medw_all = sorted(c[3] for c in cands)[len(cands) // 2] or 1.0
+    for block in _wordlet_blocks(wordlets, medh, medw_all):
+        if (sum(len(run) for _, run in block) >= _TEXTRUN_STACK_MIN
+                and len({row_id for row_id, _ in block}) >= 2):
+            for _, run in block:
+                flagged.update(c[0] for c in run if c[0] is not None)
+                word_boxes.append(_word_box(run, medw_all))
     # Text-BLOCK extension: stacked legend lines ("5K" above "20K" above
     # "No EPI") include short rows that never reach the word length on their
     # own. A row within line pitch of a confirmed word row, horizontally
     # overlapping its span, belongs to the same block -- flag its candidates.
     # CHAINED: a newly flagged row becomes a block box itself, so a 3+-line
     # block is climbed line by line ("5K" is reached via "20K").
-    remaining = list(plain_rows)
+    remaining = [items for items, _runs, _medw in plain_rows]
     changed = True
     while changed and remaining:
         changed = False
@@ -491,51 +578,142 @@ def _text_run_indices(cands: list[tuple], phantoms: list[tuple] = ()) -> set[int
             row_cy = sum(c[2] for c in items) / len(items)
             hit = [
                 c for c in items if c[0] is not None
-                and any(abs(row_cy - wy) <= _TEXTRUN_BLOCK_PITCH_MEDH * medh
+                and any(abs(row_cy - wy) <= _TEXTRUN_BLOCK_PITCH_MEDH * max(medh, wh)
                         and wx0 <= c[1] <= wx1
-                        for wy, wx0, wx1 in word_boxes)
+                        for wy, wx0, wx1, wh in word_boxes)
             ]
-            if hit:
+            if hit and not all(c[0] in flagged for c in hit):
                 flagged.update(c[0] for c in hit)
                 widths = sorted(c[3] for c in items)
                 medw = widths[len(widths) // 2] or 1.0
-                word_boxes.append((
-                    row_cy,
-                    min(c[1] - c[3] / 2 for c in hit) - _TEXTRUN_BLOCK_XPAD_MEDW * medw,
-                    max(c[1] + c[3] / 2 for c in hit) + _TEXTRUN_BLOCK_XPAD_MEDW * medw,
-                ))
+                word_boxes.append(_word_box(hit, medw))
                 changed = True
-            else:
+            elif not hit:
                 still.append(items)
         remaining = still
     return flagged
+
+
+def _same_text_row(c: tuple, r0: tuple, medh: float) -> bool:
+    """Two glyphs share a text line: near-equal centroid y (letter-tight rows)
+    OR substantial vertical bbox overlap -- subscript/superscript glyphs sit
+    off the baseline yet overlap the line's band; the centroid-only rule
+    fragmented math annotation rows like "eps_2 = eps_1"."""
+    if abs(c[2] - r0[2]) <= _TEXTRUN_ROW_FRAC * medh:
+        return True
+    lo = max(c[2] - c[4] / 2, r0[2] - r0[4] / 2)
+    hi = min(c[2] + c[4] / 2, r0[2] + r0[4] / 2)
+    m = min(c[4], r0[4])
+    return m > 0 and (hi - lo) >= _TEXTRUN_ROW_OVERLAP * m
+
+
+def _is_op_glyph(c: tuple) -> bool:
+    """Flat-wide glyph ('=', '-', '—'): math-operator letterform whose
+    surrounding spacing exceeds the letter-tight run gap."""
+    return c[3] >= _TEXTRUN_OP_ASPECT * c[4]
+
+
+def _word_box(run: list[tuple], medw: float) -> tuple[float, float, float, float]:
+    """(row_cy, x_lo, x_hi, glyph_h) box of a confirmed word/wordlet run, padded
+    for the block extension; glyph_h feeds the pitch test (median height alone
+    under-shoots line pitch when subscripts drag it down)."""
+    return (
+        sum(c[2] for c in run) / len(run),
+        min(c[1] - c[3] / 2 for c in run) - _TEXTRUN_BLOCK_XPAD_MEDW * medw,
+        max(c[1] + c[3] / 2 for c in run) + _TEXTRUN_BLOCK_XPAD_MEDW * medw,
+        max(c[4] for c in run),
+    )
+
+
+def _is_wordlet(run: list[tuple], medh: float) -> bool:
+    """A short tight run that looks letter-like on its own (>= 2 size-varying
+    non-operator candidates, span-capped) but is below the word length bars.
+    Only ever flagged as part of a STACKED block (see _text_run_indices)."""
+    plain = [c for c in run if c[0] is not None and not _is_op_glyph(c)]
+    if len(plain) < 2:
+        return False
+    if medh > 0:
+        span = (max(c[1] + c[3] / 2 for c in run)
+                - min(c[1] - c[3] / 2 for c in run))
+        if span > _TEXTRUN_MAX_SPAN_MEDH * medh:
+            return False
+    size_cv = max(_cv([c[3] for c in plain]), _cv([c[4] for c in plain]))
+    return size_cv >= _TEXTRUN_MIN_SIZE_CV
+
+
+def _wordlet_blocks(
+    wordlets: list[tuple[int, list[tuple]]], medh: float, medw: float
+) -> list[list[tuple[int, list[tuple]]]]:
+    """Connected components of wordlets under the STACK relation: two wordlets
+    stack when their x-ranges overlap, their LEFT edges align (text blocks are
+    left-aligned; data clusters are not) and their rows sit within text line
+    pitch (measured against the taller run's glyph height)."""
+    n = len(wordlets)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    geo = []
+    for _, run in wordlets:
+        geo.append((
+            sum(c[2] for c in run) / len(run),            # cy
+            min(c[1] - c[3] / 2 for c in run),            # x0
+            max(c[1] + c[3] / 2 for c in run),            # x1
+            max(c[4] for c in run),                       # glyph h
+        ))
+    for i in range(n):
+        for j in range(i + 1, n):
+            (cyi, x0i, x1i, hi), (cyj, x0j, x1j, hj) = geo[i], geo[j]
+            if wordlets[i][0] == wordlets[j][0]:
+                continue                                   # same row: not a stack
+            if x0i > x1j or x0j > x1i:
+                continue                                   # no x overlap
+            if abs(x0i - x0j) > _TEXTRUN_STACK_ALIGN_MEDW * medw:
+                continue                                   # not left-aligned
+            pitch = _TEXTRUN_BLOCK_PITCH_MEDH * max(medh, hi, hj)
+            if abs(cyi - cyj) > pitch:
+                continue
+            parent[find(i)] = find(j)
+    comps: dict[int, list[tuple[int, list[tuple]]]] = {}
+    for i in range(n):
+        comps.setdefault(find(i), []).append(wordlets[i])
+    return list(comps.values())
 
 
 def _is_word(run: list[tuple], medh: float = 0.0) -> bool:
     """A tight horizontal run is a glyph-text word when it is long enough AND its
     glyphs vary in size (the discriminator vs a uniform flat data series).
 
-    With interleaved phantom members (unclaimed letterform ink) the length bar
-    drops to ``_TEXTRUN_PHANTOM_MIN_LEN`` and the CV is over candidates only.
-    Word runs are short: a span beyond ``_TEXTRUN_MAX_SPAN_MEDH`` median
-    heights (a dashed curve's dash row) is never a word.
+    With interleaved LETTER EVIDENCE -- phantom members (unclaimed letterform
+    ink) or flat-wide operator glyphs ('=' in "T = 2K") -- the length bar drops
+    to ``_TEXTRUN_PHANTOM_MIN_LEN`` and the CV is over the plain (non-operator)
+    candidates only, so uniform real markers stay protected even when the
+    evidence glyph's size differs from theirs. Word runs are short: a span
+    beyond ``_TEXTRUN_MAX_SPAN_MEDH`` median heights (a dashed curve's dash
+    row) is never a word.
     """
     if medh > 0:
         span = (max(c[1] + c[3] / 2 for c in run)
                 - min(c[1] - c[3] / 2 for c in run))
         if span > _TEXTRUN_MAX_SPAN_MEDH * medh:
             return False
-    if len(run) >= _TEXTRUN_MIN_LEN:
-        size_cv = max(_cv([c[3] for c in run]), _cv([c[4] for c in run]))
-        if size_cv >= _TEXTRUN_MIN_SIZE_CV:
-            return True
     cand = [c for c in run if c[0] is not None]
-    if (len(run) >= _TEXTRUN_PHANTOM_MIN_LEN and len(cand) >= 2
-            and len(run) > len(cand)):
-        size_cv = max(_cv([c[3] for c in cand]), _cv([c[4] for c in cand]))
-        if size_cv >= _TEXTRUN_MIN_SIZE_CV:
-            return True
-    return False
+    plain = [c for c in cand if not _is_op_glyph(c)]
+    evidence = (len(run) - len(cand)) + (len(cand) - len(plain))
+    if len(plain) < 2:
+        return False
+    # The size CV is ALWAYS over the plain candidates: phantom/operator members
+    # count toward run length as letter evidence only, so a uniform real marker
+    # row glued through dash segments or a stray flat glyph is never flagged.
+    size_cv = max(_cv([c[3] for c in plain]), _cv([c[4] for c in plain]))
+    if size_cv < _TEXTRUN_MIN_SIZE_CV:
+        return False
+    return len(run) >= _TEXTRUN_MIN_LEN or (
+        len(run) >= _TEXTRUN_PHANTOM_MIN_LEN and evidence >= 1)
 
 
 def _letterform_phantoms(
@@ -578,6 +756,28 @@ def _letterform_phantoms(
     return out
 
 
+def _head_band_indices(cands: list[tuple], spans: list[TextSpan]) -> set[int]:
+    """Cand path indices (``c[0]``) inside an ACTIVATED span head band: the
+    strip ``_TEXTSPAN_HEAD_FRAC`` x span-height LEFT of a horizontal text span,
+    on its line. A band is activated only when it holds >= 2 candidates whose
+    sizes vary like letterforms (``_TEXTRUN_MIN_SIZE_CV``): a data marker
+    repeats one glyph, so one-or-two real markers grazing the band never
+    activate it."""
+    out: set[int] = set()
+    for t in spans:
+        x0, y0, x1, y1 = t.bbox
+        h = y1 - y0
+        if h <= 0:
+            continue
+        band = [(idx, w, hh) for idx, cx, cy, w, hh in cands
+                if y0 < cy < y1 and x0 - _TEXTSPAN_HEAD_FRAC * h <= cx < x0]
+        if len(band) >= 2:
+            size_cv = max(_cv([b[1] for b in band]), _cv([b[2] for b in band]))
+            if size_cv >= _TEXTRUN_MIN_SIZE_CV:
+                out.update(b[0] for b in band)
+    return out
+
+
 def _text_glyph_indices(
     cands: list[tuple], region_texts: list[TextSpan], paths: list[Path]
 ) -> set[int]:
@@ -586,11 +786,14 @@ def _text_glyph_indices(
     duplicate vector glyphs), not data points.
 
     ``cands`` items are ``(idx, cx, cy, w, h)``. A candidate is "in text" when its
-    centroid is in the INTERIOR of a horizontal text span. We then group the
-    candidates by their data-mark style key (shape + rounded fill/stroke, the
-    SAME key the series grouping below uses) and flag a group's in-text members
-    only when >= _TEXTGLYPH_GROUP_DROP_FRAC of the whole group is in text — i.e.
-    the group is itself a text-glyph cluster, not a data series that happens to
+    centroid is in the INTERIOR of a horizontal text span, or in a span's
+    activated HEAD BAND (the un-extracted vector-glyph head of a partially
+    extracted label, e.g. "γ dominant" -> span "dominant"; see
+    ``_TEXTSPAN_HEAD_FRAC``). We then group the candidates by their data-mark
+    style key (shape + rounded fill/stroke, the SAME key the series grouping
+    below uses) and flag a group's in-text members only when
+    >= _TEXTGLYPH_GROUP_DROP_FRAC of the whole group is in text — i.e. the
+    group is itself a text-glyph cluster, not a data series that happens to
     cross an annotation/title (precision: such a data series is kept entire).
     """
     if not cands or not region_texts:
@@ -606,11 +809,14 @@ def _text_glyph_indices(
                 return True
         return False
 
+    head_idx = _head_band_indices(cands, spans)
+
     groups: dict[tuple, list[tuple[int, bool]]] = {}
     for idx, cx, cy, _w, _h in cands:
         p = paths[idx]
         key = (_shape_of(p), _round_color(p.fill), _round_color(p.stroke))
-        groups.setdefault(key, []).append((idx, _in_text(cx, cy)))
+        groups.setdefault(key, []).append(
+            (idx, idx in head_idx or _in_text(cx, cy)))
 
     flagged: set[int] = set()
     for members in groups.values():
@@ -618,6 +824,44 @@ def _text_glyph_indices(
         if in_text and len(in_text) >= _TEXTGLYPH_GROUP_DROP_FRAC * len(members):
             flagged.update(i for i, _ in members)
     return flagged
+
+
+def _suspect_small_group(marks: list[Mark], texts: list[TextSpan]) -> bool:
+    """Moderate annotation-glyph evidence for a small surviving mark group.
+
+    True when the group has 2..._SUSPECT_MAX_MARKS marks AND is either
+    tight-clustered (median nearest-neighbour distance within letter distance,
+    ``_SUSPECT_NN_SIZE`` x the median mark size) or text-row-adjacent (at least
+    half the marks sit within a horizontal text span's padded line band).
+    Used to FLAG (``SeriesMarks.suspect``), never to drop.
+    """
+    if not 2 <= len(marks) <= _SUSPECT_MAX_MARKS:
+        return False
+    sizes = sorted(m.size for m in marks)
+    med_size = sizes[len(sizes) // 2]
+    if med_size > 0:
+        nns = sorted(
+            min(((m.cx - o.cx) ** 2 + (m.cy - o.cy) ** 2) ** 0.5
+                for o in marks if o is not m)
+            for m in marks
+        )
+        if nns[len(nns) // 2] <= _SUSPECT_NN_SIZE * med_size:
+            return True
+    near = 0
+    for m in marks:
+        for t in texts:
+            if abs(t.dir[1]) >= 0.5:
+                continue
+            x0, y0, x1, y1 = t.bbox
+            h = y1 - y0
+            if h <= 0:
+                continue
+            if (x0 - _SUSPECT_TEXT_DX_H * h <= m.cx <= x1 + _SUSPECT_TEXT_DX_H * h
+                    and y0 - _SUSPECT_TEXT_DY_H * h <= m.cy
+                    <= y1 + _SUSPECT_TEXT_DY_H * h):
+                near += 1
+                break
+    return 2 * near >= len(marks)
 
 
 def _on_border(cx: float, cy: float, region: Region) -> bool:
@@ -1416,7 +1660,12 @@ def classify_marks(
     # Stroke-connectivity: drop orphan marks not on any same-colour connector
     # (legend swatches / stray glyphs stitched into a connected line-with-markers
     # series). Runs last so it sees the final merged series.
-    return _drop_unstroked_orphans(result, region, paths, large_fills)
+    result = _drop_unstroked_orphans(result, region, paths, large_fills)
+    # Suspect flag (policy: flag, don't guess): moderate annotation-glyph
+    # evidence on a small surviving group -- kept, but marked for consumers.
+    for sm in result:
+        sm.suspect = _suspect_small_group(sm.marks, region_texts)
+    return result
 
 
 def is_sparse_on_dense(
