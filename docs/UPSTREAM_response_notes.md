@@ -28,3 +28,20 @@ Pure-JSON audit of the raw extraction for every scale_broken reject id
 
 **Net:** ~89% of their scale_broken drops are recoverable downstream with two small filter
 changes; the ~7% that were our fault are fixed at source.
+
+## black_dot_chart audit (their 1,167 chart drops) — 2026-07-24
+
+Geometry triage of all 1,167 (session scratch `blackdot_audit.csv`) + 28-pair stratified visual
+sample (originals vs recons; sheets judged in-session):
+
+| class (of sample) | share | root cause | status |
+|---|---|---|---|
+| vector-outline TEXT read as marks | ~50% | TeX outline text (no font entry): round letterforms pass `_is_data_mark` and become a black-'o' series; angular letters rejected earlier were invisible to the run detector | **mechanism fixed** (commit c1a48e4): phantom-aware `_text_run_indices` + chained block extension; probe chart 10→5 marks. Residual: math-annotation rows ("ε₂ = ε₁"), some panel tags, and some panels' blocks still leak — follow-up below |
+| legend-handle dots / annotation "•" dots / arrows | ~25% | legend bbox miss or dot outside box | open — follow-up |
+| genuine black-marker data | **~18% (5/28)** | none — black filled circles are a normal marker | **downstream over-drops these**: R11 should not blanket-reject; suggest gating on our (new) suppression + a tight-cluster test instead |
+| inset / colorbar contamination | ~7% | multipanel class | out of scope (their note acknowledges) |
+
+**Follow-up (next session):** extend suppression to the residual letterform rows (math
+annotation rows fragment because subscript glyphs sit off-baseline), audit remaining panels of
+2512.13518, then the legend-handle/annotation-dot class; where confidence is low, FLAG
+(`suspect`) instead of dropping per user policy.
