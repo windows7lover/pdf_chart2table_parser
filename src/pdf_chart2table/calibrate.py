@@ -313,16 +313,16 @@ _SELF_CHECK_TOL = 0.10
 _SELF_CHECK_MAX_STRIP = 2
 
 
-def _self_check(axis: Axis, calib: dict) -> bool:
-    """Verify ``calib`` reproduces ``axis``'s labeled ticks; repair or reject.
+def _tick_misses(labeled: list, calib: dict) -> list:
+    """Labeled ticks that ``calib`` fails to reproduce.
 
-    Returns True when the calibration is consistent (possibly after stripping
-    the values of <= ``_SELF_CHECK_MAX_STRIP`` inconsistent ticks), False when
-    the axis must be treated as uncalibrated.
+    Comparison is in fit space (value for linear, log10(value) for log),
+    normalized by the tick-value range; a tick missing by more than
+    ``_SELF_CHECK_TOL`` of the range is a miss. Fewer than 2 labeled ticks ->
+    nothing to contradict (empty).
     """
-    labeled = [t for t in axis.ticks if t.value is not None]
     if len(labeled) < 2:
-        return True
+        return []
     logspace = calib["scale"] == "log"
     fv, pred = [], []
     for t in labeled:
@@ -333,8 +333,19 @@ def _self_check(axis: Axis, calib: dict) -> bool:
         pred.append(calib["a"] * t.pixel + calib["b"])
     vr = (max(v for v in fv if v is not None)
           - min(v for v in fv if v is not None)) or 1.0
-    misses = [t for t, v, p in zip(labeled, fv, pred)
-              if v is None or abs(p - v) > _SELF_CHECK_TOL * vr]
+    return [t for t, v, p in zip(labeled, fv, pred)
+            if v is None or abs(p - v) > _SELF_CHECK_TOL * vr]
+
+
+def _self_check(axis: Axis, calib: dict) -> bool:
+    """Verify ``calib`` reproduces ``axis``'s labeled ticks; repair or reject.
+
+    Returns True when the calibration is consistent (possibly after stripping
+    the values of <= ``_SELF_CHECK_MAX_STRIP`` inconsistent ticks), False when
+    the axis must be treated as uncalibrated.
+    """
+    labeled = [t for t in axis.ticks if t.value is not None]
+    misses = _tick_misses(labeled, calib)
     if not misses:
         return True
     if (len(misses) <= _SELF_CHECK_MAX_STRIP
@@ -442,6 +453,15 @@ def calibrate_panels(
                     continue
                 if src.scale == target.scale:
                     continue  # no scale disagreement, leave target alone
+            # Self-consistency: a borrowed calibration must reproduce the
+            # target's OWN labeled ticks. Same-pixel-column panels can carry
+            # entirely different value scales (e.g. per-panel x-ranges, or a
+            # log panel above linear siblings): pixel ranges match but the
+            # sibling's fit contradicts the target's labels -> not a shared
+            # axis, don't borrow (keep the target's own fit, which reproduced
+            # its ticks by construction).
+            if _tick_misses(target_labeled, src.calibration):
+                continue
             target.scale = src.scale
             target.calibration = dict(src.calibration)
             if target.pixel_range is not None:

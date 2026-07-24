@@ -52,6 +52,35 @@ def test_untrustworthy_fit_drops_axis():
     assert _self_check(ax, bad) is False
 
 
+def test_tick_misses_rejects_contradicting_borrow_candidate():
+    # 2008.09734 p26 region 5: a panel's own axis reads decade ticks
+    # 1e16/1e19 (log 2-point fit), while a same-pixel-column sibling is
+    # linear 80..240. The sibling's calibration maps the panel's tick pixels
+    # to ~180/300 -- contradicting the panel's own labels by ~100% of range.
+    # Borrowing must be refused for such a sibling.
+    from pdf_chart2table.calibrate import _tick_misses
+
+    labeled = [Tick(pixel=251.1, value=1e16), Tick(pixel=291.5, value=1e19)]
+    sibling_linear = {"scale": "linear", "a": 2.9735, "b": -566.65, "r2": 1.0}
+    assert _tick_misses(labeled, sibling_linear), \
+        "a borrow candidate contradicting the target's own ticks must be rejected"
+    # ...while the panel's own log fit reproduces them (no misses).
+    own_log = {"scale": "log",
+               "a": (19 - 16) / (291.5 - 251.1),
+               "b": 16 - 251.1 * (19 - 16) / (291.5 - 251.1), "r2": 1.0}
+    assert _tick_misses(labeled, own_log) == []
+
+
+def test_borrow_still_fills_unlabeled_panel():
+    # The genuine shared-axis case (no labeled ticks on the inner panel) has
+    # nothing to contradict -> _tick_misses is empty and borrowing proceeds.
+    from pdf_chart2table.calibrate import _tick_misses
+
+    assert _tick_misses([], {"scale": "linear", "a": 1.0, "b": 0.0}) == []
+    assert _tick_misses([Tick(pixel=10, value=5.0)],
+                        {"scale": "linear", "a": 1.0, "b": 0.0}) == []
+
+
 def test_log_axis_nonpositive_tick_is_a_miss():
     # A stored tick with value <= 0 on a log axis can never be consistent; it
     # is stripped like any other miss when the rest of the axis is sound.
