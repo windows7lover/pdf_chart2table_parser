@@ -28,7 +28,11 @@ from . import io_store, ocr_backfill as _ocr_backfill, pdf_vector, style as _sty
 from . import tick_ocr as _tick_ocr
 from .arrows import detect_arrows
 from .calibrate import calibrate_panels
-from .error_bars import detect_error_bars, recover_error_bars
+from .error_bars import (
+    detect_error_bars,
+    recover_error_bars,
+    recover_markerless_error_bars,
+)
 from .grid import detect_grid, detect_reference_lines
 from .plot_region import detect_regions
 
@@ -137,6 +141,54 @@ def _attach_error_bars(series, whiskers, y_axis):
                     best, best_dx = p, abs(xp - cx)
         if best is not None:
             best["y_err"] = round(float(yerr), 6)
+
+
+def _build_markerless_errbar_series(ml_points, x_axis, y_axis, existing):
+    """Build a scatter :class:`Series` from recovered marker-less error bars.
+
+    ``ml_points`` is ``[(cx_px, cy_px, err_px, orient), ...]`` from
+    ``recover_markerless_error_bars`` -- each an I-beam CENTRE (the datum) with
+    its half-length (the symmetric error) and orientation ('v'=y-error,
+    'h'=x-error). Each centre is mapped to data coords via the calibration and
+    carries the error in data units (``y_err`` for 'v', ``x_err`` for 'h'). The
+    series is marked ``error_bar=True`` so a renderer draws discrete points +
+    bars, not a connecting line. Returns None if every recovered datum already
+    coincides with an existing series point (the marker-anchored path handled
+    it) so we never duplicate a series.
+    """
+    from .calibrate import to_data as _to_data
+    from .model import Series
+
+    seen = [(p.get("x_px"), p.get("y_px"))
+            for s in existing for p in getattr(s, "points", []) or []
+            if p.get("x_px") is not None and p.get("y_px") is not None]
+
+    def _dup(cx, cy):
+        return any(abs(cx - sx) <= 3.0 and abs(cy - sy) <= 3.0 for sx, sy in seen)
+
+    xcal, ycal = x_axis.calibration, y_axis.calibration
+    pts = []
+    for cx, cy, err, orient in ml_points:
+        if _dup(cx, cy):
+            continue
+        pt = {
+            "x": float(_to_data(xcal, cx)), "y": float(_to_data(ycal, cy)),
+            "x_px": float(cx), "y_px": float(cy),
+        }
+        if orient == "v":
+            hi = _to_data(ycal, cy - err)
+            lo = _to_data(ycal, cy + err)
+            pt["y_err"] = round(abs(hi - lo) / 2.0, 6)
+        else:
+            hi = _to_data(xcal, cx + err)
+            lo = _to_data(xcal, cx - err)
+            pt["x_err"] = round(abs(hi - lo) / 2.0, 6)
+        pts.append(pt)
+    if not pts:
+        return None
+    pts.sort(key=lambda p: p["x"])
+    return Series(label=None, marker=None, color=None, points=pts,
+                  role="data", error_bar=True)
 
 
 def _region_labels(page, region, glyph_recognize=None):
@@ -580,9 +632,16 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
             # not a data series; drop their paths so they are not traced as a
             # jagged marker-less polyline through the data points.
             errbar_idx, errbar_whiskers = recover_error_bars(region, page.paths)
-            if errbar_idx:
+            # Marker-less error bars (fmt='none'): the I-beam IS the datum, with
+            # no marker to anchor to. Recover each bar's centre as a point (with
+            # its half-length as the error) and strip the strokes so they are not
+            # traced as a phantom polyline of whisker endpoints.
+            ml_errbar_idx, ml_errbar_pts = recover_markerless_error_bars(
+                region, page.paths, exclude=errbar_idx)
+            strip_idx = errbar_idx | ml_errbar_idx
+            if strip_idx:
                 region.path_indices = [i for i in region.path_indices
-                                       if i not in errbar_idx]
+                                       if i not in strip_idx]
             # Background grid (axis-aligned lines on the ticks, any colour/dash):
             # recorded as style, not traced as data. Tick positions both confirm
             # real grid lines and recover faint/fragmented ones at a tick.
@@ -629,6 +688,16 @@ def parse_pdf(pdf: str, outroot: str, pages_spec: str | None = None) -> list[dic
             legend_bbox = rl[5] if len(rl) > 5 else None
             series = _region_series(page, region, x_axis, y_axis, source,
                                     legend_bbox)
+            # Marker-less error bars: build a scatter series from the recovered
+            # I-beam centres (the datums), each carrying its uncertainty. Added
+            # BEFORE the emptiness check so an error-bar-only chart (which yields
+            # no marker/curve series) is extracted instead of skipped.
+            if ml_errbar_pts and (x_axis.calibration is not None
+                                  and y_axis.calibration is not None):
+                ml_series = _build_markerless_errbar_series(
+                    ml_errbar_pts, x_axis, y_axis, series)
+                if ml_series is not None:
+                    series.append(ml_series)
             # An extraction with no clean series / no data points is a skip, not
             # an empty "extracted" record (precision over recall).
             if not series:

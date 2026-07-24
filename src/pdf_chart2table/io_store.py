@@ -124,6 +124,9 @@ def _series_record(series) -> list[dict]:
             # Moderate-evidence annotation-glyph flag (see model.Series.suspect):
             # the series is kept but MAY be an annotation/legend glyph cluster.
             "suspect": bool(d.get("suspect", False)),
+            # True when recovered from marker-less error bars: points are the
+            # bar centres (datums) with per-point x_err/y_err (see model.Series).
+            "error_bar": bool(d.get("error_bar", False)),
             "points": d.get("points", []),
         })
     return out

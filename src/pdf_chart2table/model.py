@@ -171,6 +171,13 @@ class Series:
     # word/block tests could not prove it (see marks._suspect_small_group).
     # The data is kept; consumers may gate on the flag.
     suspect: bool = False
+    # True when this series was recovered from MARKER-LESS error bars: each point
+    # is the CENTRE of an error-bar I-beam (the datum), carrying a per-point
+    # ``y_err`` / ``x_err`` (see error_bars.recover_markerless_error_bars). The
+    # points are discrete scatter data, NOT a continuous curve, so a renderer
+    # must not connect them; distinguishes them from a marker-less data line
+    # (which also has ``marker=None``, ``role="data"``).
+    error_bar: bool = False
 
 
 @dataclass

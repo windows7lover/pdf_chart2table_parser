@@ -15,8 +15,13 @@ series extraction. Conservative by design -- only short strokes that are
 and (c) drawn in the marker's colour are flagged, so genuine vertical/horizontal
 data is untouched.
 
+A separate pass handles MARKER-LESS error bars (matplotlib ``fmt='none'``),
+where the I-beam itself is the datum: see ``recover_markerless_error_bars``.
+
 Public API:
     detect_error_bars(region, paths) -> set[int]  (path indices to drop)
+    recover_error_bars(region, paths) -> (idx, whiskers)  (marker-anchored)
+    recover_markerless_error_bars(region, paths, exclude) -> (idx, points)
 """
 from __future__ import annotations
 
@@ -161,3 +166,140 @@ def recover_error_bars(
         if len(p.points) <= 3 and bw <= _THIN_PX and _THIN_PX < bh <= max_len:
             whiskers.append(((b[0] + b[2]) / 2.0, b[1], b[3]))  # (cx, top, bottom)
     return idx, whiskers
+
+
+# --------------------------------------------------------------------------
+# Marker-less error bars: the I-beam IS the datum (no central marker glyph)
+# --------------------------------------------------------------------------
+# When a chart draws its points ONLY as error bars (matplotlib ``fmt='none'``),
+# there is no marker for ``detect_error_bars`` to anchor to, so the whisker+cap
+# strokes are left in and traced by ``lines.py`` as a fake jagged polyline (a
+# phantom series of whisker ENDPOINTS -- observed: a 10-point zig-zag for 5
+# real points). This pass finds the I-beams directly and recovers the datum at
+# each bar's CENTRE (the true value for a symmetric error bar, which is how
+# matplotlib draws them), so the phantom can be stripped and the real points +
+# uncertainty emitted instead.
+#
+# Precision-first (policy: never fabricate data): a bar is recovered ONLY as a
+# confident I-beam -- a whisker with a cap at BOTH ends -- and only when at
+# least ``_MIN_IBEAMS`` same-colour I-beams of one orientation are present (a
+# lone vertical stroke could be a data spike; a capless whisker is ambiguous
+# with a gridline / bar / annotation line and is deliberately NOT recovered).
+_MIN_IBEAMS = 3
+# A cap sits at a whisker END: its centre-x within _CAP_X_TOL of the whisker x
+# (vertical bar) and its y within _CAP_END_TOL of the whisker top/bottom.
+_CAP_X_TOL = 3.0
+_CAP_END_TOL = 2.5
+# A cap is short relative to its whisker's length (a wide horizontal stroke is a
+# gridline / data segment, not a cap).
+_CAP_MAX_LEN_FRAC = 0.5
+
+
+def _thin_strokes(region: Region, paths: list[Path], exclude: set[int],
+                  max_len: float):
+    """Classify each thin, short in-region stroke as a vertical/horizontal
+    segment. Yields ``(i, cx, cy, lo, hi, length, orient, color)`` where orient
+    is 'v' (near-vertical) or 'h' (near-horizontal); lo/hi are the extent along
+    the LONG axis (y for 'v', x for 'h')."""
+    for i in getattr(region, "path_indices", []):
+        if i in exclude:
+            continue
+        p = paths[i]
+        if len(p.points) > 3:
+            continue
+        b = p.bbox
+        bw, bh = b[2] - b[0], b[3] - b[1]
+        color = _round_color(p.stroke or p.fill)
+        cx, cy = (b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0
+        if bw <= _THIN_PX and _THIN_PX < bh <= max_len:
+            yield (i, cx, cy, b[1], b[3], bh, "v", color)
+        elif bh <= _THIN_PX and _THIN_PX < bw <= max_len:
+            yield (i, cx, cy, b[0], b[2], bw, "h", color)
+
+
+def _find_ibeams(strokes, whisker_orient):
+    """Match whiskers of ``whisker_orient`` ('v' or 'h') to perpendicular caps at
+    BOTH ends. Returns ``[(whisker_idx, cap_idx_a, cap_idx_b, cx, cy, half),...]``
+    where (cx, cy) is the bar centre and ``half`` its half-length (the error)."""
+    cap_orient = "h" if whisker_orient == "v" else "v"
+    caps = [s for s in strokes if s[6] == cap_orient]
+    out = []
+    for w in strokes:
+        if w[6] != whisker_orient:
+            continue
+        _i, wcx, wcy, wlo, whi, wlen, _o, wcol = w
+        # A cap sits centred on the whisker's cross-axis, at one of its ends,
+        # is short, and shares its colour.
+        near_lo, near_hi = None, None
+        for c in caps:
+            _ci, ccx, ccy, _clo, _chi, clen, _co, ccol = c
+            if wcol is not None and ccol is not None and wcol != ccol:
+                continue
+            if clen > _CAP_MAX_LEN_FRAC * wlen:
+                continue
+            if whisker_orient == "v":
+                if abs(ccx - wcx) > _CAP_X_TOL:
+                    continue
+                if abs(ccy - wlo) <= _CAP_END_TOL:
+                    near_lo = c
+                elif abs(ccy - whi) <= _CAP_END_TOL:
+                    near_hi = c
+            else:  # horizontal whisker, vertical caps at left/right ends
+                if abs(ccy - wcy) > _CAP_X_TOL:
+                    continue
+                if abs(ccx - wlo) <= _CAP_END_TOL:
+                    near_lo = c
+                elif abs(ccx - whi) <= _CAP_END_TOL:
+                    near_hi = c
+        if near_lo is not None and near_hi is not None:
+            mid = (wlo + whi) / 2.0
+            half = abs(whi - wlo) / 2.0
+            if whisker_orient == "v":
+                out.append((w[0], near_lo[0], near_hi[0], wcx, mid, half))
+            else:
+                out.append((w[0], near_lo[0], near_hi[0], mid, wcy, half))
+    return out
+
+
+def recover_markerless_error_bars(
+    region: Region, paths: list[Path], exclude: set[int] | None = None
+) -> tuple[set[int], list[tuple[float, float, float, str]]]:
+    """Recover MARKER-LESS error bars (no central marker glyph).
+
+    Returns ``(idx_to_strip, points)`` where ``idx_to_strip`` is the whisker+cap
+    path indices (decoration to remove so they are not traced as a phantom
+    polyline) and ``points`` is ``[(cx_px, cy_px, err_px, orient), ...]`` -- one
+    per confident I-beam, its CENTRE (the datum) and half-length (the symmetric
+    error). ``orient`` is 'v' (y-error) or 'h' (x-error). Empty when fewer than
+    ``_MIN_IBEAMS`` same-orientation I-beams are found (precision over recall;
+    the caller then leaves the region untouched).
+
+    ``exclude`` are path indices already claimed by the marker-based
+    ``recover_error_bars`` so the two passes never double-count.
+    """
+    idxs = list(getattr(region, "path_indices", []))
+    if not idxs:
+        return set(), []
+    exclude = exclude or set()
+    diag = _bmax(region.bbox) or 1.0
+    max_len = 0.6 * diag
+    strokes = list(_thin_strokes(region, paths, exclude, max_len))
+    if len(strokes) < _MIN_IBEAMS:
+        return set(), []
+
+    best_idx: set[int] = set()
+    best_points: list[tuple[float, float, float, str]] = []
+    for orient in ("v", "h"):
+        ibeams = _find_ibeams(strokes, orient)
+        if len(ibeams) < _MIN_IBEAMS:
+            continue
+        idx = set()
+        pts = []
+        for wi, ca, cb, cx, cy, half in ibeams:
+            idx.update((wi, ca, cb))
+            pts.append((cx, cy, half, orient))
+        # Prefer the orientation that explains more bars (a chart is x- OR
+        # y-error, not usually both marker-less).
+        if len(pts) > len(best_points):
+            best_idx, best_points = idx, pts
+    return best_idx, best_points
