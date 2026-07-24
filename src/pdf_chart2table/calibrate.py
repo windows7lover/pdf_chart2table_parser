@@ -299,10 +299,62 @@ def to_data_array(calib: dict, pixels) -> np.ndarray:
     return np.power(10.0, lin) if calib["scale"] == "log" else lin
 
 
+# Self-consistency gate: the emitted calibration must reproduce the axis's own
+# labeled ticks to within this fraction of the tick-value range (in fit space:
+# value for linear, log10(value) for log). A tick missing by more was EXCLUDED
+# from the fit (outlier drop / drop-worst fallback) or is a mis-read label --
+# serializing it as a labeled tick alongside the calibration is incoherent
+# output that poisons downstream consistency checks.
+_SELF_CHECK_TOL = 0.10
+# At most this many inconsistent ticks may be stripped (their ``value`` set to
+# None -> honest unlabeled minor ticks); more means the fit itself cannot be
+# trusted and the whole axis is dropped (prefer NO calibration over a wrong
+# one -- wrong values are worse than a skipped chart).
+_SELF_CHECK_MAX_STRIP = 2
+
+
+def _self_check(axis: Axis, calib: dict) -> bool:
+    """Verify ``calib`` reproduces ``axis``'s labeled ticks; repair or reject.
+
+    Returns True when the calibration is consistent (possibly after stripping
+    the values of <= ``_SELF_CHECK_MAX_STRIP`` inconsistent ticks), False when
+    the axis must be treated as uncalibrated.
+    """
+    labeled = [t for t in axis.ticks if t.value is not None]
+    if len(labeled) < 2:
+        return True
+    logspace = calib["scale"] == "log"
+    fv, pred = [], []
+    for t in labeled:
+        v = math.log10(t.value) if logspace and t.value > 0 else t.value
+        if logspace and t.value <= 0:
+            v = None  # a non-positive value on a log axis can never be consistent
+        fv.append(v)
+        pred.append(calib["a"] * t.pixel + calib["b"])
+    vr = (max(v for v in fv if v is not None)
+          - min(v for v in fv if v is not None)) or 1.0
+    misses = [t for t, v, p in zip(labeled, fv, pred)
+              if v is None or abs(p - v) > _SELF_CHECK_TOL * vr]
+    if not misses:
+        return True
+    if (len(misses) <= _SELF_CHECK_MAX_STRIP
+            and len(labeled) - len(misses) >= 2):
+        for t in misses:  # keep pixel+label; the value the fit rejected goes
+            t.value = None
+        return True
+    return False
+
+
 def _apply(axis: Axis) -> Axis:
     """Fit ``axis`` in place from its labeled ticks and record the result."""
     calib = fit_calibration(axis.ticks)
     if calib is None:
+        axis.calibration = None
+        return axis
+    # Prefer-drop-over-wrong: an emitted calibration must reproduce the ticks
+    # it is emitted WITH (fit_calibration may have excluded an outlier tick
+    # from the fit, but that tick would still be serialized as labeled).
+    if not _self_check(axis, calib):
         axis.calibration = None
         return axis
     axis.scale = calib["scale"]
