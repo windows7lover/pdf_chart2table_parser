@@ -198,6 +198,31 @@ _TEXTRUN_MIN_LEN = 5          # letters in a row before it counts as a word
 _TEXTRUN_GAP_FRAC = 0.9       # max bbox gap as a fraction of median glyph width
 _TEXTRUN_ROW_FRAC = 0.7       # same-row tolerance as a fraction of median height
 _TEXTRUN_MIN_SIZE_CV = 0.18   # min width/height CV (letters vary; markers don't)
+# --- letterform phantoms -------------------------------------------------
+# Vector-outline text (TeX outlines, no font entry) splits per glyph: the ROUND
+# letterforms ('o', 'e', '5', '0' bowls) pass _is_data_mark and become circle
+# "marks", while the ANGULAR letters ('K', 'E', 'N', 'I' strokes) are rejected
+# earlier and so are invisible to the run detector -- their gaps break the runs
+# and the word test never fires (2512.13518: legend "5K/20K/No EPI" emitted as
+# a black-'o' scatter series). Fix: small unclaimed same-colour ink joins the
+# run-building as PHANTOM members (never flagged themselves; only evidence).
+_PHANTOM_MIN_SIDE = 0.4       # keep '='/'-' bars as letter evidence; the run
+                              # span guard + cand-only CV protect dashed lines
+_PHANTOM_MAX_W_FRAC = 2.5     # phantom width cap, x median candidate height
+_PHANTOM_MAX_H_FRAC = 2.0     # phantom height cap, x median candidate height
+# A run that contains interleaved phantoms needs fewer members: real marker
+# rows never have letterform ink interleaved. Size-CV is then computed over the
+# CANDIDATE members only (uniform real markers stay protected even when the
+# phantom's size differs from theirs).
+_TEXTRUN_PHANTOM_MIN_LEN = 4  # total run members (>=2 candidates, >=1 phantom)
+# A word is short; a dashed data line (whose dashes are phantom-sized) spans
+# the plot. Cap a word run's x-span in median-glyph-heights.
+_TEXTRUN_MAX_SPAN_MEDH = 22.0
+# Rows within this many median heights of a confirmed word row, overlapping its
+# x-range, belong to the same text block (stacked legend lines: "5K" above
+# "20K" above "No EPI" -- the short rows alone never reach the word length).
+_TEXTRUN_BLOCK_PITCH_MEDH = 2.2
+_TEXTRUN_BLOCK_XPAD_MEDW = 2.0
 
 # Real-text-glyph guard: when an annotation/legend label is drawn BOTH as a
 # selectable TextSpan AND as duplicate vector glyph paths (common with embedded
@@ -386,7 +411,7 @@ def _cv(vals: list[float]) -> float:
     return var ** 0.5 / mean
 
 
-def _text_run_indices(cands: list[tuple]) -> set[int]:
+def _text_run_indices(cands: list[tuple], phantoms: list[tuple] = ()) -> set[int]:
     """Indices (into ``cands``) of candidate marks that are really GLYPH-OUTLINE
     TEXT (a legend/annotation word drawn as vector paths), not data points.
 
@@ -395,13 +420,24 @@ def _text_run_indices(cands: list[tuple]) -> set[int]:
     gap <= _TEXTRUN_GAP_FRAC x median width) AND vary in size (width or height
     CV >= _TEXTRUN_MIN_SIZE_CV). A genuine flat data series fails the size-CV
     test (it repeats one identical glyph), so it is never flagged.
+
+    ``phantoms`` are ``(None, cx, cy, w, h)`` items for small unclaimed
+    same-colour ink (rejected letterforms like 'K'/'E' strokes): they join the
+    row/run building as evidence -- a run interleaving phantoms needs only
+    ``_TEXTRUN_PHANTOM_MIN_LEN`` members (with the size CV over candidates
+    only) -- but are never flagged themselves. A word run's x-span is capped
+    (``_TEXTRUN_MAX_SPAN_MEDH`` x median height) so markers sitting ON a
+    dashed data line (dash segments are phantom-sized but span the plot) are
+    never swept up.
     """
-    if len(cands) < _TEXTRUN_MIN_LEN:
+    if not cands:
+        return set()
+    if len(cands) + len(phantoms) < min(_TEXTRUN_MIN_LEN, _TEXTRUN_PHANTOM_MIN_LEN):
         return set()
     heights = sorted(c[4] for c in cands)
     medh = heights[len(heights) // 2] or 1.0
     rows: list[list[tuple]] = []
-    for c in sorted(cands, key=lambda c: c[2]):          # by cy
+    for c in sorted(list(cands) + list(phantoms), key=lambda c: c[2]):  # by cy
         for r in rows:
             if abs(c[2] - r[0][2]) <= _TEXTRUN_ROW_FRAC * medh:
                 r.append(c)
@@ -409,6 +445,8 @@ def _text_run_indices(cands: list[tuple]) -> set[int]:
         else:
             rows.append([c])
     flagged: set[int] = set()
+    word_boxes: list[tuple[float, float, float]] = []   # (row_cy, x_lo, x_hi)
+    plain_rows: list[list[tuple]] = []                  # rows with no word
     for r in rows:
         items = sorted(r, key=lambda c: c[1])            # by cx
         widths = sorted(c[3] for c in items)
@@ -427,18 +465,117 @@ def _text_run_indices(cands: list[tuple]) -> set[int]:
         # A row that contains a confirmed WORD (a long, size-varying tight run) is
         # a text LINE -- flag every glyph on it, so short neighbouring words on the
         # same baseline (e.g. "Fit" beside "Experiment") are dropped too.
-        if any(_is_word(run) for run in runs):
-            flagged.update(c[0] for c in items)
+        words = [run for run in runs if _is_word(run, medh)]
+        if words:
+            flagged.update(c[0] for c in items if c[0] is not None)
+            for wrun in words:
+                word_boxes.append((
+                    sum(c[2] for c in wrun) / len(wrun),
+                    min(c[1] - c[3] / 2 for c in wrun) - _TEXTRUN_BLOCK_XPAD_MEDW * medw,
+                    max(c[1] + c[3] / 2 for c in wrun) + _TEXTRUN_BLOCK_XPAD_MEDW * medw,
+                ))
+        else:
+            plain_rows.append(items)
+    # Text-BLOCK extension: stacked legend lines ("5K" above "20K" above
+    # "No EPI") include short rows that never reach the word length on their
+    # own. A row within line pitch of a confirmed word row, horizontally
+    # overlapping its span, belongs to the same block -- flag its candidates.
+    # CHAINED: a newly flagged row becomes a block box itself, so a 3+-line
+    # block is climbed line by line ("5K" is reached via "20K").
+    remaining = list(plain_rows)
+    changed = True
+    while changed and remaining:
+        changed = False
+        still: list[list[tuple]] = []
+        for items in remaining:
+            row_cy = sum(c[2] for c in items) / len(items)
+            hit = [
+                c for c in items if c[0] is not None
+                and any(abs(row_cy - wy) <= _TEXTRUN_BLOCK_PITCH_MEDH * medh
+                        and wx0 <= c[1] <= wx1
+                        for wy, wx0, wx1 in word_boxes)
+            ]
+            if hit:
+                flagged.update(c[0] for c in hit)
+                widths = sorted(c[3] for c in items)
+                medw = widths[len(widths) // 2] or 1.0
+                word_boxes.append((
+                    row_cy,
+                    min(c[1] - c[3] / 2 for c in hit) - _TEXTRUN_BLOCK_XPAD_MEDW * medw,
+                    max(c[1] + c[3] / 2 for c in hit) + _TEXTRUN_BLOCK_XPAD_MEDW * medw,
+                ))
+                changed = True
+            else:
+                still.append(items)
+        remaining = still
     return flagged
 
 
-def _is_word(run: list[tuple]) -> bool:
+def _is_word(run: list[tuple], medh: float = 0.0) -> bool:
     """A tight horizontal run is a glyph-text word when it is long enough AND its
-    glyphs vary in size (the discriminator vs a uniform flat data series)."""
-    if len(run) < _TEXTRUN_MIN_LEN:
-        return False
-    size_cv = max(_cv([c[3] for c in run]), _cv([c[4] for c in run]))
-    return size_cv >= _TEXTRUN_MIN_SIZE_CV
+    glyphs vary in size (the discriminator vs a uniform flat data series).
+
+    With interleaved phantom members (unclaimed letterform ink) the length bar
+    drops to ``_TEXTRUN_PHANTOM_MIN_LEN`` and the CV is over candidates only.
+    Word runs are short: a span beyond ``_TEXTRUN_MAX_SPAN_MEDH`` median
+    heights (a dashed curve's dash row) is never a word.
+    """
+    if medh > 0:
+        span = (max(c[1] + c[3] / 2 for c in run)
+                - min(c[1] - c[3] / 2 for c in run))
+        if span > _TEXTRUN_MAX_SPAN_MEDH * medh:
+            return False
+    if len(run) >= _TEXTRUN_MIN_LEN:
+        size_cv = max(_cv([c[3] for c in run]), _cv([c[4] for c in run]))
+        if size_cv >= _TEXTRUN_MIN_SIZE_CV:
+            return True
+    cand = [c for c in run if c[0] is not None]
+    if (len(run) >= _TEXTRUN_PHANTOM_MIN_LEN and len(cand) >= 2
+            and len(run) > len(cand)):
+        size_cv = max(_cv([c[3] for c in cand]), _cv([c[4] for c in cand]))
+        if size_cv >= _TEXTRUN_MIN_SIZE_CV:
+            return True
+    return False
+
+
+def _letterform_phantoms(
+    cands: list[tuple], paths: list[Path], region: Region
+) -> list[tuple]:
+    """Small unclaimed same-colour ink near candidate-mark scale: the rejected
+    angular letterforms of vector-outline text ('K'/'E'/'N'/'I' strokes). Fed
+    to ``_text_run_indices`` as phantom run members (evidence only).
+
+    Guards: min side >= _PHANTOM_MIN_SIDE (excludes hairline dash segments and
+    rules), size capped relative to the median candidate height, and the
+    colour (fill or stroke) must match some candidate's colour family.
+    """
+    if not cands:
+        return []
+    cand_ids = {c[0] for c in cands}
+    heights = sorted(c[4] for c in cands)
+    medh = heights[len(heights) // 2] or 1.0
+    colors: set = set()
+    for i, *_ in cands:
+        colors.add(_round_color(paths[i].fill))
+        colors.add(_round_color(paths[i].stroke))
+    colors.discard(None)
+    out: list[tuple] = []
+    for i in region.path_indices:
+        if i in cand_ids:
+            continue
+        p = paths[i]
+        b = p.bbox
+        w, h = b[2] - b[0], b[3] - b[1]
+        if min(w, h) < _PHANTOM_MIN_SIDE:
+            continue
+        if w > _PHANTOM_MAX_W_FRAC * medh or h > _PHANTOM_MAX_H_FRAC * medh:
+            continue
+        if (_round_color(p.fill) not in colors
+                and _round_color(p.stroke) not in colors):
+            continue
+        cx, cy = _centroid(p.points)
+        out.append((None, cx, cy, w, h))
+    return out
 
 
 def _text_glyph_indices(
@@ -1192,7 +1329,8 @@ def classify_marks(
             continue
         cand_marks.append((i, cx, cy, p.bbox[2] - p.bbox[0], p.bbox[3] - p.bbox[1]))
 
-    text_idx = _text_run_indices(cand_marks)
+    phantoms = _letterform_phantoms(cand_marks, paths, region)
+    text_idx = _text_run_indices(cand_marks, phantoms)
     text_idx |= _text_glyph_indices(cand_marks, region_texts, paths)
 
     groups: dict[tuple, SeriesMarks] = {}
