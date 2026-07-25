@@ -289,7 +289,7 @@ def _in_scope_tasks():
 
 
 def _write_readme():
-    txt = f"""# semiconductor_groundtruth_v1
+    txt = f"""# {os.path.basename(DEST.rstrip('/'))}
 
 Ground-truth dataset for chart-understanding VLMs (e.g. Qwen-VL). Each example
 pairs a rendered chart image with a data-only JSON label. The image is the
@@ -312,7 +312,7 @@ figure, so image and label are consistent by construction.
 ```
 chart_type   : "line" | "scatter"
 title, x_label, y_label : strings ("" when not recovered)
-topic        : "" (not populated in v1)
+topic        : "" (not populated)
 llm_plot_style : ""          # provenance: not generated
 llm_data_mode  : "extracted" # extracted from a real figure (vs "generator")
 series[] : {{ name, x_raw[], y_raw[], has_width(false), bbox_sizes([]),
