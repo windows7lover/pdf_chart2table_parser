@@ -342,6 +342,10 @@ def main():
                     help="run analysis-by-synthesis connection-order fix (slow)")
     ap.add_argument("--exclude-papers", default="",
                     help="comma-separated arxiv_ids to drop (e.g. parse stragglers)")
+    ap.add_argument("--dest", default=None,
+                    help="output dataset dir (default: semiconductor_groundtruth_v1). "
+                         "Set to a new path (e.g. .../semiconductor_groundtruth_v2) to "
+                         "regenerate without overwriting the existing dataset.")
     ap.add_argument("--skip-parse", action="store_true",
                     help="skip the parse pass + lazy parse; render only over what is "
                          "already in _parsed/ (charts with no parse -> rejected). Use to "
@@ -356,8 +360,11 @@ def main():
         ap.error("pass --sample N or --all")
 
     global DEST, PARSED
+    if args.dest:
+        DEST = args.dest
+        PARSED = os.path.join(DEST, "_parsed")
     if args.sample:
-        DEST = os.path.join("/network/projects/sail/chart2table/semiconductor_groundtruth_v1",
+        DEST = os.path.join(args.dest or "/network/projects/sail/chart2table/semiconductor_groundtruth_v1",
                             "_samples")
         PARSED = os.path.join(DEST, "_parsed")
     for sub in ("images", "eps", "annotations"):
